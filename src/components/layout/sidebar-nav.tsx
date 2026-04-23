@@ -52,7 +52,7 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
           <Link href="/feed" style={{ textDecoration: 'none' }}>
             <span style={{
               fontFamily: "'Syne', sans-serif", fontWeight: 800,
-              fontSize: 26, color: '#22A861', letterSpacing: '-0.02em',
+              fontSize: 26, color: 'var(--color-brand)', letterSpacing: '-0.02em',
             }}>Spup</span>
           </Link>
         </div>
@@ -68,8 +68,8 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 14,
                   padding: '11px 12px', borderRadius: 14, marginBottom: 2,
-                  color: isActive ? '#F5F5F0' : '#6A6A60',
-                  background: isActive ? '#151515' : 'transparent',
+                  color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+                  background: isActive ? 'var(--color-nav-active-bg)' : 'transparent',
                   transition: 'background 0.12s, color 0.12s',
                   position: 'relative',
                 }}>
@@ -79,7 +79,7 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
                       <div style={{
                         position: 'absolute', top: -4, right: -6,
                         minWidth: 16, height: 16, borderRadius: 8,
-                        background: '#22A861', border: '2px solid #0A0A0A',
+                        background: 'var(--color-brand)', border: '2px solid #0A0A0A',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 9, fontWeight: 800, color: 'white',
                         padding: '0 3px',
@@ -136,7 +136,7 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
             {initials}
           </div>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#F5F5F0', display: 'flex', alignItems: 'center', gap: 5, fontFamily: "'Syne', sans-serif" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: 5, fontFamily: "'Syne', sans-serif" }}>
               {profile.display_name}
               {profile.is_monetised && (
                 <span style={{ fontSize: 9, background: '#D4A017', color: '#000', padding: '1px 5px', borderRadius: 4, fontWeight: 800 }}>PRO</span>
