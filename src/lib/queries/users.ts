@@ -2,10 +2,10 @@
  * queries/users.ts
  * ----------------
  * Pure read functions for user/profile data.
- * No mutations. No auth context (RLS handles visibility).
+ * All functions are server-side only (use Next.js server context).
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 
 // ─── Profile by username ──────────────────────────────────────────────────────
 
@@ -27,14 +27,33 @@ export async function getProfileByUsername(username: string) {
 }
 
 // ─── Profile by auth_id ───────────────────────────────────────────────────────
+// Used in layouts — must always return the profile regardless of RLS.
+// Uses admin client so newly-verified users aren't blocked by RLS edge cases.
 
 export async function getProfileByAuthId(authId: string) {
-  const supabase = await createClient()
-  const { data } = await supabase
+  const admin = createAdminClient()
+  const { data } = await admin
     .from('users')
     .select('*')
     .eq('auth_id', authId)
     .is('deleted_at', null)
+    .single()
+
+  return data
+}
+
+// ─── Onboarding progress ──────────────────────────────────────────────────────
+// Called from (main)/layout.tsx to gate access to the app.
+// MUST use admin client — RLS on onboarding_progress may block the read if
+// the user's session cookie hasn't fully propagated after OTP verification,
+// causing completed users to be incorrectly redirected back to /onboarding.
+
+export async function getOnboardingProgress(userId: string) {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('onboarding_progress')
+    .select('*')
+    .eq('user_id', userId)
     .single()
 
   return data
@@ -102,17 +121,4 @@ export async function getSuggestedUsers(excludeIds: string[], limit = 5) {
     .limit(limit)
 
   return data || []
-}
-
-// ─── Onboarding progress ──────────────────────────────────────────────────────
-
-export async function getOnboardingProgress(userId: string) {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('onboarding_progress')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  return data
 }

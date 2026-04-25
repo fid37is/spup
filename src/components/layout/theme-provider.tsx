@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 
 type Theme = 'dark' | 'light'
 
@@ -16,16 +16,43 @@ const ThemeContext = createContext<ThemeContextValue>({
   toggle: () => {},
 })
 
-export function useTheme() {
-  return useContext(ThemeContext)
-}
+export function useTheme() { return useContext(ThemeContext) }
+
+const STYLE = `
+  #theme-snapshot {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    pointer-events: none;
+    will-change: clip-path;
+  }
+  #theme-snapshot.slide-up {
+    animation: snap-up 0.65s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+  }
+  #theme-snapshot.slide-down {
+    animation: snap-down 0.65s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+  }
+  @keyframes snap-up {
+    from { clip-path: inset(0 0 0 0); }
+    to   { clip-path: inset(0 0 100% 0); }
+  }
+  @keyframes snap-down {
+    from { clip-path: inset(0 0 0 0); }
+    to   { clip-path: inset(100% 0 0 0); }
+  }
+`
 
 export function AppThemeProvider({ children }: { children: React.ReactNode }) {
-  // Read initial theme from what the blocking script already set on <html>
   const [theme, setThemeState] = useState<Theme>('dark')
+  const animatingRef = useRef(false)
 
   useEffect(() => {
-    // Sync with what the blocking inline script already applied
+    if (!document.getElementById('theme-anim-style')) {
+      const s = document.createElement('style')
+      s.id = 'theme-anim-style'
+      s.textContent = STYLE
+      document.head.appendChild(s)
+    }
     const current = document.documentElement.getAttribute('data-theme') as Theme
     if (current === 'light') setThemeState('light')
   }, [])
@@ -37,7 +64,46 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const toggle = useCallback(() => {
-    setTheme(theme === 'dark' ? 'light' : 'dark')
+    if (animatingRef.current) return
+    const next: Theme = theme === 'dark' ? 'light' : 'dark'
+    animatingRef.current = true
+
+    // 1. Screenshot the current theme into a canvas
+    import('html2canvas').then(({ default: html2canvas }) => {
+      html2canvas(document.body, {
+        useCORS: true,
+        allowTaint: true,
+        scale: window.devicePixelRatio,
+        logging: false,
+      }).then(canvas => {
+        // 2. Slap the canvas screenshot as a fixed overlay — covers the page
+        const snap = document.createElement('div')
+        snap.id = 'theme-snapshot'
+        snap.style.cssText = `
+          background: url(${canvas.toDataURL()}) top left / 100% auto no-repeat;
+        `
+        document.body.appendChild(snap)
+
+        // 3. Switch theme immediately underneath the snapshot
+        setTheme(next)
+
+        // 4. Animate the snapshot away in the right direction
+        //    dark→light: snapshot (old dark) slides UP, revealing light beneath
+        //    light→dark: snapshot (old light) slides DOWN, revealing dark beneath
+        void snap.offsetWidth
+        snap.classList.add(next === 'light' ? 'slide-up' : 'slide-down')
+
+        // 5. Cleanup
+        setTimeout(() => {
+          snap.remove()
+          animatingRef.current = false
+        }, 680)
+      })
+    }).catch(() => {
+      // html2canvas not available — fall back to instant switch
+      setTheme(next)
+      animatingRef.current = false
+    })
   }, [theme, setTheme])
 
   return (
@@ -47,7 +113,6 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
-/* ── Theme Toggle Button ─────────────────────────────────────── */
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, toggle } = useTheme()
 
@@ -77,7 +142,6 @@ export function ThemeToggle({ className }: { className?: string }) {
       }}
     >
       {theme === 'dark' ? (
-        // Sun
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="5"/>
           <line x1="12" y1="1" x2="12" y2="3"/>
@@ -90,7 +154,6 @@ export function ThemeToggle({ className }: { className?: string }) {
           <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
         </svg>
       ) : (
-        // Moon
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
         </svg>

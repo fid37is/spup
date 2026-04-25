@@ -55,7 +55,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           }
           .mobile-nav { display: flex; }
         }
-        @media (min-width: 768px) and (max-width: 1023px) {
+        @media (min-width: 768px) and (max-width: 1100px) {
           .sidebar-right { display: none; }
           .main-content  { border-right: none; }
         }

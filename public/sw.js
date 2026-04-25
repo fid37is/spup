@@ -1,13 +1,12 @@
-// Spup Service Worker v1.0
-const CACHE_NAME = 'spup-v1'
+// Spup Service Worker v2.0
+// v2: network-first for _next/static chunks to prevent stale CSS flash
+const CACHE_NAME = 'spup-v2'
 const OFFLINE_URL = '/offline'
 
-// Assets to pre-cache on install
 const PRECACHE_ASSETS = [
   '/',
   '/offline',
   '/manifest.json',
-  // removed /feed — auth-protected, breaks SW install
 ]
 
 // ─── Install ──────────────────────────────────────────────────────────────────
@@ -20,12 +19,15 @@ self.addEventListener('install', event => {
   self.skipWaiting()
 })
 
-// ─── Activate ─────────────────────────────────────────────────────────────────
+// ─── Activate — wipe all old caches ──────────────────────────────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
-        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
+        keys.filter(key => key !== CACHE_NAME).map(key => {
+          console.log('Spup SW: deleting old cache', key)
+          return caches.delete(key)
+        })
       )
     )
   )
@@ -37,7 +39,7 @@ self.addEventListener('fetch', event => {
   const { request } = event
   const url = new URL(request.url)
 
-  // Skip non-GET, API calls, and Supabase/Cloudinary requests
+  // Skip non-GET, API routes, and third-party hosts
   if (
     request.method !== 'GET' ||
     url.pathname.startsWith('/api/') ||
@@ -46,12 +48,14 @@ self.addEventListener('fetch', event => {
     url.pathname.startsWith('/forgot-password') ||
     url.hostname.includes('supabase.co') ||
     url.hostname.includes('cloudinary.com') ||
-    url.hostname.includes('paystack.co')
+    url.hostname.includes('paystack.co') ||
+    url.hostname.includes('fonts.googleapis.com') ||
+    url.hostname.includes('fonts.gstatic.com')
   ) {
-    return  // Let browser handle natively
+    return
   }
 
-  // HTML pages: network-first, fallback to offline page
+  // ── HTML: always network-first ────────────────────────────────────────────
   if (request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
       fetch(request)
@@ -67,7 +71,26 @@ self.addEventListener('fetch', event => {
     return
   }
 
-  // Static assets: cache-first
+  // ── Next.js JS/CSS chunks: network-first, cache as fallback ──────────────
+  // These are content-hashed by Next.js so they change on every build.
+  // Cache-first here means stale CSS gets served after a deploy — the root
+  // cause of the theme flash on hard refresh.
+  if (url.pathname.startsWith('/_next/static/')) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then(cache => cache.put(request, clone))
+          }
+          return response
+        })
+        .catch(() => caches.match(request))
+    )
+    return
+  }
+
+  // ── Other static assets (images, icons, manifest): cache-first ───────────
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached
@@ -134,7 +157,6 @@ self.addEventListener('notificationclick', event => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      // Focus existing window if open
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           client.focus()
@@ -142,13 +164,12 @@ self.addEventListener('notificationclick', event => {
           return
         }
       }
-      // Open new window
       if (clients.openWindow) clients.openWindow(url)
     })
   )
 })
 
-// ─── Background sync (retry failed posts) ────────────────────────────────────
+// ─── Background sync ─────────────────────────────────────────────────────────
 self.addEventListener('sync', event => {
   if (event.tag === 'retry-posts') {
     event.waitUntil(retryFailedPosts())
@@ -156,6 +177,5 @@ self.addEventListener('sync', event => {
 })
 
 async function retryFailedPosts() {
-  // TODO: read from IndexedDB and retry
   console.log('Background sync: retrying failed posts')
 }

@@ -1,4 +1,4 @@
-'use client'
+ 'use client'
 
 import { forwardRef } from 'react'
 
@@ -15,7 +15,7 @@ export const FormField = forwardRef<HTMLInputElement, FormFieldProps>(
       <div style={{ marginBottom: 16 }}>
         <label htmlFor={inputId} style={{
           display: 'block', fontSize: 13, fontWeight: 500,
-          color: '#9A9A90', marginBottom: 6, letterSpacing: '0.01em',
+          color: 'var(--color-text-secondary)', marginBottom: 6, letterSpacing: '0.01em',
         }}>
           {label}
         </label>
@@ -26,10 +26,10 @@ export const FormField = forwardRef<HTMLInputElement, FormFieldProps>(
           {...props}
         />
         {error && (
-          <p style={{ fontSize: 12, color: '#E53935', marginTop: 6 }}>{error}</p>
+          <p style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 6 }}>{error}</p>
         )}
         {hint && !error && (
-          <p style={{ fontSize: 12, color: '#555', marginTop: 6 }}>{hint}</p>
+          <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>{hint}</p>
         )}
       </div>
     )
@@ -51,14 +51,14 @@ export function AuthCard({ title, subtitle, children }: AuthCardProps) {
           fontFamily: "'Syne', sans-serif",
           fontWeight: 800,
           fontSize: 28,
-          color: '#F5F5F0',
+          color: 'var(--color-text-primary)',
           letterSpacing: '-0.02em',
           marginBottom: subtitle ? 8 : 0,
         }}>
           {title}
         </h1>
         {subtitle && (
-          <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.5 }}>{subtitle}</p>
+          <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{subtitle}</p>
         )}
       </div>
       {children}
@@ -75,13 +75,13 @@ export function Alert({ type, message }: AlertProps) {
   const isError = type === 'error'
   return (
     <div style={{
-      background: isError ? 'rgba(229,57,53,0.08)' : 'rgba(26,122,74,0.1)',
-      border: `1px solid ${isError ? 'rgba(229,57,53,0.2)' : 'rgba(26,122,74,0.2)'}`,
+      background: isError ? 'var(--color-error-muted)' : 'var(--color-brand-muted)',
+      border: `1px solid ${isError ? 'var(--color-error-border)' : 'var(--color-brand-border)'}`,
       borderRadius: 10,
       padding: '12px 16px',
       marginBottom: 20,
       fontSize: 14,
-      color: isError ? '#E57373' : '#4CAF50',
+      color: isError ? 'var(--color-error)' : 'var(--color-brand)',
       lineHeight: 1.5,
     }}>
       {message}
@@ -114,7 +114,6 @@ export function SubmitButton({ loading, children, onClick, type = 'submit' }: Su
             display: 'inline-block',
             animation: 'spin 0.7s linear infinite',
           }} />
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           Processing...
         </span>
       ) : children}
@@ -125,9 +124,9 @@ export function SubmitButton({ loading, children, onClick, type = 'submit' }: Su
 export function Divider({ text }: { text: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '24px 0' }}>
-      <div style={{ flex: 1, height: 1, background: '#1E1E1E' }} />
-      <span style={{ fontSize: 12, color: '#3A3A35' }}>{text}</span>
-      <div style={{ flex: 1, height: 1, background: '#1E1E1E' }} />
+      <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+      <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{text}</span>
+      <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
     </div>
   )
 }
