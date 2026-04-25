@@ -5,7 +5,7 @@
  * No mutations. No auth context (RLS handles visibility).
  */
 
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 // ─── Profile by username ──────────────────────────────────────────────────────
 

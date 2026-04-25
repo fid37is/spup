@@ -1,185 +1,156 @@
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
-import { createAdminClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!
+const PAYSTACK_BASE = 'https://api.paystack.co'
 
-function verifyPaystackSignature(body: string, signature: string): boolean {
-  const hash = crypto
-    .createHmac('sha512', PAYSTACK_SECRET)
-    .update(body)
-    .digest('hex')
-  return hash === signature
+async function paystackRequest(path: string, method: string, body?: object) {
+  const res = await fetch(`${PAYSTACK_BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET}`,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  return res.json()
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.text()
-  const signature = request.headers.get('x-paystack-signature') || ''
-
-  // CRITICAL: Always verify webhook signature
-  if (!verifyPaystackSignature(rawBody, signature)) {
-    console.error('Invalid Paystack webhook signature')
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
-  }
-
-  const event = JSON.parse(rawBody)
-  const supabase = createAdminClient()  // Admin client for webhook processing
-
   try {
-    switch (event.event) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-      // ─── Transfer completed (withdrawal succeeded) ─────────────────────
-      case 'transfer.success': {
-        const { reference, amount } = event.data
-        await supabase
-          .from('transactions')
-          .update({
-            status: 'completed',
-            completed_at: new Date().toISOString(),
-            metadata: event.data,
-          })
-          .eq('reference', reference)
+    const { data: profile } = await supabase
+      .from('users')
+      .select('id, bvn_verified')
+      .eq('auth_id', user.id)
+      .single()
 
-        // Update wallet total_withdrawn
-        const { data: txn } = await supabase
-          .from('transactions')
-          .select('wallet_id')
-          .eq('reference', reference)
-          .single()
-
-        if (txn) {
-          const { data: wallet } = await supabase
-            .from('wallets')
-            .select('total_withdrawn_kobo')
-            .eq('id', txn.wallet_id)
-            .single()
-
-          if (wallet) {
-            await supabase
-              .from('wallets')
-              .update({ total_withdrawn_kobo: wallet.total_withdrawn_kobo + amount })
-              .eq('id', txn.wallet_id)
-          }
-        }
-        break
-      }
-
-      // ─── Transfer failed (restore balance) ────────────────────────────
-      case 'transfer.failed':
-      case 'transfer.reversed': {
-        const { reference, amount } = event.data
-
-        const { data: txn } = await supabase
-          .from('transactions')
-          .select('wallet_id, status')
-          .eq('reference', reference)
-          .single()
-
-        if (txn && txn.status === 'pending') {
-          // Restore balance
-          const { data: wallet } = await supabase
-            .from('wallets')
-            .select('balance_kobo')
-            .eq('id', txn.wallet_id)
-            .single()
-
-          if (wallet) {
-            await supabase
-              .from('wallets')
-              .update({ balance_kobo: wallet.balance_kobo + amount })
-              .eq('id', txn.wallet_id)
-          }
-
-          await supabase
-            .from('transactions')
-            .update({ status: event.event === 'transfer.reversed' ? 'reversed' : 'failed' })
-            .eq('reference', reference)
-
-          // Notify user
-          const walletRow = await supabase
-            .from('wallets')
-            .select('user_id')
-            .eq('id', txn.wallet_id)
-            .single()
-
-          if (walletRow.data) {
-            await supabase.from('notifications').insert({
-              recipient_id: walletRow.data.user_id,
-              actor_id: null,
-              type: 'system',
-              entity_type: 'transaction',
-              entity_id: txn.wallet_id,
-              metadata: {
-                message: 'Your withdrawal could not be processed. Your balance has been restored.',
-                reference,
-              },
-            })
-          }
-        }
-        break
-      }
-
-      // ─── Charge success (tips / subscriptions) ───────────────────────
-      case 'charge.success': {
-        const { reference, amount, metadata } = event.data
-        const { recipient_user_id, payer_user_id, type } = metadata || {}
-
-        if (!recipient_user_id) break
-
-        const { data: wallet } = await supabase
-          .from('wallets')
-          .select('id, balance_kobo, total_earned_kobo')
-          .eq('user_id', recipient_user_id)
-          .single()
-
-        if (!wallet) break
-
-        // Platform fee: 10% on tips/subscriptions
-        const platformFee = Math.round(amount * 0.1)
-        const creatorAmount = amount - platformFee
-
-        await supabase.from('wallets').update({
-          balance_kobo: wallet.balance_kobo + creatorAmount,
-          total_earned_kobo: wallet.total_earned_kobo + creatorAmount,
-        }).eq('id', wallet.id)
-
-        await supabase.from('transactions').insert({
-          wallet_id: wallet.id,
-          type: type === 'tip' ? 'earning_tip' : 'earning_subscription',
-          amount_kobo: creatorAmount,
-          platform_fee_kobo: platformFee,
-          status: 'completed',
-          reference,
-          completed_at: new Date().toISOString(),
-          metadata: event.data,
-        })
-
-        // Notify recipient
-        await supabase.from('notifications').insert({
-          recipient_id: recipient_user_id,
-          actor_id: payer_user_id || null,
-          type: 'tip_received',
-          entity_type: 'transaction',
-          metadata: { amount_kobo: creatorAmount },
-        })
-        break
-      }
-
-      default:
-        // Log unhandled events for debugging
-        console.log(`Unhandled Paystack event: ${event.event}`)
+    if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    if (!profile.bvn_verified) {
+      return NextResponse.json({ error: 'BVN verification required before withdrawal' }, { status: 403 })
     }
 
-    return NextResponse.json({ received: true })
+    const { data: wallet } = await supabase
+      .from('wallets')
+      .select('*')
+      .eq('user_id', profile.id)
+      .single()
+
+    if (!wallet) return NextResponse.json({ error: 'Wallet not found' }, { status: 404 })
+
+    // Minimum withdrawal: ₦1,000 = 100,000 kobo
+    if (wallet.balance_kobo < 100_000) {
+      return NextResponse.json({
+        error: `Minimum withdrawal is ₦1,000. Current balance: ₦${(wallet.balance_kobo / 100).toFixed(2)}`
+      }, { status: 400 })
+    }
+
+    const body = await request.json()
+    const { amount_kobo, bank_code, account_number } = body
+
+    if (!amount_kobo || !bank_code || !account_number) {
+      return NextResponse.json({ error: 'amount_kobo, bank_code, and account_number are required' }, { status: 400 })
+    }
+
+    if (amount_kobo > wallet.balance_kobo) {
+      return NextResponse.json({ error: 'Withdrawal amount exceeds available balance' }, { status: 400 })
+    }
+
+    // Step 1: Create or reuse Paystack transfer recipient
+    let recipientCode = wallet.paystack_recipient_code
+
+    if (!recipientCode) {
+      const recipientRes = await paystackRequest('/transferrecipient', 'POST', {
+        type: 'nuban',
+        name: body.account_name || 'Spup Creator',
+        account_number,
+        bank_code,
+        currency: 'NGN',
+      })
+
+      if (!recipientRes.status) {
+        return NextResponse.json({ error: 'Failed to create transfer recipient' }, { status: 502 })
+      }
+
+      recipientCode = recipientRes.data.recipient_code
+
+      // Save for future withdrawals
+      await supabase
+        .from('wallets')
+        .update({
+          paystack_recipient_code: recipientCode,
+          bank_name: recipientRes.data.details?.bank_name,
+          bank_account_number: account_number,
+          bank_account_name: body.account_name,
+        })
+        .eq('id', wallet.id)
+    }
+
+    // Step 2: Generate unique reference
+    const reference = `SPUP-WD-${profile.id.slice(0, 8).toUpperCase()}-${Date.now()}`
+
+    // Step 3: Create pending transaction record BEFORE transfer (idempotency)
+    const { data: txn, error: txnError } = await supabase
+      .from('transactions')
+      .insert({
+        wallet_id: wallet.id,
+        type: 'withdrawal',
+        amount_kobo,
+        platform_fee_kobo: 0,
+        status: 'pending',
+        reference,
+        description: `Withdrawal to ${account_number}`,
+        metadata: { bank_code, account_number, recipient_code: recipientCode },
+      })
+      .select('id')
+      .single()
+
+    if (txnError) {
+      return NextResponse.json({ error: 'Failed to create transaction record' }, { status: 500 })
+    }
+
+    // Step 4: Deduct from balance immediately (prevent double-spend)
+    await supabase
+      .from('wallets')
+      .update({ balance_kobo: wallet.balance_kobo - amount_kobo })
+      .eq('id', wallet.id)
+
+    // Step 5: Initiate Paystack transfer
+    const transferRes = await paystackRequest('/transfer', 'POST', {
+      source: 'balance',
+      amount: amount_kobo,   // Paystack also uses kobo
+      recipient: recipientCode,
+      reason: 'Spup creator earnings withdrawal',
+      reference,
+    })
+
+    if (!transferRes.status) {
+      // Rollback: restore balance and mark transaction failed
+      await Promise.all([
+        supabase.from('wallets').update({ balance_kobo: wallet.balance_kobo }).eq('id', wallet.id),
+        supabase.from('transactions').update({ status: 'failed' }).eq('id', txn.id),
+      ])
+      return NextResponse.json({ error: 'Transfer failed. Your balance has been restored.' }, { status: 502 })
+    }
+
+    // Update transaction with Paystack transfer code
+    await supabase
+      .from('transactions')
+      .update({ metadata: { ...transferRes.data, bank_code, account_number } })
+      .eq('id', txn.id)
+
+    return NextResponse.json({
+      success: true,
+      reference,
+      transfer_code: transferRes.data.transfer_code,
+      message: 'Withdrawal initiated. Funds arrive in 3–5 business days.',
+    })
 
   } catch (error) {
-    console.error('Webhook processing error:', error)
-    // Return 200 to prevent Paystack retries for non-retriable errors
-    return NextResponse.json({ received: true, warning: 'Processing error logged' })
+    console.error('Withdrawal error:', error)
+    return NextResponse.json({ error: 'Withdrawal failed. Please try again.' }, { status: 500 })
   }
-}
-
-// Paystack sends POST only
-export async function GET() {
-  return NextResponse.json({ error: 'Method not allowed' }, { status: 405 })
 }

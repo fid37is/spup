@@ -6,7 +6,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
 
 async function getCallerProfile() {

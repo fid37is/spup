@@ -9,7 +9,7 @@
  * Cursor-based pagination so the client can implement infinite scroll.
  */
 
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 const PAGE_SIZE = 20
 

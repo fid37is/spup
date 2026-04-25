@@ -6,7 +6,7 @@
  * not triggered by the user directly.
  */
 
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 async function getCallerProfile() {
   const supabase = await createClient()

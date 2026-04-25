@@ -5,7 +5,7 @@
  * Mutations (initiate withdrawal) live in app/api/paystack/initiate.
  */
 
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 // ─── Wallet balance ───────────────────────────────────────────────────────────
 

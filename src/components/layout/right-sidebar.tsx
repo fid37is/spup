@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { Search } from 'lucide-react'
 import { getSuggestedUsers } from '@/lib/queries'
 import { formatNaira } from '@/lib/utils'
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 const FALLBACK_TRENDING = [
   { tag: 'LagosPara', posts_count: 14200 },
