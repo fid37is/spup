@@ -5,6 +5,7 @@ import { getWallet } from '@/lib/queries'
 import SidebarNav from '@/components/layout/sidebar-nav'
 import RightSidebar from '@/components/layout/right-sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
+import { AppThemeProvider } from '@/components/layout/theme-provider'
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -24,9 +25,8 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   ])
 
   return (
-    <>
+    <AppThemeProvider>
       <style>{`
-        /* Desktop: sidebar layout */
         .main-layout {
           display: flex;
           min-height: 100dvh;
@@ -36,19 +36,26 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         }
         .sidebar-left  { display: flex; }
         .sidebar-right { display: flex; }
-        .main-content  { flex: 1; border-right: 1px solid var(--color-border); min-height: 100dvh; min-width: 0; }
-        .mobile-nav    { display: none; }
+        .main-content  {
+          flex: 1;
+          border-left: 1px solid var(--color-border);
+          border-right: 1px solid var(--color-border);
+          min-height: 100dvh;
+          min-width: 0;
+        }
+        .mobile-nav { display: none; }
 
-        /* Mobile: hide sidebars, show bottom nav */
         @media (max-width: 767px) {
           .main-layout   { max-width: 100%; }
           .sidebar-left  { display: none; }
           .sidebar-right { display: none; }
-          .main-content  { border-right: none; padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
-          .mobile-nav    { display: flex; }
+          .main-content  {
+            border: none;
+            padding-bottom: calc(64px + env(safe-area-inset-bottom));
+          }
+          .mobile-nav { display: flex; }
         }
-        /* Tablet: left sidebar only */
-        @media (min-width: 768px) and (max-width: 1023px) {
+        @media (min-width: 768px) and (max-width: 1100px) {
           .sidebar-right { display: none; }
           .main-content  { border-right: none; }
         }
@@ -68,10 +75,9 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         </div>
       </div>
 
-      {/* Mobile bottom nav — fixed, outside layout flow */}
       <div className="mobile-nav">
         <MobileBottomNav unreadCount={unreadCount} />
       </div>
-    </>
+    </AppThemeProvider>
   )
 }

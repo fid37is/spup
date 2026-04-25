@@ -8,7 +8,7 @@
  * don't depend on the caller's identity.
  */
 
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 const POST_SELECT = `
   id, body, post_type, likes_count, comments_count, reposts_count,

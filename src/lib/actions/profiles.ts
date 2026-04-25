@@ -8,7 +8,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 
 async function getCallerProfile() {

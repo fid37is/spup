@@ -102,10 +102,10 @@ export default function LandingNav() {
             {/* Join — two versions, CSS shows/hides */}
             <div className="nav-cta-wrap">
               <span className="nav-join-full">
-                <LandingCTA label="Join the waitlist →" variant="primary" opensModal={true} />
+                <LandingCTA label="Join the waitlist" variant="primary" opensModal={true} />
               </span>
               <span className="nav-join-short">
-                <LandingCTA label="Join →" variant="primary" opensModal={true} />
+                <LandingCTA label="Join" variant="primary" opensModal={true} />
               </span>
             </div>
           </div>

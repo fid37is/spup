@@ -38,13 +38,41 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
+        {/*
+          Blocking script: runs before first paint.
+          Only overrides data-theme if user has saved a preference
+          AND they are in the authenticated app (not public pages).
+          Public pages always stay dark.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var saved = localStorage.getItem('spup-theme');
+                  var isApp = window.location.pathname.startsWith('/feed') ||
+                              window.location.pathname.startsWith('/explore') ||
+                              window.location.pathname.startsWith('/notifications') ||
+                              window.location.pathname.startsWith('/profile') ||
+                              window.location.pathname.startsWith('/wallet') ||
+                              window.location.pathname.startsWith('/settings') ||
+                              window.location.pathname.startsWith('/post') ||
+                              window.location.pathname.startsWith('/user');
+                  if (isApp && saved === 'light') {
+                    document.documentElement.setAttribute('data-theme', 'light');
+                  }
+                } catch(e) {}
+              })();
+            `,
+          }}
+        />
       </head>
       <body>
         <PWAProvider />

@@ -196,7 +196,7 @@ export default async function LandingPage() {
             color: 'var(--color-text-secondary)',
             lineHeight: 1.7, maxWidth: 440, marginBottom: 40,
           }}>
-            Nigeria&apos;s social platform where your voice earns real money — 70% of ad revenue paid directly to your bank account in Naira.
+            Nigeria&apos;s social platform where your voice earns real money - 70% of ad revenue paid directly to your bank account in Naira.
           </p>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 48 }}>
@@ -276,7 +276,7 @@ export default async function LandingPage() {
               fontSize: 'clamp(34px, 4.5vw, 54px)', letterSpacing: '-0.03em', lineHeight: 1.0,
               color: 'var(--color-text-primary)',
             }}>
-              Finally built<br />for us
+              Finally built for us
             </h2>
           </div>
           <div className="features-grid">
@@ -302,7 +302,7 @@ export default async function LandingPage() {
               fontSize: 'clamp(34px, 4.5vw, 54px)', letterSpacing: '-0.03em', lineHeight: 1.0,
               color: 'var(--color-text-primary)',
             }}>
-              How you<br />get paid
+              How you get paid
             </h2>
           </div>
           <div className="paid-grid">
@@ -351,7 +351,7 @@ export default async function LandingPage() {
               fontSize: 'clamp(34px, 4.5vw, 54px)', letterSpacing: '-0.03em', lineHeight: 1.0,
               color: 'var(--color-text-primary)',
             }}>
-              The people<br />are talking
+              The people are talking
             </h2>
           </div>
           <div className="testimonials-grid">

@@ -5,7 +5,7 @@
  * Mutations (mark-read, delete) live in actions/notifications.ts.
  */
 
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 const NOTIF_SELECT = `
   id, type, entity_id, entity_type, metadata, is_read, created_at,

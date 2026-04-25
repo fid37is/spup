@@ -7,7 +7,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 async function getCallerProfile() {
   const supabase = await createClient()

@@ -64,12 +64,23 @@ export const interestsSchema = z.object({
 })
 export type InterestsSchema = z.infer<typeof interestsSchema>
 
+const mediaItemSchema = z.object({
+  url: z.string().url(),
+  thumbnail_url: z.string().url().nullable().optional(),
+  media_type: z.enum(['image', 'video']),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  duration_secs: z.number().nullable().optional(),
+  size_bytes: z.number().optional(),
+  cloudinary_id: z.string(),
+})
+
 export const createPostSchema = z.object({
   body: z.string().max(500,'Max 500 characters').optional(),
-  media_ids: z.array(z.string().uuid()).max(4).optional(),
+  media: z.array(mediaItemSchema).max(4).optional(),
   parent_post_id: z.string().uuid().optional(),
   quoted_post_id: z.string().uuid().optional(),
-}).refine(d=>(d.body&&d.body.trim().length>0)||(d.media_ids&&d.media_ids.length>0),{ message:'Post must have text or media' })
+}).refine(d=>(d.body&&d.body.trim().length>0)||(d.media&&d.media.length>0),{ message:'Post must have text or media' })
 export type CreatePostSchema = z.infer<typeof createPostSchema>
 
 export const reportSchema = z.object({

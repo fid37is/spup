@@ -1,7 +1,6 @@
-'use client'
+ 'use client'
 
 import { forwardRef } from 'react'
-import Link from 'next/link'
 
 interface FormFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label: string
@@ -14,15 +13,24 @@ export const FormField = forwardRef<HTMLInputElement, FormFieldProps>(
     const inputId = id || label.toLowerCase().replace(/\s+/g, '-')
     return (
       <div style={{ marginBottom: 16 }}>
-        <label htmlFor={inputId} className="spup-label">{label}</label>
+        <label htmlFor={inputId} style={{
+          display: 'block', fontSize: 13, fontWeight: 500,
+          color: 'var(--color-text-secondary)', marginBottom: 6, letterSpacing: '0.01em',
+        }}>
+          {label}
+        </label>
         <input
           ref={ref}
           id={inputId}
-          className={`spup-input${error ? ' error' : ''}`}
+          className={`para-input${error ? ' error' : ''}`}
           {...props}
         />
-        {error && <p style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 6 }}>{error}</p>}
-        {hint && !error && <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>{hint}</p>}
+        {error && (
+          <p style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 6 }}>{error}</p>
+        )}
+        {hint && !error && (
+          <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>{hint}</p>
+        )}
       </div>
     )
   }
@@ -38,11 +46,11 @@ interface AuthCardProps {
 export function AuthCard({ title, subtitle, children }: AuthCardProps) {
   return (
     <div>
-      <div style={{ marginBottom: 28, textAlign: 'center' }}>
+      <div style={{ marginBottom: 32, textAlign: 'center' }}>
         <h1 style={{
           fontFamily: "'Syne', sans-serif",
           fontWeight: 800,
-          fontSize: 'clamp(22px, 5vw, 28px)',
+          fontSize: 28,
           color: 'var(--color-text-primary)',
           letterSpacing: '-0.02em',
           marginBottom: subtitle ? 8 : 0,
@@ -50,7 +58,7 @@ export function AuthCard({ title, subtitle, children }: AuthCardProps) {
           {title}
         </h1>
         {subtitle && (
-          <p style={{ fontSize: 15, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>{subtitle}</p>
+          <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{subtitle}</p>
         )}
       </div>
       {children}
@@ -94,8 +102,8 @@ export function SubmitButton({ loading, children, onClick, type = 'submit' }: Su
       type={type}
       onClick={onClick}
       disabled={loading}
-      className="spup-btn-primary"
-      style={{ marginTop: 8 }}
+      className="para-btn-primary"
+      style={{ marginTop: 8, position: 'relative' }}
     >
       {loading ? (
         <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
@@ -115,9 +123,9 @@ export function SubmitButton({ loading, children, onClick, type = 'submit' }: Su
 
 export function Divider({ text }: { text: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '24px 0' }}>
       <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
-      <span style={{ fontSize: 12, color: 'var(--color-text-faint)' }}>{text}</span>
+      <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{text}</span>
       <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
     </div>
   )

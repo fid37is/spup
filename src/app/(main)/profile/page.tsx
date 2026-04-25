@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getProfileByAuthId, getOnboardingProgress } from '@/lib/queries'
 import { getUserPosts } from '@/lib/queries'

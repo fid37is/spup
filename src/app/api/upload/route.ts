@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import { v2 as cloudinary } from 'cloudinary'
 
 cloudinary.config({
@@ -121,35 +121,21 @@ export async function POST(request: NextRequest) {
       }).end(buffer)
     })
 
-    // Insert media record into DB
-    const { data: mediaRecord, error: dbError } = await supabase
-      .from('post_media')
-      .insert({
-        post_id: null,  // Will be linked when post is created
-        media_type: isVideo ? 'video' : 'image',
-        url: result.secure_url as string,
-        thumbnail_url: isVideo
-          ? ((result.eager as any)?.[0]?.secure_url || null)
-          : null,
-        width: result.width as number,
-        height: result.height as number,
-        duration_secs: isVideo ? Math.round(result.duration as number) : null,
-        size_bytes: file.size,
-        position: 0,
-      })
-      .select('id, url, thumbnail_url, media_type, width, height')
-      .single()
-
-    if (dbError) {
-      // Cleanup orphan upload if DB fails
-      await cloudinary.uploader.destroy(result.public_id as string)
-      return NextResponse.json({ error: 'Failed to save media record' }, { status: 500 })
-    }
-
+    // Return Cloudinary data directly — post_media DB insert happens in
+    // createPostAction once the post row exists and we have a real post_id.
+    // This avoids the NOT NULL constraint on post_media.post_id.
     return NextResponse.json({
       success: true,
-      media: mediaRecord,
-      cloudinaryId: result.public_id,
+      media: {
+        url: result.secure_url as string,
+        thumbnail_url: isVideo ? ((result.eager as any)?.[0]?.secure_url || null) : null,
+        media_type: isVideo ? 'video' : 'image',
+        width: result.width as number,
+        height: result.height as number,
+        duration_secs: isVideo ? Math.round((result.duration as number) || 0) : null,
+        size_bytes: file.size,
+        cloudinary_id: result.public_id as string,
+      },
     })
 
   } catch (error) {

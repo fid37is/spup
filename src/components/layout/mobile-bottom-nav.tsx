@@ -17,11 +17,10 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
 
   return (
     <nav style={{
-      position: 'fixed',
-      bottom: 0, left: 0, right: 0,
-      zIndex: 100,
-      background: 'var(--color-nav-bg)',
-      borderTop: '1px solid var(--color-border)',
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
+      background: 'var(--nav-bg)',
+      backdropFilter: 'blur(16px)',
+      borderTop: '1px solid var(--border)',
       display: 'flex',
       paddingBottom: 'env(safe-area-inset-bottom)',
     }}>
@@ -33,11 +32,9 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
             flex: 1, display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
             gap: 4, padding: '10px 0',
-            color: isActive ? 'var(--color-brand)' : 'var(--color-text-muted)',
-            textDecoration: 'none',
-            transition: 'color 0.12s',
-            WebkitTapHighlightColor: 'transparent',
-            position: 'relative',
+            color: isActive ? 'var(--spup-green)' : 'var(--text-muted)',
+            textDecoration: 'none', transition: 'color 0.12s',
+            WebkitTapHighlightColor: 'transparent', position: 'relative',
           }}>
             <div style={{ position: 'relative' }}>
               <Icon size={22} strokeWidth={isActive ? 2.5 : 1.8} />
@@ -45,11 +42,10 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
                 <span style={{
                   position: 'absolute', top: -4, right: -6,
                   minWidth: 16, height: 16,
-                  background: 'var(--color-brand)',
+                  background: 'var(--spup-green)',
                   borderRadius: 8, fontSize: 10, fontWeight: 700,
                   color: 'white', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  padding: '0 3px',
+                  alignItems: 'center', justifyContent: 'center', padding: '0 3px',
                 }}>
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
@@ -61,7 +57,7 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
                 position: 'absolute', top: 0, left: '50%',
                 transform: 'translateX(-50%)',
                 width: 24, height: 2,
-                background: 'var(--color-brand)',
+                background: 'var(--spup-green)',
                 borderRadius: '0 0 2px 2px',
               }} />
             )}

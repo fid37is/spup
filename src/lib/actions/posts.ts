@@ -6,7 +6,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
 
 async function getCallerProfile() {
@@ -23,14 +23,29 @@ export async function createPostAction(data: CreatePostSchema) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
   if (profile.status === 'suspended' || profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
-  const { body, parent_post_id, quoted_post_id, media_ids } = parsed.data
+  const { body, parent_post_id, quoted_post_id, media } = parsed.data
   const postType = parent_post_id ? 'reply' : quoted_post_id ? 'quote' : 'original'
   const { data: post, error } = await supabase
     .from('posts')
     .insert({ user_id: profile.id, body: body?.trim() || null, post_type: postType, parent_post_id: parent_post_id || null, quoted_post_id: quoted_post_id || null })
     .select('id').single()
   if (error) return { error: 'Failed to post. Please try again.' }
-  if (media_ids?.length) await supabase.from('post_media').update({ post_id: post.id }).in('id', media_ids)
+  // Insert post_media rows now that we have a real post_id
+  if (media?.length) {
+    await supabase.from('post_media').insert(
+      media.map((m, i) => ({
+        post_id: post.id,
+        media_type: m.media_type,
+        url: m.url,
+        thumbnail_url: m.thumbnail_url || null,
+        width: m.width || null,
+        height: m.height || null,
+        duration_secs: m.duration_secs || null,
+        size_bytes: m.size_bytes || null,
+        position: i,
+      }))
+    )
+  }
   void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'posts_count', p_id: profile.id, p_amount: 1 })
   if (parent_post_id) {
     void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'comments_count', p_id: parent_post_id, p_amount: 1 })

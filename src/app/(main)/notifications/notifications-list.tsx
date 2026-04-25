@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useTransition } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createBrowserClient } from '@/lib/supabase/client'
 import { markNotificationReadAction, markAllNotificationsReadAction } from '@/lib/actions'
 import { formatRelativeTime } from '@/lib/utils'
 import { Heart, UserPlus, MessageCircle, Repeat2, DollarSign, Bell } from 'lucide-react'
@@ -80,7 +80,7 @@ interface NotificationsListProps {
 export default function NotificationsList({ initialNotifications, initialCursor, userId }: NotificationsListProps) {
   const [notifications, setNotifications] = useState(initialNotifications)
   const [, startTransition] = useTransition()
-  const supabase = createClient()
+  const supabase = createBrowserClient()
 
   function markRead(id: string) {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n))
