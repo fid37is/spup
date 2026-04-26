@@ -15,17 +15,8 @@ export default async function SettingsPage() {
 
   return (
     <div>
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 10,
-        backdropFilter: 'blur(20px)',
-        background: 'var(--nav-bg)',
-        borderBottom: '1px solid var(--color-border)',
-        padding: '16px 20px',
-      }}>
-        <h1 style={{
-          fontFamily: "'Syne', sans-serif", fontWeight: 800,
-          fontSize: 20, color: 'var(--color-text-primary)',
-        }}>Settings</h1>
+      <div style={{ position: 'sticky', top: 0, zIndex: 10, backdropFilter: 'blur(20px)', background: 'rgba(10,10,10,0.9)', borderBottom: '1px solid #1A1A1A', padding: '16px 20px' }}>
+        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: '#F5F5F0' }}>Settings</h1>
       </div>
       <SettingsClient profile={profile} />
     </div>
