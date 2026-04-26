@@ -1,7 +1,9 @@
+export const runtime = 'edge'
+
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PROTECTED_ROUTES = ['/feed', '/profile', '/notifications', '/messages', '/settings', '/onboarding']
+const PROTECTED_ROUTES = ['/feed', '/profile', '/notifications', '/messages', '/settings', '/onboarding', '/wallet', '/explore']
 const AUTH_ROUTES = ['/login', '/signup', '/verify-otp', '/forgot-password']
 
 export async function proxy(request: NextRequest) {
@@ -16,13 +18,10 @@ export async function proxy(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          // ✅ Set on request first
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
-          // ✅ Recreate response with updated request — do NOT lose headers
           supabaseResponse = NextResponse.next({ request })
-          // ✅ Mirror cookies onto response
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
@@ -38,7 +37,6 @@ export async function proxy(request: NextRequest) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = '/login'
     redirectUrl.searchParams.set('redirectTo', pathname)
-    // ✅ Forward cookies on redirect so session state is preserved
     const redirectResponse = NextResponse.redirect(redirectUrl)
     supabaseResponse.cookies.getAll().forEach(cookie =>
       redirectResponse.cookies.set(cookie.name, cookie.value)
