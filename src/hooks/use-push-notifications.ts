@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { createBrowserClient as createClient } from '@/lib/supabase'
+import { createBrowserClient as createClient } from '@/lib/supabase/client'
 
 // Dynamically import Capacitor only in native context
 async function setupPushNotifications(userId: string) {

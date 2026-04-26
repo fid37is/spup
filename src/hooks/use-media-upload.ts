@@ -7,9 +7,10 @@ export interface UploadedMedia {
   url: string
   thumbnail_url: string | null
   media_type: 'image' | 'video' | 'audio' | 'gif'
+  cloudinary_id: string
   width: number | null
   height: number | null
-  localPreview?: string  // blob URL for instant preview
+  localPreview?: string
 }
 
 interface UseMediaUploadOptions {
@@ -49,6 +50,7 @@ export function useMediaUpload({ maxFiles = 4, type = 'post' }: UseMediaUploadOp
         url: localPreview,
         thumbnail_url: null,
         media_type: file.type.startsWith('video') ? 'video' : 'image',
+        cloudinary_id: '',
         width: null, height: null,
         localPreview,
       }

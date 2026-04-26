@@ -68,15 +68,18 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12 }}>
           <div style={{
             width: 84, height: 84, borderRadius: '50%',
-            background: `linear-gradient(135deg, ${avatarColor}, ${avatarColor}99)`,
-            border: '4px solid #050508', marginTop: -42,
+            background: profile.avatar_url ? 'transparent' : `linear-gradient(135deg, ${avatarColor}, ${avatarColor}99)`,
+            border: '4px solid var(--color-bg)', marginTop: -42,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 30, color: 'white',
-            position: 'relative', zIndex: 1,
+            position: 'relative', zIndex: 1, overflow: 'hidden', flexShrink: 0,
           }}>
-            {initials}
+            {profile.avatar_url
+              ? <img src={profile.avatar_url} alt={profile.display_name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+              : initials
+            }
             {profile.verification_tier !== 'none' && (
-              <div style={{ position: 'absolute', bottom: 2, right: 2, width: 22, height: 22, borderRadius: '50%', background: '#1A9E5F', border: '2px solid #050508', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'white' }}>✓</div>
+              <div style={{ position: 'absolute', bottom: 2, right: 2, width: 22, height: 22, borderRadius: '50%', background: 'var(--color-brand)', border: '2px solid var(--color-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'white' }}>✓</div>
             )}
           </div>
 

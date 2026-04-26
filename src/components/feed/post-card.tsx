@@ -7,9 +7,9 @@ import { toggleLikeAction, toggleRepostAction, toggleBookmarkAction, deletePostA
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 
 function Avatar({
-  name, size = 42, username, clickable = false,
+  name, avatarUrl, size = 42, username, clickable = false,
 }: {
-  name: string; size?: number; username?: string; clickable?: boolean
+  name: string; avatarUrl?: string | null; size?: number; username?: string; clickable?: boolean
 }) {
   const router = useRouter()
   const colors = ['#1A7A4A', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A1A4A', '#4A7A1A']
@@ -19,16 +19,21 @@ function Avatar({
       onClick={clickable && username ? (e) => { e.stopPropagation(); router.push(`/user/${username}`) } : undefined}
       style={{
         width: size, height: size, borderRadius: '50%', flexShrink: 0,
-        background: color, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: avatarUrl ? 'transparent' : color,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontFamily: "'Syne', sans-serif", fontWeight: 800,
         fontSize: size * 0.36, color: 'white',
         cursor: clickable && username ? 'pointer' : 'default',
         transition: 'opacity 0.12s',
+        overflow: 'hidden',
       }}
       onMouseEnter={e => { if (clickable) e.currentTarget.style.opacity = '0.8' }}
       onMouseLeave={e => { if (clickable) e.currentTarget.style.opacity = '1' }}
     >
-      {name.slice(0, 2).toUpperCase()}
+      {avatarUrl
+        ? <img src={avatarUrl} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : name.slice(0, 2).toUpperCase()
+      }
     </div>
   )
 }
@@ -105,6 +110,7 @@ export default function PostCard({ post }: { post: any }) {
       {/* Clickable avatar */}
       <Avatar
         name={author?.display_name || 'Spup'}
+        avatarUrl={author?.avatar_url}
         username={author?.username}
         clickable
       />

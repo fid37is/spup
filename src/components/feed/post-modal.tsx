@@ -35,7 +35,16 @@ export default function PostModal({ onClose }: { onClose: () => void }) {
     startTransition(async () => {
       const result = await createPostAction({
         body: body.trim() || undefined,
-        media_ids: media.filter(m => !m.id.startsWith('uploading-')).map(m => m.id),
+        media: media
+          .filter(m => !m.id.startsWith('uploading-') && (m.media_type === 'image' || m.media_type === 'video'))
+          .map(m => ({
+            url: m.url,
+            media_type: m.media_type as 'image' | 'video',
+            cloudinary_id: m.cloudinary_id,
+            thumbnail_url: m.thumbnail_url,
+            width: m.width ?? undefined,
+            height: m.height ?? undefined,
+          })),
       })
       if ('error' in result && result.error) { setError(result.error); return }
       clear(); onClose(); router.refresh()
@@ -120,8 +129,8 @@ export default function PostModal({ onClose }: { onClose: () => void }) {
           <div style={{ display: 'flex', gap: 2 }}>
             {[
               { icon: Image, label: 'Add image/video', action: () => setShowMedia(v => !v) },
-              { icon: BarChart2, label: 'Create poll', action: () => {} },
-              { icon: MapPin, label: 'Add location', action: () => {} },
+              { icon: BarChart2, label: 'Create poll', action: () => { } },
+              { icon: MapPin, label: 'Add location', action: () => { } },
             ].map(({ icon: Icon, label, action }) => (
               <button key={label} title={label} onClick={action} style={{
                 width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
