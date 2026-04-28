@@ -1,22 +1,89 @@
 // src/app/(main)/user/[username]/page.tsx
+
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
-import { getProfileByUsername } from '@/lib/queries'
-import { getUserPosts } from '@/lib/queries'
-import { formatNumber, formatRelativeTime } from '@/lib/utils'
+import { getProfileByUsername, getUserPosts } from '@/lib/queries'
+import { formatNumber } from '@/lib/utils'
 import { MapPin, LinkIcon, Calendar, Lock } from 'lucide-react'
 import PostCard from '@/components/feed/post-card'
 import FollowButton from './follow-button'
+import type { Metadata } from 'next'
 
-export async function generateMetadata({ params }: { params: Promise<{ username: string }> }) {
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
+
+// ── Dynamic metadata ────────────────────────────────────────────────────────
+// This runs on the server before the page renders.
+// It tells Google, WhatsApp, Twitter etc. what to show when someone shares
+// a profile link — the user's name, bio, avatar, follower count etc.
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ username: string }> }
+): Promise<Metadata> {
   const { username } = await params
   const profile = await getProfileByUsername(username)
-  if (!profile) return { title: 'User not found' }
+
+  // If profile not found or banned — tell search engines not to index it
+  if (!profile || profile.status === 'banned') {
+    return {
+      title: 'User not found',
+      robots: { index: false, follow: false },
+    }
+  }
+
+  const title = `${profile.display_name} (@${profile.username})`
+  const description = profile.bio
+    ? `${profile.bio} — Follow @${profile.username} on Spup`
+    : `Follow @${profile.username} on Spup. ${profile.followers_count ?? 0} followers.`
+  const profileUrl = `${BASE_URL}/user/${profile.username}`
+
+  // Use their avatar for the preview image, fall back to the default Spup OG image
+  const previewImage = profile.avatar_url ?? `${BASE_URL}/og/default.png`
+
   return {
-    title: `${profile.display_name} (@${profile.username})`,
-    description: profile.bio || `Follow @${profile.username} on Spup`,
+    // Browser tab title and Google headline
+    title,
+    description,
+
+    // Tells Google the "official" URL for this page (avoids duplicate indexing)
+    alternates: { canonical: profileUrl },
+
+    // Open Graph — used by WhatsApp, Facebook, LinkedIn, Telegram previews
+    openGraph: {
+      type: 'profile',
+      title,
+      description,
+      url: profileUrl,
+      siteName: 'Spup',
+      locale: 'en_NG',
+      username: profile.username,
+      images: [
+        {
+          url: previewImage,
+          width: 400,
+          height: 400,
+          alt: `${profile.display_name} on Spup`,
+        },
+      ],
+    },
+
+    // Twitter / X card — used when someone shares the link on Twitter/X
+    twitter: {
+      card: 'summary',
+      site: '@spupng',
+      creator: `@${profile.username}`,
+      title,
+      description,
+      images: [previewImage],
+    },
+
+    // Private profiles should not appear in Google search results
+    robots: profile.is_private
+      ? { index: false, follow: false }
+      : { index: true, follow: true },
   }
 }
+
+// ── Page ────────────────────────────────────────────────────────────────────
 
 export default async function PublicProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params
@@ -58,8 +125,44 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
   const avatarColor = AVATAR_COLORS[profile.username.charCodeAt(0) % AVATAR_COLORS.length]
 
+  // Structured data — tells Google exactly who this person is,
+  // their follower count, and links their profile to Spup as an organisation.
+  // This can show up in Google's knowledge panel and rich results.
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Person',
+    name: profile.display_name,
+    alternateName: `@${profile.username}`,
+    description: profile.bio ?? undefined,
+    image: profile.avatar_url ?? undefined,
+    url: `${BASE_URL}/user/${profile.username}`,
+    interactionStatistic: [
+      {
+        '@type': 'InteractionCounter',
+        interactionType: 'https://schema.org/FollowAction',
+        userInteractionCount: profile.followers_count ?? 0,
+      },
+      {
+        '@type': 'InteractionCounter',
+        interactionType: 'https://schema.org/WriteAction',
+        userInteractionCount: profile.posts_count ?? 0,
+      },
+    ],
+    memberOf: {
+      '@type': 'Organization',
+      name: 'Spup',
+      url: BASE_URL,
+    },
+  }
+
   return (
     <div>
+      {/* Structured data — invisible to users, read by Google */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
       {/* Banner */}
       <div style={{ height: 120, background: 'linear-gradient(135deg, #0A2016 0%, #1A3A20 50%, #0F2510 100%)' }} />
 
