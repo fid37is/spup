@@ -4,6 +4,8 @@ import LandingFooter from '@/components/landing/landing-footer'
 import LandingNav from '@/components/landing/landing-nav'
 import LandingHeroCards from '@/components/landing/landing-hero-cards'
 import { getWaitlistCountAction } from '@/lib/actions/waitlist'
+import LandingMobileSection from '@/components/landing/landing-mobile-section'
+
 
 /* ─── Data ─────────────────────────────────────────────────────────────── */
 
@@ -404,6 +406,8 @@ export default async function LandingPage() {
           </div>
         </div>
       </section>
+
+      <LandingMobileSection />
 
       {/* ── FINAL CTA ── */}
       <section className="section-pad-b" style={{ paddingBottom: 120 }}>

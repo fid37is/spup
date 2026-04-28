@@ -1,11 +1,16 @@
+// src/components/landing/landing-nav.tsx
 'use client'
 
 import LandingCTA from '@/components/landing/landing-cta'
+import { useWaitlist } from '@/components/landing/waitlist-context'
 
-const G      = 'var(--color-brand)'
+const G = 'var(--color-brand)'
 const BORDER = 'var(--color-border)'
+const ENABLE_LOGIN = process.env.NEXT_PUBLIC_ENABLE_LOGIN === 'true'
 
 export default function LandingNav() {
+  const { openModal } = useWaitlist()
+
   return (
     <>
       <style>{`
@@ -81,7 +86,6 @@ export default function LandingNav() {
 
       <nav className="landing-nav-wrap">
         <div className="landing-nav-inner">
-
           {/* Logo */}
           <a href="/" className="landing-nav-logo">
             <img
@@ -96,20 +100,45 @@ export default function LandingNav() {
           <div className="landing-nav-actions">
             {/* Login */}
             <div className="nav-cta-wrap nav-login-wrap">
-              <LandingCTA label="Log in" variant="ghost" opensModal={false} href="/login" />
+              {ENABLE_LOGIN ? (
+                // When login enabled: behave exactly as before
+                <LandingCTA
+                  label="Log in"
+                  variant="ghost"
+                  opensModal={false}
+                  href="/login"
+                />
+              ) : (
+                // When login disabled: open waitlist modal instead of routing
+                <button onClick={openModal} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'inherit', font: 'inherit' }}>
+                  <LandingCTA
+                    label="Log in"
+                    variant="ghost"
+                    opensModal={true}
+                    href={undefined}
+                  />
+                </button>
+              )}
             </div>
 
             {/* Join — two versions, CSS shows/hides */}
             <div className="nav-cta-wrap">
               <span className="nav-join-full">
-                <LandingCTA label="Join the waitlist" variant="primary" opensModal={true} />
+                <LandingCTA
+                  label="Join the waitlist"
+                  variant="primary"
+                  opensModal={true}
+                />
               </span>
               <span className="nav-join-short">
-                <LandingCTA label="Join" variant="primary" opensModal={true} />
+                <LandingCTA
+                  label="Join"
+                  variant="primary"
+                  opensModal={true}
+                />
               </span>
             </div>
           </div>
-
         </div>
       </nav>
     </>
