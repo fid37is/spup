@@ -15,7 +15,11 @@ async function getCallerProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { supabase, profile: null }
-  const { data: profile } = await supabase.from('users').select('id, auth_id').eq('auth_id', user.id).single()
+  const { data: profile } = await supabase
+    .from('users')
+    .select('id, auth_id')
+    .eq('auth_id', user.id)
+    .single()
   return { supabase, profile }
 }
 
@@ -51,20 +55,37 @@ export async function updateProfileAction(data: UpdateProfileData) {
   return { success: true }
 }
 
-// ─── Update avatar / banner URL (after Cloudinary upload) ────────────────────
+// ─── Update avatar URL (after Cloudinary upload) ─────────────────────────────
 
 export async function updateAvatarAction(avatarUrl: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
-  await supabase.from('users').update({ avatar_url: avatarUrl }).eq('id', profile.id)
+
+  const { error } = await supabase
+    .from('users')
+    .update({ avatar_url: avatarUrl, updated_at: new Date().toISOString() })
+    .eq('id', profile.id)
+
+  if (error) return { error: 'Failed to save avatar.' }
+
   revalidatePath('/profile')
+  revalidatePath('/', 'layout') // refreshes sidebar avatar too
   return { success: true }
 }
+
+// ─── Update banner/cover URL (after Cloudinary upload) ───────────────────────
 
 export async function updateBannerAction(bannerUrl: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
-  await supabase.from('users').update({ banner_url: bannerUrl }).eq('id', profile.id)
+
+  const { error } = await supabase
+    .from('users')
+    .update({ banner_url: bannerUrl, updated_at: new Date().toISOString() })
+    .eq('id', profile.id)
+
+  if (error) return { error: 'Failed to save cover photo.' }
+
   revalidatePath('/profile')
   return { success: true }
 }
@@ -87,7 +108,13 @@ export async function changeUsernameAction(newUsername: string) {
 
   if (taken) return { error: 'That username is already taken.' }
 
-  await supabase.from('users').update({ username: parsed.data }).eq('id', profile.id)
+  const { error } = await supabase
+    .from('users')
+    .update({ username: parsed.data, updated_at: new Date().toISOString() })
+    .eq('id', profile.id)
+
+  if (error) return { error: 'Failed to update username.' }
+
   revalidatePath('/profile')
   return { success: true }
 }
@@ -98,7 +125,6 @@ export async function deleteAccountAction() {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
 
-  // Soft-delete: set deleted_at, anonymise PII
   await supabase.from('users').update({
     deleted_at: new Date().toISOString(),
     display_name: 'Deleted user',

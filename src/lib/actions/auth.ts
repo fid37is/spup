@@ -269,6 +269,7 @@ export async function handleOAuthCallbackAction() {
     await upsertOnboarding(existing.id)
     return { success: true, isNewUser: false }
   }
+  
 
   // New OAuth user — create profile + onboarding using admin client
   const meta = user.user_metadata

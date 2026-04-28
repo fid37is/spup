@@ -1,16 +1,25 @@
 'use server'
 
+/**
+ * feed.ts — server actions that RETURN feed data.
+ * These are the "queries with auth context" — they need the caller's
+ * identity to filter blocks/mutes and hydrate like/bookmark state.
+ *
+ * Pure read-only queries (no auth required) live in lib/queries/posts.ts.
+ * Cursor-based pagination so the client can implement infinite scroll.
+ */
+
 import { createClient } from '@/lib/supabase/server'
-import { scorePost, type ScoringContext } from '@/lib/feed/scoring'
 
 const PAGE_SIZE = 20
-const FOR_YOU_FETCH_SIZE = 100
 
+// Shape of a fully-hydrated feed post
 export interface FeedPost {
   id: string
   body: string | null
   post_type: string
   likes_count: number
+  dislikes_count: number
   comments_count: number
   reposts_count: number
   bookmarks_count: number
@@ -36,20 +45,12 @@ export interface FeedPost {
     position: number
   }>
   is_liked: boolean
+  is_disliked: boolean
   is_reposted: boolean
   is_bookmarked: boolean
 }
 
-const POST_SELECT = `
-  id, body, post_type, likes_count, comments_count, reposts_count,
-  bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
-  author:users!posts_user_id_fkey(
-    id, username, display_name, avatar_url, verification_tier, is_monetised
-  ),
-  media:post_media(id, media_type, url, thumbnail_url, width, height, position)
-`
-
-// ─── For You — algorithmic ────────────────────────────────────────────────────
+// ─── "For you" feed — algorithmic ────────────────────────────────────────────
 
 export async function getForYouFeedAction(cursor?: string): Promise<{
   posts: FeedPost[]
@@ -63,42 +64,31 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     .from('users').select('id').eq('auth_id', user.id).single()
   if (!profile) return { posts: [], nextCursor: null }
 
-  const [
-    { data: blocks },
-    { data: mutes },
-    { data: following },
-  ] = await Promise.all([
+  // Exclude posts from blocked/muted users
+  const [{ data: blocks }, { data: mutes }] = await Promise.all([
     supabase.from('user_blocks').select('blocked_id').eq('blocker_id', profile.id),
     supabase.from('user_mutes').select('muted_id').eq('muter_id', profile.id),
-    supabase.from('follows').select('following_id').eq('follower_id', profile.id),
   ])
-
   const excludeIds = [
-    ...(blocks || []).map((b: any) => b.blocked_id),
-    ...(mutes  || []).map((m: any) => m.muted_id),
+    ...(blocks || []).map((b: {blocked_id: string}) => b.blocked_id),
+    ...(mutes || []).map((m: {muted_id: string}) => m.muted_id),
   ]
-  const followingIds = new Set((following || []).map((f: any) => f.following_id as string))
-
-  // Find mutuals for scoring boost
-  const { data: mutualFollows } = followingIds.size
-    ? await supabase
-        .from('follows')
-        .select('follower_id')
-        .eq('following_id', profile.id)
-        .in('follower_id', [...followingIds])
-    : { data: [] }
-  const mutualIds = new Set((mutualFollows || []).map((f: any) => f.follower_id as string))
-
-  const ctx: ScoringContext = { followingIds, mutualIds }
 
   let query = supabase
     .from('posts')
-    .select(POST_SELECT)
+    .select(`
+      id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `)
     .is('deleted_at', null)
-    .is('parent_post_id', null)
+    .is('parent_post_id', null)          // top-level posts only
     .neq('post_type', 'repost')
     .order('created_at', { ascending: false })
-    .limit(FOR_YOU_FETCH_SIZE)
+    .limit(PAGE_SIZE + 1)                // fetch one extra to know if there's a next page
 
   if (excludeIds.length) {
     query = query.not('user_id', 'in', `(${excludeIds.join(',')})`)
@@ -110,19 +100,14 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   const { data: posts } = await query
   if (!posts?.length) return { posts: [], nextCursor: null }
 
-  // Score, sort, take top PAGE_SIZE
-  const scored = posts
-    .map(p => ({ post: p, score: scorePost(p, ctx) }))
-    .sort((a, b) => b.score - a.score)
-
-  const page = scored.slice(0, PAGE_SIZE).map(s => s.post)
-  const hasMore = scored.length > PAGE_SIZE
-  const nextCursor = hasMore ? posts[posts.length - 1].created_at : null
+  const hasMore = posts.length > PAGE_SIZE
+  const page = hasMore ? posts.slice(0, PAGE_SIZE) : posts
+  const nextCursor = hasMore ? page[page.length - 1].created_at : null
 
   return { posts: await hydrateEngagement(supabase, profile.id, page), nextCursor }
 }
 
-// ─── Following — chronological ────────────────────────────────────────────────
+// ─── "Following" feed — chronological ────────────────────────────────────────
 
 export async function getFollowingFeedAction(cursor?: string): Promise<{
   posts: FeedPost[]
@@ -136,17 +121,25 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
     .from('users').select('id').eq('auth_id', user.id).single()
   if (!profile) return { posts: [], nextCursor: null }
 
+  // Get following IDs
   const { data: following } = await supabase
     .from('follows').select('following_id').eq('follower_id', profile.id)
 
   const followingIds = [
-    profile.id,
-    ...(following || []).map((f: any) => f.following_id as string),
+    profile.id, // include own posts
+    ...(following || []).map((f: {following_id: string}) => f.following_id),
   ]
 
   let query = supabase
     .from('posts')
-    .select(POST_SELECT)
+    .select(`
+      id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `)
     .is('deleted_at', null)
     .is('parent_post_id', null)
     .neq('post_type', 'repost')
@@ -166,7 +159,8 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
   return { posts: await hydrateEngagement(supabase, profile.id, page), nextCursor }
 }
 
-// ─── Mutuals — chronological, reciprocal follows only ────────────────────────
+
+// ─── Mutuals feed ─────────────────────────────────────────────────────────────
 
 export async function getMutualsFeedAction(cursor?: string): Promise<{
   posts: FeedPost[]
@@ -180,24 +174,31 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
     .from('users').select('id').eq('auth_id', user.id).single()
   if (!profile) return { posts: [], nextCursor: null }
 
-  // People you follow
+  // People I follow
   const { data: following } = await supabase
     .from('follows').select('following_id').eq('follower_id', profile.id)
-  const followingIds = (following || []).map((f: any) => f.following_id as string)
-  if (!followingIds.length) return { posts: [], nextCursor: null }
+  if (!following?.length) return { posts: [], nextCursor: null }
 
-  // Of those, who follows you back
-  const { data: mutualFollows } = await supabase
-    .from('follows')
-    .select('follower_id')
-    .eq('following_id', profile.id)
+  const followingIds = following.map((f: {following_id: string}) => f.following_id)
+
+  // Of those, who also follows me back? (mutuals)
+  const { data: followers } = await supabase
+    .from('follows').select('follower_id').eq('following_id', profile.id)
     .in('follower_id', followingIds)
-  const mutualIds = (mutualFollows || []).map((f: any) => f.follower_id as string)
+
+  const mutualIds = (followers || []).map((f: {follower_id: string}) => f.follower_id)
   if (!mutualIds.length) return { posts: [], nextCursor: null }
 
   let query = supabase
     .from('posts')
-    .select(POST_SELECT)
+    .select(`
+      id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `)
     .is('deleted_at', null)
     .is('parent_post_id', null)
     .neq('post_type', 'repost')
@@ -229,7 +230,14 @@ export async function getPostRepliesAction(postId: string, cursor?: string) {
 
   let query = supabase
     .from('posts')
-    .select(POST_SELECT)
+    .select(`
+      id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `)
     .eq('parent_post_id', postId)
     .is('deleted_at', null)
     .order('created_at', { ascending: true })
@@ -246,7 +254,7 @@ export async function getPostRepliesAction(postId: string, cursor?: string) {
 
   const hydrated = profile
     ? await hydrateEngagement(supabase, profile.id, page)
-    : page.map(p => ({ ...p, is_liked: false, is_reposted: false, is_bookmarked: false }))
+    : page.map(p => ({ ...p, is_liked: false, is_disliked: false, is_reposted: false, is_bookmarked: false }))
 
   return { posts: hydrated, nextCursor }
 }
@@ -258,15 +266,14 @@ export async function getBookmarkedPostsAction(cursor?: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { posts: [], nextCursor: null }
 
-  const { data: profile } = await supabase
-    .from('users').select('id').eq('auth_id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('id').eq('auth_id', user.id).single()
   if (!profile) return { posts: [], nextCursor: null }
 
   let query = supabase
     .from('bookmarks')
     .select(`
       post:posts(
-        id, body, post_type, likes_count, comments_count, reposts_count,
+        id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
         bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
         author:users!posts_user_id_fkey(
           id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -284,10 +291,9 @@ export async function getBookmarkedPostsAction(cursor?: string) {
   if (!rows?.length) return { posts: [], nextCursor: null }
 
   const hasMore = rows.length > PAGE_SIZE
-  const page = (hasMore ? rows.slice(0, PAGE_SIZE) : rows)
-    .map((r: any) => r.post)
-    .filter(Boolean) as any[]
-  const nextCursor = hasMore ? (rows[page.length - 1] as any)?.created_at : null
+  const pageRows = hasMore ? rows.slice(0, PAGE_SIZE) : rows
+  const page = pageRows.map((r: any) => r.post).filter(Boolean) as any[]
+  const nextCursor = hasMore ? (pageRows[pageRows.length - 1] as any)?.created_at : null
 
   return {
     posts: page.map((p: any) => ({ ...p, is_liked: false, is_reposted: false, is_bookmarked: true })),
@@ -305,20 +311,23 @@ async function hydrateEngagement(
   if (!posts.length) return []
   const ids = posts.map(p => p.id)
 
-  const [{ data: likes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
+  const [{ data: likes }, { data: dislikes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
     supabase.from('likes').select('post_id').eq('user_id', userId).in('post_id', ids),
+    supabase.from('dislikes').select('post_id').eq('user_id', userId).in('post_id', ids),
     supabase.from('bookmarks').select('post_id').eq('user_id', userId).in('post_id', ids),
     supabase.from('posts').select('parent_post_id').eq('user_id', userId).eq('post_type', 'repost').in('parent_post_id', ids),
   ])
 
-  const likedSet      = new Set((likes     || []).map((l: any) => l.post_id))
-  const bookmarkedSet = new Set((bookmarks || []).map((b: any) => b.post_id))
-  const repostedSet   = new Set((reposts   || []).map((r: any) => r.parent_post_id))
+  const likedSet = new Set((likes || []).map((l: {post_id: string}) => l.post_id))
+  const dislikedSet = new Set((dislikes || []).map((d: {post_id: string}) => d.post_id))
+  const bookmarkedSet = new Set((bookmarks || []).map((b: {post_id: string}) => b.post_id))
+  const repostedSet = new Set((reposts || []).map((r: {parent_post_id: string}) => r.parent_post_id))
 
   return posts.map(p => ({
     ...p,
-    is_liked:      likedSet.has(p.id),
+    is_liked: likedSet.has(p.id),
+    is_disliked: dislikedSet.has(p.id),
     is_bookmarked: bookmarkedSet.has(p.id),
-    is_reposted:   repostedSet.has(p.id),
+    is_reposted: repostedSet.has(p.id),
   }))
 }

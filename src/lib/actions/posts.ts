@@ -50,6 +50,7 @@ export async function createPostAction(data: CreatePostSchema) {
   if (parent_post_id) {
     void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'comments_count', p_id: parent_post_id, p_amount: 1 })
     void notifyPostAuthor(supabase, parent_post_id, profile.id, 'post_comment')
+    revalidatePath(`/post/${parent_post_id}`)
   }
   revalidatePath('/feed')
   return { success: true, postId: post.id }
@@ -69,16 +70,63 @@ export async function deletePostAction(postId: string) {
 export async function toggleLikeAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
-  const { data: existing } = await supabase.from('likes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
+
+  const { data: existing } = await supabase
+    .from('likes').select('id')
+    .match({ user_id: profile.id, post_id: postId })
+    .maybeSingle()
+
   if (existing) {
+    // Unlike
     await supabase.from('likes').delete().match({ user_id: profile.id, post_id: postId })
-    void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
+    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
+    revalidatePath('/feed')
+    revalidatePath(`/post/${postId}`)
     return { liked: false }
   }
-  await supabase.from('likes').insert({ user_id: profile.id, post_id: postId })
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: 1 })
+
+  // Like — use upsert to prevent duplicate likes at DB level
+  const { error: insertError } = await supabase
+    .from('likes')
+    .upsert({ user_id: profile.id, post_id: postId }, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
+
+  if (insertError) return { error: 'Failed to like post' }
+
+  await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_like')
+  revalidatePath('/feed')
+  revalidatePath(`/post/${postId}`)
   return { liked: true }
+}
+
+export async function toggleDislikeAction(postId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+
+  // Remove a like if the user had liked it (can't like and dislike simultaneously)
+  const { data: existingLike } = await supabase
+    .from('likes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
+  if (existingLike) {
+    await supabase.from('likes').delete().match({ user_id: profile.id, post_id: postId })
+    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
+  }
+
+  const { data: existing } = await supabase
+    .from('dislikes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
+  if (existing) {
+    await supabase.from('dislikes').delete().match({ user_id: profile.id, post_id: postId })
+    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'dislikes_count', p_id: postId, p_amount: -1 })
+    revalidatePath('/feed')
+    revalidatePath(`/post/${postId}`)
+    return { disliked: false }
+  }
+  await supabase
+    .from('dislikes')
+    .upsert({ user_id: profile.id, post_id: postId }, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
+  await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'dislikes_count', p_id: postId, p_amount: 1 })
+  revalidatePath('/feed')
+  revalidatePath(`/post/${postId}`)
+  return { disliked: true }
 }
 
 export async function toggleRepostAction(postId: string) {
@@ -87,12 +135,14 @@ export async function toggleRepostAction(postId: string) {
   const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', parent_post_id: postId }).maybeSingle()
   if (existing) {
     await supabase.from('posts').delete().match({ id: existing.id })
-    void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
+    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
+    revalidatePath('/feed')
     return { reposted: false }
   }
   await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', parent_post_id: postId })
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: 1 })
+  await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
+  revalidatePath('/feed')
   return { reposted: true }
 }
 
@@ -111,7 +161,8 @@ export async function toggleBookmarkAction(postId: string) {
 }
 
 export async function recordImpressionAction(postId: string) {
-  const { supabase } = await getCallerProfile()
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return // must be authenticated to record impressions
   void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'impressions_count', p_id: postId, p_amount: 1 })
 }
 
