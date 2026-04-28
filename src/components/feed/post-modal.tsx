@@ -45,24 +45,36 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
 
   function handlePost() {
     if (!canPost) return
+
     startTransition(async () => {
       const readyMedia = media.filter(m => m.cloudinary_id)
+
       const result = await createPostAction({
         body: body.trim() || undefined,
         parent_post_id: parentPostId,
-        media: readyMedia.length > 0 ? readyMedia.map(m => ({
-          url: m.url,
-          thumbnail_url: m.thumbnail_url,
-          media_type: m.media_type as 'image' | 'video',
-          width: m.width,
-          height: m.height,
-          duration_secs: m.duration_secs,
-          size_bytes: m.size_bytes,
-          cloudinary_id: m.cloudinary_id!,
-        })) : undefined,
+        media: readyMedia.length > 0
+          ? readyMedia.map((m) => ({
+            url: m.url,
+            thumbnail_url: m.thumbnail_url,
+            media_type: m.media_type as 'image' | 'video',
+            // ← Convert null → undefined (this fixes the big type error)
+            width: m.width ?? undefined,
+            height: m.height ?? undefined,
+            duration_secs: m.duration_secs ?? undefined,
+            size_bytes: m.size_bytes ?? undefined,
+            cloudinary_id: m.cloudinary_id!,
+          }))
+          : undefined,
       })
-      if ('error' in result && result.error) { setError(result.error); return }
-      clear(); onClose(); router.refresh()
+
+      if ('error' in result && result.error) {
+        setError(result.error)
+        return
+      }
+
+      clear()
+      onClose()
+      router.refresh()
     })
   }
 
@@ -71,7 +83,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
 
   // Avatar helper
   const AvatarCircle = ({ name, url, size = 44 }: { name: string; url?: string | null; size?: number }) => {
-    const colors = ['#1A7A4A','#7A3A1A','#1A4A7A','#4A1A7A','#7A1A4A','#4A7A1A']
+    const colors = ['#1A7A4A', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A1A4A', '#4A7A1A']
     const bg = colors[name.charCodeAt(0) % colors.length]
     return (
       <div style={{
@@ -81,7 +93,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
         fontFamily: "'Syne',sans-serif", fontWeight: 800,
         fontSize: size * 0.36, color: 'white',
       }}>
-        {url ? <img src={url} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : name.slice(0,2).toUpperCase()}
+        {url ? <img src={url} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : name.slice(0, 2).toUpperCase()}
       </div>
     )
   }
@@ -171,8 +183,8 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
           <div style={{ display: 'flex', gap: 2 }}>
             {[
               { icon: ImageIcon, label: 'Add media', action: () => setShowMedia(v => !v) },
-              { icon: BarChart2, label: 'Create poll', action: () => {} },
-              { icon: MapPin, label: 'Add location', action: () => {} },
+              { icon: BarChart2, label: 'Create poll', action: () => { } },
+              { icon: MapPin, label: 'Add location', action: () => { } },
             ].map(({ icon: Icon, label, action }) => (
               <button key={label} title={label} onClick={action} style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-brand)', borderRadius: 8 }}>
                 <Icon size={18} />

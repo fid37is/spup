@@ -11,6 +11,8 @@ export interface UploadedMedia {
   width: number | null
   height: number | null
   localPreview?: string
+  duration_secs: number | null
+  size_bytes: number | null
 }
 
 interface UseMediaUploadOptions {
@@ -51,7 +53,10 @@ export function useMediaUpload({ maxFiles = 4, type = 'post' }: UseMediaUploadOp
         thumbnail_url: null,
         media_type: file.type.startsWith('video') ? 'video' : 'image',
         cloudinary_id: '',
-        width: null, height: null,
+        width: null,
+        height: null,
+        duration_secs: null,
+        size_bytes: null,
         localPreview,
       }
       setMedia(prev => [...prev, placeholder])
