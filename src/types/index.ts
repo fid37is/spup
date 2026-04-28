@@ -229,3 +229,10 @@ export const NIGERIAN_INTERESTS: Interest[] = [
   { id: 'spirituality', label: 'Faith & Spirituality', emoji: '🙏', category: 'Lifestyle' },
   { id: 'art', label: 'Art & Design', emoji: '🎨', category: 'Creative' },
 ]
+
+// Extend Window with Google AdSense global
+declare global {
+  interface Window {
+    adsbygoogle: unknown[]
+  }
+}
