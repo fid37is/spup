@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import PWAProvider from '@/components/layout/pwa-provider'
 import { WaitlistProvider } from '@/components/landing/waitlist-context'
+import { GoogleAnalytics } from '@next/third-parties/google'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
 
@@ -163,6 +164,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <WaitlistProvider>
           {children}
         </WaitlistProvider>
+        {process.env.NEXT_PUBLIC_GA_ID && (
+          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+        )}
       </body>
     </html>
   )
