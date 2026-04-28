@@ -40,7 +40,6 @@ export default function AdSlot({ postId, position }: AdSlotProps) {
   useEffect(() => {
     if (!useAdsense || !adsenseRef.current) return
     try {
-      // @ts-expect-error adsbygoogle is injected by Google script
       ;(window.adsbygoogle = window.adsbygoogle || []).push({})
     } catch {}
   }, [useAdsense])

@@ -166,7 +166,10 @@ export default function PostCard({ post }: { post: any }) {
 
   function handleBookmark() {
     setBookmarked((v: boolean) => !v)
-    startTransition(async () => { await toggleBookmarkAction(post.id) })
+    startTransition(async () => {
+      const result = await toggleBookmarkAction(post.id)
+      if ('error' in result) setBookmarked((v: boolean) => !v)
+    })
   }
 
   function handleDelete() {

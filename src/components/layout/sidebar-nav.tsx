@@ -72,22 +72,8 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
             <img
               src={theme === 'dark' ? '/logo.png' : '/logo-light.png'}
               alt="Spup"
-              style={{ height: 36, width: 'auto', display: 'block', flexShrink: 0 }}
+              style={{ height: 46, width: 'auto', display: 'block', flexShrink: 0 }}
             />
-            {!collapsed && (
-              <span style={{
-                fontFamily: "'Syne', sans-serif", fontWeight: 800,
-                fontSize: 26, letterSpacing: '-0.05em', lineHeight: 1,
-                color: 'var(--color-text-primary)',
-                textDecoration: 'underline',
-                textDecorationColor: 'var(--color-brand)',
-                textDecorationThickness: 3,
-                textUnderlineOffset: 5,
-                textDecorationStyle: 'wavy',
-              }}>
-                Spup
-              </span>
-            )}
           </Link>
         </div>
 
