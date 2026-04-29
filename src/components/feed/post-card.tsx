@@ -93,7 +93,7 @@ function QuoteModal({ post, onClose }: { post: any; onClose: () => void }) {
 }
 
 /* ── PostCard ────────────────────────────────────────────────────────────── */
-export default function PostCard({ post }: { post: any }) {
+export default function PostCard({ post, onReplyClick }: { post: any; onReplyClick?: () => void }) {
   const [isPending, startTransition] = useTransition()
   const [liked, setLiked] = useState(post.is_liked)
   const [likeCount, setLikeCount] = useState(post.likes_count)
@@ -124,42 +124,49 @@ export default function PostCard({ post }: { post: any }) {
   if (deleted) return null
 
   function handleLike() {
+    const wasLiked = liked
+    const wasDisliked = disliked
     // If currently disliked, undo dislike first
-    if (disliked) { setDisliked(false); setDislikeCount((c: number) => Math.max(0, c - 1)) }
-    setLiked((v: boolean) => !v)
-    setLikeCount((c: number) => liked ? c - 1 : c + 1)
+    if (wasDisliked) { setDisliked(false); setDislikeCount((c: number) => Math.max(0, c - 1)) }
+    setLiked(!wasLiked)
+    setLikeCount((c: number) => wasLiked ? c - 1 : c + 1)
     startTransition(async () => {
       const result = await toggleLikeAction(post.id)
       if ('error' in result) {
-        setLiked((v: boolean) => !v)
-        setLikeCount((c: number) => liked ? c + 1 : c - 1)
+        if (wasDisliked) { setDisliked(true); setDislikeCount((c: number) => c + 1) }
+        setLiked(wasLiked)
+        setLikeCount((c: number) => wasLiked ? c + 1 : c - 1)
       }
     })
   }
 
   function handleDislike() {
+    const wasDisliked = disliked
+    const wasLiked = liked
     // If currently liked, undo like first
-    if (liked) { setLiked(false); setLikeCount((c: number) => Math.max(0, c - 1)) }
-    setDisliked((v: boolean) => !v)
-    setDislikeCount((c: number) => disliked ? c - 1 : c + 1)
+    if (wasLiked) { setLiked(false); setLikeCount((c: number) => Math.max(0, c - 1)) }
+    setDisliked(!wasDisliked)
+    setDislikeCount((c: number) => wasDisliked ? c - 1 : c + 1)
     startTransition(async () => {
       const result = await toggleDislikeAction(post.id)
       if ('error' in result) {
-        setDisliked((v: boolean) => !v)
-        setDislikeCount((c: number) => disliked ? c + 1 : c - 1)
+        if (wasLiked) { setLiked(true); setLikeCount((c: number) => c + 1) }
+        setDisliked(wasDisliked)
+        setDislikeCount((c: number) => wasDisliked ? c + 1 : c - 1)
       }
     })
   }
 
   function handleRepost() {
+    const wasReposted = reposted
     setShowRepostMenu(false)
-    setReposted((v: boolean) => !v)
-    setRepostCount((c: number) => reposted ? c - 1 : c + 1)
+    setReposted(!wasReposted)
+    setRepostCount((c: number) => wasReposted ? c - 1 : c + 1)
     startTransition(async () => {
       const result = await toggleRepostAction(post.id)
       if ('error' in result) {
-        setReposted((v: boolean) => !v)
-        setRepostCount((c: number) => reposted ? c + 1 : c - 1)
+        setReposted(wasReposted)
+        setRepostCount((c: number) => wasReposted ? c + 1 : c - 1)
       }
     })
   }
@@ -272,7 +279,7 @@ export default function PostCard({ post }: { post: any }) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, width: '100%', maxWidth: 480 }}>
 
             {/* Reply */}
-            <ActionBtn icon={<MessageCircle size={18} />} count={post.comments_count} showZero active={false} activeColor="#378ADD" onClick={() => router.push(`/post/${post.id}`)} label="Reply" />
+            <ActionBtn icon={<MessageCircle size={18} />} count={post.comments_count} showZero active={false} activeColor="#378ADD" onClick={() => onReplyClick ? onReplyClick() : router.push(`/post/${post.id}`)} label="Reply" />
 
             {/* Repost with dropdown */}
             <div ref={repostRef} style={{ position: 'relative' }}>

@@ -1,5 +1,9 @@
+// src/lib/supabase/server.ts
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+
+const isProd = process.env.NODE_ENV === 'production'
+const cookieDomain = isProd ? '.spup.live' : '.localhost'
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -8,6 +12,12 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: {
+        domain: cookieDomain,
+        sameSite: 'lax',
+        secure: isProd,
+        path: '/',
+      },
       cookies: {
         getAll() {
           return cookieStore.getAll()

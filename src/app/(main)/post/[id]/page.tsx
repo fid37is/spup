@@ -4,10 +4,8 @@ import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
 import ReplyComposer from './reply-composer'
+import ReplyToReply from './reply-to-reply'
 import { formatNumber } from '@/lib/utils'
-import type { Metadata } from 'next'
-
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
 
 const POST_SELECT = `
   id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
@@ -15,75 +13,6 @@ const POST_SELECT = `
   author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, is_monetised),
   media:post_media(id, media_type, url, thumbnail_url, width, height, position)
 `
-
-// ── Dynamic metadata ────────────────────────────────────────────────────────
-
-export async function generateMetadata(
-  { params }: { params: Promise<{ id: string }> }
-): Promise<Metadata> {
-  const { id } = await params
-  const supabase = await createClient()
-
-  const { data: post } = await supabase
-    .from('posts')
-    .select('id, body, is_sensitive, created_at, author:users!posts_user_id_fkey(username, display_name, avatar_url), media:post_media(url, media_type)')
-    .eq('id', id)
-    .is('deleted_at', null)
-    .single()
-
-  if (!post) return { title: 'Post not found' }
-
-  const author = post.author as any
-  const snippet = post.body?.slice(0, 160) ?? ''
-  const title = `${author?.display_name ?? 'Someone'} on Spup: "${snippet}"`
-  const description = post.is_sensitive
-    ? `Post by @${author?.username} — may contain sensitive content.`
-    : snippet || `Post by @${author?.username} on Spup`
-
-  // Use first image media if present, otherwise author avatar, else default OG
-  const media = (post.media as any[]) ?? []
-  const firstImage = media.find(m => m.media_type === 'image')
-  const ogImage = post.is_sensitive
-    ? `${BASE_URL}/og/default.png`
-    : firstImage?.url ?? author?.avatar_url ?? `${BASE_URL}/og/default.png`
-
-  const postUrl = `${BASE_URL}/post/${id}`
-
-  return {
-    title,
-    description,
-    alternates: { canonical: postUrl },
-    openGraph: {
-      type: 'article',
-      title,
-      description,
-      url: postUrl,
-      siteName: 'Spup',
-      locale: 'en_NG',
-      publishedTime: post.created_at,
-      authors: [`${BASE_URL}/user/${author?.username}`],
-      images: [
-        {
-          url: ogImage,
-          width: 1200,
-          height: 630,
-          alt: `Post by @${author?.username} on Spup`,
-        },
-      ],
-    },
-    twitter: {
-      card: firstImage ? 'summary_large_image' : 'summary',
-      site: '@spupng',
-      creator: `@${author?.username ?? 'spupng'}`,
-      title,
-      description,
-      images: [ogImage],
-    },
-    robots: { index: !post.is_sensitive, follow: true },
-  }
-}
-
-// ── Data fetching ────────────────────────────────────────────────────────────
 
 async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postId: string, viewerId: string | null) {
   const { data: post } = await supabase
@@ -151,8 +80,6 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
   }
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
-
 export default async function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
 
@@ -168,7 +95,8 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
 
   const { data: viewer } = await supabase
     .from('users').select('display_name, avatar_url').eq('auth_id', user.id).maybeSingle()
-  const viewerInitial = viewer?.display_name?.slice(0, 2).toUpperCase() ?? '?'
+  const viewerName = viewer?.display_name ?? 'Me'
+  const viewerInitial = viewerName.slice(0, 2).toUpperCase()
   const viewerAvatar = viewer?.avatar_url ?? null
 
   const date = new Date(post.created_at).toLocaleString('en-NG', {
@@ -176,42 +104,8 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
     day: 'numeric', month: 'short', year: 'numeric',
   })
 
-  // Structured data for this specific post
-  const author = post.author as any
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'SocialMediaPosting',
-    headline: post.body?.slice(0, 110),
-    articleBody: post.body,
-    datePublished: post.created_at,
-    dateModified: post.edited_at ?? post.created_at,
-    url: `${BASE_URL}/post/${id}`,
-    author: {
-      '@type': 'Person',
-      name: author?.display_name,
-      url: `${BASE_URL}/user/${author?.username}`,
-      image: author?.avatar_url,
-    },
-    interactionStatistic: [
-      { '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction', userInteractionCount: post.likes_count },
-      { '@type': 'InteractionCounter', interactionType: 'https://schema.org/CommentAction', userInteractionCount: post.comments_count },
-      { '@type': 'InteractionCounter', interactionType: 'https://schema.org/ShareAction', userInteractionCount: post.reposts_count },
-    ],
-    publisher: {
-      '@type': 'Organization',
-      name: 'Spup',
-      url: BASE_URL,
-      logo: { '@type': 'ImageObject', url: `${BASE_URL}/logo.png` },
-    },
-  }
-
   return (
     <div style={{ paddingBottom: 80 }}>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
-
       {/* Header */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
@@ -261,8 +155,13 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {/* Reply composer */}
-      <ReplyComposer parentPostId={id} viewerInitial={viewerInitial} viewerAvatar={viewerAvatar} />
+      {/* Inline reply composer — always under the post, sticky at bottom */}
+      <ReplyComposer
+        parentPostId={id}
+        viewerInitial={viewerInitial}
+        viewerAvatar={viewerAvatar}
+        viewerName={viewerName}
+      />
 
       {/* Divider */}
       <div style={{ height: 8, background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)' }} />
@@ -275,7 +174,11 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
       ) : (
         replies.map((reply: any) => (
           <div key={reply.id}>
-            <PostCard post={reply} />
+            {/* Reply card — clicking the reply button opens reply-to-reply modal/page */}
+            <ReplyToReply
+              reply={reply}
+              viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
+            />
             {reply.nested && reply.nested.length > 0 && (
               <div style={{ position: 'relative' }}>
                 <div style={{
@@ -284,7 +187,10 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
                 }} />
                 {reply.nested.map((nested: any) => (
                   <div key={nested.id} style={{ position: 'relative' }}>
-                    <PostCard post={nested} />
+                    <ReplyToReply
+                      reply={nested}
+                      viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
+                    />
                   </div>
                 ))}
               </div>

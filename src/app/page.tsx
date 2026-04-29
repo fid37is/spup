@@ -6,6 +6,7 @@ import LandingHeroCards from '@/components/landing/landing-hero-cards'
 import { getWaitlistCountAction } from '@/lib/actions/waitlist'
 import LandingMobileSection from '@/components/landing/landing-mobile-section'
 
+export const revalidate = 60 // re-fetch waitlist count every 60 seconds
 
 /* ─── Data ─────────────────────────────────────────────────────────────── */
 
