@@ -5,6 +5,38 @@ const PROTECTED_ROUTES = ['/feed', '/profile', '/notifications', '/messages', '/
 const AUTH_ROUTES = ['/login', '/signup', '/verify-otp', '/forgot-password']
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl
+  const host = request.headers.get('host') ?? ''
+
+  // ── Admin subdomain routing ────────────────────────────────────────────────
+  // admin.spup.live/ or admin.localhost:3000/ → internally serves /admin/*
+  if (host.startsWith('admin.')) {
+    const rewriteUrl = request.nextUrl.clone()
+    rewriteUrl.pathname = pathname === '/' ? '/admin' : `/admin${pathname}`
+    const response = NextResponse.rewrite(rewriteUrl)
+    // Share the auth session cookie across subdomains by setting cookie domain
+    // to the root domain (e.g. .localhost or .spup.live)
+    const rootDomain = host.replace('admin.', '')
+    request.cookies.getAll().forEach(cookie => {
+      if (cookie.name.includes('supabase') || cookie.name.includes('sb-')) {
+        response.cookies.set(cookie.name, cookie.value, {
+          domain: `.${rootDomain.split(':')[0]}`, // strip port
+          path: '/',
+          sameSite: 'lax',
+          httpOnly: true,
+          secure: !host.includes('localhost'),
+        })
+      }
+    })
+    return response
+  }
+
+  // Block /admin/* on the main domain — returns 404, not discoverable
+  if (pathname.startsWith('/admin')) {
+    return new NextResponse(null, { status: 404 })
+  }
+
+  // ── Supabase session handling ──────────────────────────────────────────────
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -29,7 +61,6 @@ export async function proxy(request: NextRequest) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
-  const pathname = request.nextUrl.pathname
 
   if (!user && PROTECTED_ROUTES.some(route => pathname.startsWith(route))) {
     const redirectUrl = request.nextUrl.clone()
@@ -57,6 +88,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|icons|splash|og|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

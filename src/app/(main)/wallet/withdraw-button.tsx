@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { ArrowDownToLine, X } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
 
 export default function WithdrawButton({ canWithdraw, balance, bvnVerified }: { canWithdraw: boolean; balance: number; bvnVerified: boolean }) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -83,14 +85,16 @@ export default function WithdrawButton({ canWithdraw, balance, bvnVerified }: { 
                 <div style={{ background: '#181818', borderRadius: 12, padding: 16, marginBottom: 24 }}>
                   <div style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>Destination account</div>
                   <div style={{ fontSize: 14, color: '#9A9A90' }}>No bank account linked</div>
-                  <button style={{ marginTop: 8, background: 'none', border: 'none', color: '#22A861', fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: "'DM Sans', sans-serif" }}>
+                  <button
+                    onClick={() => { setOpen(false); router.push('/settings?section=bank') }}
+                    style={{ marginTop: 8, background: 'none', border: 'none', color: '#22A861', fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: "'DM Sans', sans-serif" }}>
                     + Add bank account
                   </button>
                 </div>
 
                 <button
                   onClick={handleWithdraw}
-                  disabled={loading}
+                  disabled={loading || true /* TODO: enable once bank account linked */}
                   style={{
                     width: '100%', background: '#1A7A4A', color: 'white',
                     border: 'none', borderRadius: 12, padding: '14px',

@@ -83,14 +83,9 @@ export default function FeedClient({ initialPosts, initialCursor }: FeedClientPr
     return () => obs.disconnect()
   }, [loadMore])
 
-  // Keep a ref to latest posts so the realtime handler can read current IDs
-  // without the effect needing posts as a dependency (which would cause
-  // constant resubscription and break optimistic updates).
   const postsRef = useRef<FeedPost[]>(initialPosts)
   postsRef.current = posts
 
-  // Single realtime subscription per tab. Re-subscribes only when the tab
-  // changes. Uses postsRef to filter updates to visible post IDs only.
   useEffect(() => {
     const supabase = createBrowserClient()
     const channel = supabase
@@ -107,7 +102,6 @@ export default function FeedClient({ initialPosts, initialCursor }: FeedClientPr
           reposts_count: number
           comments_count: number
         }
-        // Only patch posts currently visible in this tab
         const visibleIds = new Set(postsRef.current.map(p => p.id))
         if (!visibleIds.has(u.id)) return
         setPosts(prev => prev.map(p =>
@@ -129,8 +123,11 @@ export default function FeedClient({ initialPosts, initialCursor }: FeedClientPr
 
   return (
     <div>
-      {/* Tab bar */}
-      <div style={{
+      {/* Tab bar — on mobile sits below the MobileHeader (56px), on desktop sticks at top */}
+      <style>{`
+        @media (max-width: 767px) { .feed-tab-bar { top: 56px !important; } }
+      `}</style>
+      <div className="feed-tab-bar" style={{
         position: 'sticky', top: 0, zIndex: 10,
         backdropFilter: 'blur(20px)',
         background: 'var(--nav-bg)',
@@ -210,7 +207,8 @@ export default function FeedClient({ initialPosts, initialCursor }: FeedClientPr
           <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>You&apos;re all caught up 🎉</p>
         </div>
       )}
-      {/* Floating compose button — shows near bottom of feed, hides at top */}
+
+      {/* Floating compose button */}
       <FloatingComposeBtn onPosted={post => setPosts(prev => [post as FeedPost, ...prev])} />
     </div>
   )
