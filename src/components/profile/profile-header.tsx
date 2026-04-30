@@ -27,11 +27,12 @@ interface ProfileHeaderProps {
     posts: string
   }
   isOwner: boolean
+  onEditProfile?: () => void   // owner: open the edit-profile modal
 }
 
 type UploadTarget = 'avatar' | 'banner'
 
-export default function ProfileHeader({ profile, stats, isOwner }: ProfileHeaderProps) {
+export default function ProfileHeader({ profile, stats, isOwner, onEditProfile }: ProfileHeaderProps) {
   const router     = useRouter()
   const avatarRef  = useRef<HTMLInputElement>(null)
   const bannerRef  = useRef<HTMLInputElement>(null)
@@ -244,16 +245,32 @@ export default function ProfileHeader({ profile, stats, isOwner }: ProfileHeader
           </div>
 
           {isOwner && (
-            <Link href="/settings" style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              border: '1px solid var(--border, #1E1E26)',
-              borderRadius: 20, padding: '8px 16px',
-              textDecoration: 'none',
-              color: 'var(--text-primary, #F0F0EC)',
-              fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 600,
-            }}>
-              <Settings size={14} /> Edit profile
-            </Link>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Link href="/settings" aria-label="Settings" style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 38, height: 38,
+                border: '1px solid var(--border, #1E1E26)',
+                borderRadius: '50%',
+                color: 'var(--text-primary, #F0F0EC)',
+                textDecoration: 'none',
+              }}>
+                <Settings size={16} />
+              </Link>
+              <button
+                onClick={onEditProfile}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  border: '1px solid var(--border, #1E1E26)',
+                  borderRadius: 20, padding: '8px 16px',
+                  background: 'none',
+                  color: 'var(--text-primary, #F0F0EC)',
+                  fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Edit profile
+              </button>
+            </div>
           )}
         </div>
 

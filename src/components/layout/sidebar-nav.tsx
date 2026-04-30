@@ -3,18 +3,19 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTransition, useState, useEffect } from 'react'
-import { Home, Bell, User, Search, Wallet, Settings, PenSquare } from 'lucide-react'
+import { Home, Bell, User, Search, Wallet, Settings, PenSquare, MessageSquare } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
 
 const NAV = [
-  { href: '/feed',          icon: Home,     label: 'Home' },
-  { href: '/explore',       icon: Search,   label: 'Explore' },
-  { href: '/notifications', icon: Bell,     label: 'Notifications', badge: true },
-  { href: '/wallet',        icon: Wallet,   label: 'Wallet' },
-  { href: '/profile',       icon: User,     label: 'Profile' },
-  { href: '/settings',      icon: Settings, label: 'Settings' },
+  { href: '/feed',          icon: Home,          label: 'Home' },
+  { href: '/explore',       icon: Search,        label: 'Explore' },
+  { href: '/notifications', icon: Bell,          label: 'Notifications', badge: true },
+  { href: '/messages',      icon: MessageSquare, label: 'Chat' },
+  { href: '/wallet',        icon: Wallet,        label: 'Wallet' },
+  { href: '/profile',       icon: User,          label: 'Profile' },
+  { href: '/settings',      icon: Settings,      label: 'Settings' },
 ]
 
 interface SidebarNavProps {
@@ -72,8 +73,22 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
             <img
               src={theme === 'dark' ? '/logo.png' : '/logo-light.png'}
               alt="Spup"
-              style={{ height: 46, width: 'auto', display: 'block', flexShrink: 0 }}
+              style={{ height: 36, width: 'auto', display: 'block', flexShrink: 0 }}
             />
+            {!collapsed && (
+              <span style={{
+                fontFamily: "'Syne', sans-serif", fontWeight: 800,
+                fontSize: 26, letterSpacing: '-0.05em', lineHeight: 1,
+                color: 'var(--color-text-primary)',
+                textDecoration: 'underline',
+                textDecorationColor: 'var(--color-brand)',
+                textDecorationThickness: 3,
+                textUnderlineOffset: 5,
+                textDecorationStyle: 'wavy',
+              }}>
+                Spup
+              </span>
+            )}
           </Link>
         </div>
 

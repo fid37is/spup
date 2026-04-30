@@ -58,3 +58,28 @@ export async function deleteNotificationAction(notificationId: string) {
 
   return { success: true }
 }
+// ─── Client-callable paginated fetch (for infinite scroll) ────────────────────
+
+export async function getNotificationsAction(cursor?: string, limit = 30) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { notifications: [], nextCursor: null }
+
+  let query = supabase
+    .from('notifications')
+    .select(`
+      id, type, entity_id, entity_type, metadata, is_read, created_at,
+      actor:users!notifications_actor_id_fkey(id, username, display_name, avatar_url, verification_tier)
+    `)
+    .eq('recipient_id', profile.id)
+    .order('created_at', { ascending: false })
+    .limit(limit + 1)
+
+  if (cursor) query = query.lt('created_at', cursor)
+
+  const { data } = await query
+  if (!data?.length) return { notifications: [], nextCursor: null }
+
+  const hasMore = data.length > limit
+  const page = hasMore ? data.slice(0, limit) : data
+  return { notifications: page, nextCursor: hasMore ? page[page.length - 1].created_at : null }
+}

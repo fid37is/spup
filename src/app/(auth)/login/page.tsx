@@ -51,18 +51,15 @@ function LoginForm() {
   function onSubmit(data: LoginSchema) {
     setServerError('')
     startT(async () => {
-      const r = await loginAction(data)
-      if (r.error) {
-        // If unverified, redirect to verify
+      const r = await loginAction(data, redirectTo)
+      if (r?.error) {
         if ('needsVerification' in r && r.needsVerification && r.email) {
           router.push(`/verify-email?email=${encodeURIComponent(r.email as string)}`)
           return
         }
         setServerError(r.error)
-        return
       }
-      router.push(redirectTo)
-      router.refresh()
+      // On success loginAction redirects server-side — nothing to do here
     })
   }
 

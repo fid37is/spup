@@ -3,6 +3,7 @@ import './globals.css'
 import PWAProvider from '@/components/layout/pwa-provider'
 import { WaitlistProvider } from '@/components/landing/waitlist-context'
 import { GoogleAnalytics } from '@next/third-parties/google'
+import { ToastProvider } from '@/components/layout/toast'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
 
@@ -161,9 +162,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <PWAProvider />
-        <WaitlistProvider>
-          {children}
-        </WaitlistProvider>
+        <ToastProvider>
+          <WaitlistProvider>
+            {children}
+          </WaitlistProvider>
+        </ToastProvider>
         {process.env.NEXT_PUBLIC_GA_ID && (
           <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
         )}

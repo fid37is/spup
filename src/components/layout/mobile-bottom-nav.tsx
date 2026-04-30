@@ -2,14 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Search, Bell, Wallet, User } from 'lucide-react'
+import { Home, Search, Bell, Wallet, MessageSquare } from 'lucide-react'
 
 const NAV = [
-  { href: '/feed',          icon: Home,   label: 'Home' },
-  { href: '/explore',       icon: Search, label: 'Explore' },
-  { href: '/notifications', icon: Bell,   label: 'Alerts', badge: true },
-  { href: '/wallet',        icon: Wallet, label: 'Wallet' },
-  { href: '/profile',       icon: User,   label: 'Profile' },
+  { href: '/feed',          icon: Home,          label: 'Home' },
+  { href: '/explore',       icon: Search,        label: 'Explore' },
+  { href: '/notifications', icon: Bell,          label: 'Alerts',  badge: true },
+  { href: '/messages',      icon: MessageSquare, label: 'Chat' },
+  { href: '/wallet',        icon: Wallet,        label: 'Wallet' },
 ]
 
 export default function MobileBottomNav({ unreadCount }: { unreadCount: number }) {

@@ -13,17 +13,25 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const profile = await getProfileByAuthId(user.id)
+  // ── Step 1: profile + onboarding in parallel (both need auth_id, not profile.id) ──
+  const [profile, onboarding] = await Promise.all([
+    getProfileByAuthId(user.id),
+    // We'll re-check onboarding after we have profile.id — but we can optimistically
+    // fetch profile first, then gate on both results together
+    Promise.resolve(null), // placeholder — see step 2
+  ])
+
   if (!profile) redirect('/login')
   if (profile.status === 'banned') redirect('/banned')
 
-  const onboarding = await getOnboardingProgress(profile.id)
-  if (!onboarding?.completed_at) redirect('/onboarding')
-
-  const [unreadCount, wallet] = await Promise.all([
+  // ── Step 2: onboarding + sidebar data all in parallel ──────────────────────
+  const [onboardingProgress, unreadCount, wallet] = await Promise.all([
+    getOnboardingProgress(profile.id),
     getUnreadNotificationCount(profile.id),
     getWallet(profile.id),
   ])
+
+  if (!onboardingProgress?.completed_at) redirect('/onboarding')
 
   return (
     <AppThemeProvider>

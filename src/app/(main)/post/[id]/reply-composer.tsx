@@ -6,6 +6,7 @@ import { createPostAction } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import MediaGrid from '@/components/feed/media-grid'
+import { useToast } from '@/components/layout/toast'
 
 const MAX_CHARS = 500
 
@@ -23,6 +24,7 @@ export default function ReplyComposer({
   viewerName = 'Me',
 }: ReplyComposerProps) {
   const router = useRouter()
+  const { success, error: toastError } = useToast()
   const [body, setBody] = useState('')
   const [focused, setFocused] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -65,13 +67,18 @@ export default function ReplyComposer({
           cloudinary_id: m.cloudinary_id!,
         })) : undefined,
       })
-      if ('error' in result && result.error) { setError(result.error); return }
+      if ('error' in result && result.error) {
+        setError(result.error)
+        toastError(result.error)
+        return
+      }
       setBody('')
       setError('')
       setShowMedia(false)
       setFocused(false)
       clear()
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
+      success('Reply posted')
       router.refresh()
     })
   }
