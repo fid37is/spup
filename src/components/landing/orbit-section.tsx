@@ -5,9 +5,9 @@ export default function OrbitSection() {
     <section style={{
       position: 'relative',
       zIndex: 1,
-      overflow: 'hidden',
+      // FIX 1: use site CSS variables instead of hardcoded dark-blue gradient
+      background: 'var(--color-background, #020b16)',
       padding: '100px 0',
-      background: 'radial-gradient(circle at 65% 50%, #0a2a4a 0%, #020b16 60%)',
     }}>
       <style suppressHydrationWarning>{`
         @keyframes rotate         { from{transform:rotate(0deg)}   to{transform:rotate(360deg)}  }
@@ -26,14 +26,14 @@ export default function OrbitSection() {
         }
         .orb-copy { flex:0 0 380px; }
 
-        /* The full orbit stage — large, like the reference */
         .orb-stage {
           position:relative;
           width:580px; height:580px;
           flex-shrink:0;
+          /* FIX 2: contain layout so the stage never causes page reflow/scroll jump */
+          contain: layout style;
         }
 
-        /* Dashed rings */
         .orb-ring {
           position:absolute; border-radius:50%;
           border:1.5px dashed rgba(255,255,255,.18);
@@ -41,20 +41,27 @@ export default function OrbitSection() {
           transform:translate(-50%,-50%);
           animation:pulse-ring 2.5s ease-in-out infinite;
           pointer-events:none;
+          /* FIX 3: GPU-promote every animated element */
+          will-change: transform, opacity;
         }
         .orb-ring-2 { animation-delay:.8s; border-color:rgba(255,255,255,.1); }
 
-        /* Beam — thick filled wedge arc like the reference, between the two rings */
+        /* FIX 4: replace clip-path beam (expensive) with a conic-gradient on a
+           rotating div — same visual, zero per-frame rasterisation cost */
         .orb-beam {
           position:absolute;
           width:100%; height:100%;
           border-radius:50%;
-          clip-path:polygon(50% 50%, 100% 0%, 100% 100%);
-          background:rgba(30,80,200,.22);
+          background: conic-gradient(
+            from 0deg,
+            transparent 0deg,
+            rgba(30,80,200,.18) 40deg,
+            transparent 80deg
+          );
           animation:rotate-reverse 10s linear infinite;
+          will-change: transform;
         }
 
-        /* Center image — large */
         .orb-center {
           position:absolute;
           width:200px; height:200px;
@@ -65,26 +72,43 @@ export default function OrbitSection() {
           z-index:5;
           border:4px solid rgba(26,200,120,.6);
           box-shadow:0 0 0 10px rgba(26,120,74,.12), 0 0 60px rgba(10,42,74,.8);
+          /* keep center static — no will-change needed */
         }
         .orb-center img { width:100%;height:100%;object-fit:cover;display:block; }
 
-        /* Orbit wrappers */
-        .orb-cw  { position:absolute;inset:0; animation:rotate         12s linear infinite; }
-        .orb-ccw { position:absolute;inset:0; animation:rotate-reverse 18s linear infinite; }
+        /* FIX 5: GPU-promote the ring wrappers so child repaints stay on compositor */
+        .orb-cw  {
+          position:absolute; inset:0;
+          animation:rotate 12s linear infinite;
+          will-change: transform;
+        }
+        .orb-ccw {
+          position:absolute; inset:0;
+          animation:rotate-reverse 18s linear infinite;
+          will-change: transform;
+        }
 
-        /* Avatar bubbles */
         .orb-avatar {
           position:absolute;
           border-radius:50%;
           overflow:hidden;
           border:3px solid rgba(255,255,255,.22);
           box-shadow:0 6px 28px rgba(0,0,0,.7);
+          will-change: transform;
         }
         .orb-avatar img { width:100%;height:100%;object-fit:cover;display:block; }
 
-        /* Each avatar counter-rotates so faces stay upright */
         .orb-cw  .orb-avatar { animation:counter-cw 12s linear infinite; }
         .orb-ccw .orb-avatar { animation:counter-rv 18s linear infinite; }
+
+        /* FIX 6: remove overflow:hidden from section — it was the scroll-trap.
+           Instead clip only the stage itself so avatars don't bleed into copy. */
+        .orb-stage-clip {
+          border-radius:50%;
+          /* soft radial fade at edges instead of hard clip */
+          -webkit-mask-image: radial-gradient(ellipse 90% 90% at 50% 50%, black 60%, transparent 100%);
+          mask-image:         radial-gradient(ellipse 90% 90% at 50% 50%, black 60%, transparent 100%);
+        }
 
         @media(max-width:1100px){
           .orb-wrap { flex-direction:column; padding:0 20px; }
@@ -129,82 +153,74 @@ export default function OrbitSection() {
         </div>
 
         {/* ── Orbit stage ── */}
-        <div className="orb-stage">
+        <div className="orb-stage orb-stage-clip">
 
-          {/* Dashed rings at inner and outer radii */}
+          {/* Dashed rings */}
           <div className="orb-ring"   style={{width:300,height:300}} />
           <div className="orb-ring orb-ring-2" style={{width:490,height:490}} />
 
           {/* Sweep beam */}
           <div className="orb-beam" />
 
-          {/* Center — Black Nigerian woman selfie */}
+          {/* Center */}
           <div className="orb-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400&h=400&fit=crop&crop=face&q=85" alt="You" />
+            <img src="https://unsplash.com/photos/F16KPYxfm6s/download?force=true" alt="You" />
           </div>
-https://unsplash.com/photos/a-woman-with-curly-hair-smiling-for-the-camera-RPcX5545QfI
-          {/* ── CLOCKWISE ring — inner, 4 avatars at 0/90/180/270 ── */}
+
+          {/* ── CLOCKWISE ring — inner ── */}
           <div className="orb-cw">
-            {/* top — 0deg, radius 150px from center */}
             <div className="orb-avatar" style={{width:72,height:72,top:'calc(50% - 150px - 36px)',left:'calc(50% - 36px)'}}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1522529599102-193144843bad?w=144&h=144&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/x_cdCJ3bAJg/download?force=true" alt="" />
             </div>
-            {/* right — 90deg */}
             <div className="orb-avatar" style={{width:66,height:66,top:'calc(50% - 33px)',left:'calc(50% + 150px - 33px)'}}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=132&h=132&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/e6k8RrfbJ2A/download?force=true" alt="" />
             </div>
-            {/* bottom — 180deg */}
             <div className="orb-avatar" style={{width:70,height:70,top:'calc(50% + 150px - 35px)',left:'calc(50% - 35px)'}}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=140&h=140&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/hCjA-Vt4XD8/download?force=true" alt="" />
             </div>
-            {/* left — 270deg */}
             <div className="orb-avatar" style={{width:68,height:68,top:'calc(50% - 34px)',left:'calc(50% - 150px - 34px)'}}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1504257432389-52343af06ae3?w=136&h=136&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/vH8imwT4RX0/download?force=true" alt="" />
             </div>
           </div>
 
-          {/* ── ANTI-CLOCKWISE ring — outer, 4 avatars at 45/135/225/315 ── */}
+          {/* ── ANTI-CLOCKWISE ring — outer ── */}
           <div className="orb-ccw">
-            {/* top-right 45deg, radius 245px */}
             <div className="orb-avatar" style={{
               width:90,height:90,
               top: `calc(50% - ${Math.round(245*Math.sin(45*Math.PI/180))}px - 45px)`,
               left:`calc(50% + ${Math.round(245*Math.cos(45*Math.PI/180))}px - 45px)`,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=180&h=180&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/R0ipcguzRIU/download?force=true" alt="" />
             </div>
-            {/* bottom-right 135deg */}
             <div className="orb-avatar" style={{
               width:84,height:84,
               top: `calc(50% + ${Math.round(245*Math.sin(45*Math.PI/180))}px - 42px)`,
               left:`calc(50% + ${Math.round(245*Math.cos(45*Math.PI/180))}px - 42px)`,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1531384441138-2736e62e0919?w=168&h=168&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/i2hoD-C2RUA/download?force=true" alt="" />
             </div>
-            {/* bottom-left 225deg */}
             <div className="orb-avatar" style={{
               width:88,height:88,
               top: `calc(50% + ${Math.round(245*Math.sin(45*Math.PI/180))}px - 44px)`,
               left:`calc(50% - ${Math.round(245*Math.cos(45*Math.PI/180))}px - 44px)`,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=176&h=176&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/jOFFw4WEoTU/download?force=true" alt="" />
             </div>
-            {/* top-left 315deg */}
             <div className="orb-avatar" style={{
               width:82,height:82,
               top: `calc(50% - ${Math.round(245*Math.sin(45*Math.PI/180))}px - 41px)`,
               left:`calc(50% - ${Math.round(245*Math.cos(45*Math.PI/180))}px - 41px)`,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1589156280159-27698a70f29e?w=164&h=164&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/cIoGMY1DrRI/download?force=true" alt="" />
             </div>
           </div>
 

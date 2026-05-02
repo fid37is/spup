@@ -41,7 +41,7 @@ export default function LandingFooter() {
 
         {/* Logo + wordmark */}
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-          <img src="/logo.png" alt="Spup" style={{ width: 54, height: 54, borderRadius: 8, display: 'block' }} />
+          <img src="/logo.png" alt="Spup" style={{ width: 54, height: 54, borderRadius: 8, display: 'block', filter: 'brightness(0) invert(1) sepia(1) saturate(3) hue-rotate(95deg)', }} />
           <span style={{
             fontFamily: "'Syne', sans-serif", fontWeight: 800,
             fontSize: 20, color: 'var(--color-brand)',
