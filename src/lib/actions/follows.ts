@@ -34,24 +34,19 @@ export async function toggleFollowAction(targetUserId: string) {
     await supabase.from('follows').delete().match({ follower_id: profile.id, following_id: targetUserId })
     void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'following_count', p_id: profile.id, p_amount: -1 })
     void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'followers_count', p_id: targetUserId, p_amount: -1 })
-    revalidatePath('/feed')
     return { following: false }
   }
 
   const { error } = await supabase.from('follows').insert({ follower_id: profile.id, following_id: targetUserId })
-  if (error?.code === '23505') return { following: true }     // unique violation = already following
+  if (error?.code === '23505') return { following: true }
   if (error) return { error: 'Could not follow. Please try again.' }
 
   void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'following_count', p_id: profile.id, p_amount: 1 })
   void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'followers_count', p_id: targetUserId, p_amount: 1 })
-
-  // Notify target user
   void supabase.from('notifications').insert({
     recipient_id: targetUserId, actor_id: profile.id,
     type: 'new_follower', entity_id: profile.id, entity_type: 'user',
   })
-
-  revalidatePath('/feed')
   return { following: true }
 }
 

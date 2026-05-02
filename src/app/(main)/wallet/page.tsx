@@ -3,70 +3,143 @@ import { redirect } from 'next/navigation'
 import { getProfileByAuthId } from '@/lib/queries'
 import { getWallet, getTransactions, getMonthlyEarnings, checkMonetisationEligibility } from '@/lib/queries'
 import { formatNaira, formatNumber } from '@/lib/utils'
-import { TrendingUp, ArrowDownToLine, Clock, CheckCircle, AlertCircle } from 'lucide-react'
+import { TrendingUp, ArrowDownToLine, Clock, CheckCircle, AlertCircle, ArrowUpRight, Shield } from 'lucide-react'
 import WithdrawButton from './withdraw-button'
+import Link from 'next/link'
 
-function MonetisationChecklist({ criteria, is_monetised }: { criteria: NonNullable<Awaited<ReturnType<typeof checkMonetisationEligibility>>>['criteria']; is_monetised: boolean }) {
+/* ── Monetisation checklist ─────────────────────────────────────────────── */
+function MonetisationChecklist({
+  criteria, is_monetised,
+}: {
+  criteria: NonNullable<Awaited<ReturnType<typeof checkMonetisationEligibility>>>['criteria']
+  is_monetised: boolean
+}) {
   const items = [
-    { label: '500+ followers', ...criteria.followers, display: `${formatNumber(criteria.followers.value as number)} followers` },
-    { label: '90-day account', ...criteria.account_age, display: `${criteria.account_age.value} days old` },
-    { label: '100+ posts', ...criteria.posts, display: `${formatNumber(criteria.posts.value as number)} posts` },
-    { label: 'No violations', ...criteria.good_standing, display: criteria.good_standing.met ? 'Account in good standing' : 'Account has violations' },
-    { label: 'BVN verified', ...criteria.bvn_verified, display: criteria.bvn_verified.met ? 'BVN verified' : 'BVN not verified' },
+    { label: '500+ followers',    ...criteria.followers,    display: `${formatNumber(criteria.followers.value as number)} / 500` },
+    { label: '90-day account',    ...criteria.account_age,  display: `${criteria.account_age.value} / 90 days` },
+    { label: '100+ posts',        ...criteria.posts,        display: `${formatNumber(criteria.posts.value as number)} / 100` },
+    { label: 'Account in good standing', ...criteria.good_standing, display: criteria.good_standing.met ? 'Good standing' : 'Has violations' },
+    { label: 'BVN verified',      ...criteria.bvn_verified, display: criteria.bvn_verified.met ? 'Verified' : 'Not verified' },
   ]
   const metCount = items.filter(i => i.met).length
   const pct = Math.round((metCount / items.length) * 100)
 
   return (
-    <div style={{ background: '#111', border: '1px solid #1A1A1A', borderRadius: 16, padding: 20, marginBottom: 20 }}>
+    <section style={{ border: '1px solid var(--color-border)', borderRadius: 16, padding: 20, marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: '#F5F5F0' }}>
-          {is_monetised ? 'Monetisation active ✓' : 'Monetisation eligibility'}
-        </h2>
-        <span style={{ fontSize: 13, fontWeight: 700, color: pct === 100 ? '#22A861' : '#D4A017' }}>{pct}%</span>
-      </div>
-      <div style={{ height: 4, background: '#1E1E1E', borderRadius: 2, marginBottom: 16 }}>
-        <div style={{ height: '100%', borderRadius: 2, background: pct === 100 ? '#22A861' : '#D4A017', width: `${pct}%`, transition: 'width 0.5s ease' }} />
-      </div>
-      {items.map((c, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: i < items.length - 1 ? 10 : 0 }}>
-          {c.met ? <CheckCircle size={16} color="#22A861" /> : <AlertCircle size={16} color="#555" />}
-          <div>
-            <div style={{ fontSize: 14, color: c.met ? '#F5F5F0' : '#6A6A60', fontWeight: c.met ? 500 : 400 }}>{c.label}</div>
-            <div style={{ fontSize: 12, color: c.met ? '#22A861' : '#555' }}>{c.display}</div>
-          </div>
+        <div>
+          <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', marginBottom: 2 }}>
+            {is_monetised ? 'Monetisation active' : 'Monetisation eligibility'}
+          </h2>
+          <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+            {is_monetised ? 'You are earning ad revenue' : `${metCount} of ${items.length} criteria met`}
+          </p>
         </div>
-      ))}
-    </div>
+        <span style={{
+          fontSize: 13, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+          background: pct === 100 ? 'var(--color-brand)' : 'var(--color-surface-2)',
+          color: pct === 100 ? 'white' : 'var(--color-text-secondary)',
+        }}>
+          {pct}%
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ height: 4, background: 'var(--color-surface-2)', borderRadius: 2, marginBottom: 18 }}>
+        <div style={{ height: '100%', borderRadius: 2, background: 'var(--color-brand)', width: `${pct}%`, transition: 'width 0.5s ease' }} />
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {items.map((c, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {c.met
+                ? <CheckCircle size={16} color="var(--color-brand)" />
+                : <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--color-border)' }} />
+              }
+              <span style={{ fontSize: 14, color: c.met ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>{c.label}</span>
+            </div>
+            <span style={{ fontSize: 12, color: c.met ? 'var(--color-brand)' : 'var(--color-text-muted)', fontWeight: c.met ? 600 : 400 }}>
+              {c.display}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 
+/* ── Transaction row ─────────────────────────────────────────────────────── */
 function TransactionRow({ tx }: { tx: any }) {
   const isCredit = ['earning_ad', 'earning_tip', 'earning_subscription'].includes(tx.type)
-  const typeLabel: Record<string, string> = { earning_ad: 'Ad revenue', earning_tip: 'Tip received', earning_subscription: 'Subscription', withdrawal: 'Withdrawal', refund: 'Refund' }
-  const statusIcon = { pending: <Clock size={12} color="#D4A017" />, completed: <CheckCircle size={12} color="#22A861" />, failed: <AlertCircle size={12} color="#E53935" />, reversed: <AlertCircle size={12} color="#555" /> }[tx.status as string]
+  const typeLabel: Record<string, string> = {
+    earning_ad: 'Ad revenue',
+    earning_tip: 'Tip received',
+    earning_subscription: 'Subscription',
+    withdrawal: 'Withdrawal',
+    refund: 'Refund',
+  }
+  const statusColor: Record<string, string> = {
+    pending: 'var(--color-gold)',
+    completed: 'var(--color-brand)',
+    failed: 'var(--color-error)',
+    reversed: 'var(--color-text-muted)',
+  }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid #141414' }}>
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '14px 0',
+      borderBottom: '1px solid var(--color-border)',
+    }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 36, height: 36, borderRadius: '50%', background: isCredit ? 'rgba(26,122,74,0.15)' : 'rgba(229,57,53,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {isCredit ? <TrendingUp size={16} color="#22A861" /> : <ArrowDownToLine size={16} color="#E53935" />}
+        <div style={{
+          width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+          background: 'var(--color-surface-2)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {isCredit
+            ? <ArrowUpRight size={16} color="var(--color-brand)" />
+            : <ArrowDownToLine size={16} color="var(--color-text-muted)" />
+          }
         </div>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5F0' }}>{typeLabel[tx.type] || tx.type}</div>
-          <div style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 4 }}>
-            {statusIcon} <span style={{ textTransform: 'capitalize' }}>{tx.status}</span>
-            {' · '}{new Date(tx.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)', marginBottom: 3 }}>
+            {typeLabel[tx.type] || tx.type}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: statusColor[tx.status] || 'var(--color-text-muted)', textTransform: 'capitalize' }}>
+              {tx.status}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+              · {new Date(tx.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
           </div>
         </div>
       </div>
-      <span style={{ fontSize: 15, fontWeight: 700, color: isCredit ? '#22A861' : '#D0D0C8', fontFamily: "'Syne', sans-serif" }}>
-        {isCredit ? '+' : '-'}{formatNaira(tx.amount_kobo)}
+      <span style={{
+        fontSize: 15, fontWeight: 700,
+        color: isCredit ? 'var(--color-brand)' : 'var(--color-text-primary)',
+        fontFamily: "'Syne', sans-serif",
+        flexShrink: 0, marginLeft: 12,
+      }}>
+        {isCredit ? '+' : '−'}{formatNaira(tx.amount_kobo)}
       </span>
     </div>
   )
 }
 
+/* ── Stat card ───────────────────────────────────────────────────────────── */
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ flex: 1, padding: '14px 16px', background: 'var(--color-surface-2)', borderRadius: 12 }}>
+      <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 6, fontWeight: 500 }}>{label}</div>
+      <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--color-text-primary)' }}>{value}</div>
+    </div>
+  )
+}
+
+/* ── Page ────────────────────────────────────────────────────────────────── */
 export default async function WalletPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -88,56 +161,111 @@ export default async function WalletPage() {
   const totalWithdrawn = wallet?.total_withdrawn_kobo || 0
   const canWithdraw = balance >= 100_000 && profile.bvn_verified
 
+  const savedBank = wallet?.bank_account_number ? {
+    bank_name: wallet.bank_name,
+    bank_account_number: wallet.bank_account_number,
+    bank_account_name: wallet.bank_account_name,
+    paystack_recipient_code: wallet.paystack_recipient_code,
+  } : null
+
   return (
     <div>
-      <div style={{ position: 'sticky', top: 0, zIndex: 10, backdropFilter: 'blur(20px)', background: 'rgba(10,10,10,0.9)', borderBottom: '1px solid #1A1A1A', padding: '16px 20px' }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: '#F5F5F0' }}>Wallet</h1>
+      {/* Sticky header */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 10,
+        backdropFilter: 'blur(20px)',
+        background: 'var(--nav-bg)',
+        borderBottom: '1px solid var(--color-border)',
+        padding: '16px 20px',
+      }}>
+        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)' }}>
+          Wallet
+        </h1>
       </div>
 
-      <div style={{ padding: 20 }}>
-        {/* Balance card */}
-        <div style={{ background: 'linear-gradient(135deg, #0F3020 0%, #1A1A0A 100%)', border: '1px solid rgba(26,122,74,0.3)', borderRadius: 20, padding: 24, marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(26,122,74,0.08)' }} />
-          <div style={{ fontSize: 12, color: '#22A861', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>AVAILABLE BALANCE</div>
-          <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 40, color: '#F5F5F0', letterSpacing: '-0.02em', marginBottom: 6 }}>{formatNaira(balance)}</div>
-          <div style={{ fontSize: 13, color: '#22A861', marginBottom: 20 }}>+{formatNaira(monthlyEarnings.total_kobo)} this month</div>
+      <div style={{ padding: '20px 16px', maxWidth: 600, margin: '0 auto' }}>
 
-          <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
-            {[{ label: 'Total earned', value: totalEarned }, { label: 'Withdrawn', value: totalWithdrawn }].map(({ label, value }) => (
-              <div key={label}>
-                <div style={{ fontSize: 12, color: '#555', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#9A9A90', fontFamily: "'Syne', sans-serif" }}>{formatNaira(value)}</div>
-              </div>
-            ))}
+        {/* Balance card */}
+        <div style={{
+          border: '1px solid var(--color-border)',
+          borderRadius: 20,
+          padding: '24px 20px',
+          marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: '0.06em', marginBottom: 10, textTransform: 'uppercase' }}>
+            Available balance
+          </div>
+          <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 36, color: 'var(--color-text-primary)', letterSpacing: '-0.02em', marginBottom: 6 }}>
+            {formatNaira(balance)}
+          </div>
+          {monthlyEarnings.total_kobo > 0 && (
+            <div style={{ fontSize: 13, color: 'var(--color-brand)', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <TrendingUp size={13} />
+              +{formatNaira(monthlyEarnings.total_kobo)} this month
+            </div>
+          )}
+
+          {/* Stat row */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+            <StatCard label="Total earned" value={formatNaira(totalEarned)} />
+            <StatCard label="Withdrawn" value={formatNaira(totalWithdrawn)} />
           </div>
 
-          <WithdrawButton canWithdraw={canWithdraw} balance={balance} bvnVerified={profile.bvn_verified} />
+          <WithdrawButton canWithdraw={canWithdraw} balance={balance} bvnVerified={profile.bvn_verified} savedBank={savedBank} />
         </div>
 
+        {/* BVN banner */}
         {!profile.bvn_verified && (
-          <div style={{ background: 'rgba(212,160,23,0.08)', border: '1px solid rgba(212,160,23,0.2)', borderRadius: 12, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 10 }}>
-            <AlertCircle size={16} color="#D4A017" style={{ flexShrink: 0, marginTop: 2 }} />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#D4A017', marginBottom: 4 }}>BVN verification required</div>
-              <div style={{ fontSize: 13, color: '#9A7A10', lineHeight: 1.5 }}>Required by CBN before you can withdraw earnings.</div>
-              <button style={{ marginTop: 10, background: '#D4A017', color: '#000', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'Syne', sans-serif" }}>Verify BVN</button>
+          <div style={{
+            border: '1px solid var(--color-border)',
+            borderRadius: 14,
+            padding: '14px 16px',
+            marginBottom: 12,
+            display: 'flex', gap: 12, alignItems: 'flex-start',
+          }}>
+            <Shield size={18} color="var(--color-gold)" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
+                BVN verification required
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
+                Verify your BVN as required by the CBN to withdraw your earnings.
+              </div>
+              <Link href="/settings/verify-phone" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
+                Verify BVN <ArrowUpRight size={13} />
+              </Link>
             </div>
           </div>
         )}
 
+        {/* Monetisation checklist — only when not yet monetised */}
         {eligibility && !eligibility.is_monetised && (
           <MonetisationChecklist criteria={eligibility.criteria} is_monetised={eligibility.is_monetised} />
         )}
 
-        <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16, color: '#F5F5F0', marginBottom: 16 }}>Transaction history</h2>
-        {transactions.length === 0 ? (
-          <div style={{ padding: '40px 0', textAlign: 'center' }}>
-            <TrendingUp size={32} color="#2A2A2A" style={{ marginBottom: 12 }} />
-            <p style={{ fontSize: 14, color: '#555' }}>No transactions yet. Start posting to earn!</p>
-          </div>
-        ) : (
-          transactions.map((tx: any) => <TransactionRow key={tx.id} tx={tx} />)
-        )}
+        {/* Transactions */}
+        <div style={{ marginTop: 24 }}>
+          <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--color-text-primary)', marginBottom: 4 }}>
+            Transactions
+          </h2>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
+            Last 20 transactions
+          </p>
+
+          {transactions.length === 0 ? (
+            <div style={{ padding: '48px 0', textAlign: 'center', border: '1px solid var(--color-border)', borderRadius: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--color-surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <TrendingUp size={22} color="var(--color-text-muted)" />
+              </div>
+              <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6 }}>No transactions yet</p>
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Start posting to earn ad revenue.</p>
+            </div>
+          ) : (
+            <div>
+              {transactions.map((tx: any) => <TransactionRow key={tx.id} tx={tx} />)}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

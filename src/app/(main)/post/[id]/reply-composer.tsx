@@ -6,6 +6,7 @@ import { createPostAction } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import MediaGrid from '@/components/feed/media-grid'
+import { useToast } from '@/components/layout/toast'
 
 const MAX_CHARS = 500
 
@@ -23,6 +24,7 @@ export default function ReplyComposer({
   viewerName = 'Me',
 }: ReplyComposerProps) {
   const router = useRouter()
+  const { success, error: toastError } = useToast()
   const [body, setBody] = useState('')
   const [focused, setFocused] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -65,13 +67,18 @@ export default function ReplyComposer({
           cloudinary_id: m.cloudinary_id!,
         })) : undefined,
       })
-      if ('error' in result && result.error) { setError(result.error); return }
+      if ('error' in result && result.error) {
+        setError(result.error)
+        toastError(result.error)
+        return
+      }
       setBody('')
       setError('')
       setShowMedia(false)
       setFocused(false)
       clear()
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
+      success('Reply posted')
       router.refresh()
     })
   }
@@ -117,6 +124,7 @@ export default function ReplyComposer({
             value={body}
             onChange={handleChange}
             onFocus={() => setFocused(true)}
+            onBlur={() => { if (!body && !media.length) setFocused(false) }}
             onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleReply() }}
             placeholder="Soro soke…"
             rows={1}
@@ -155,9 +163,9 @@ export default function ReplyComposer({
           )}
 
           {error && (
-            <p style={{ fontSize: 13, color: 'var(--color-error)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ fontSize: 13, color: 'var(--color-error)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
               <X size={12} /> {error}
-            </p>
+            </div>
           )}
 
           {/* Toolbar — only when expanded */}

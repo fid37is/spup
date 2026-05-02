@@ -3,18 +3,19 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTransition, useState, useEffect } from 'react'
-import { Home, Bell, User, Search, Wallet, Settings, PenSquare } from 'lucide-react'
+import { Home, Bell, User, Search, Wallet, Settings, PenSquare, MessageSquare } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
 
 const NAV = [
-  { href: '/feed',          icon: Home,     label: 'Home' },
-  { href: '/explore',       icon: Search,   label: 'Explore' },
-  { href: '/notifications', icon: Bell,     label: 'Notifications', badge: true },
-  { href: '/wallet',        icon: Wallet,   label: 'Wallet' },
-  { href: '/profile',       icon: User,     label: 'Profile' },
-  { href: '/settings',      icon: Settings, label: 'Settings' },
+  { href: '/feed',          icon: Home,          label: 'Home' },
+  { href: '/explore',       icon: Search,        label: 'Explore' },
+  { href: '/notifications', icon: Bell,          label: 'Notifications', badge: true },
+  { href: '/messages',      icon: MessageSquare, label: 'Chat' },
+  { href: '/wallet',        icon: Wallet,        label: 'Wallet' },
+  { href: '/profile',       icon: User,          label: 'Profile' },
+  { href: '/settings',      icon: Settings,      label: 'Settings' },
 ]
 
 interface SidebarNavProps {
@@ -65,14 +66,20 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
           padding: collapsed ? '18px 0 20px' : '18px 10px 20px',
           display: 'flex', justifyContent: collapsed ? 'center' : 'flex-start',
         }}>
-          <Link href="/feed" style={{
-            textDecoration: 'none', display: 'flex', alignItems: 'center',
-            gap: collapsed ? 0 : 10,
-          }}>
+          <Link href="/feed" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
             <img
-              src={theme === 'dark' ? '/logo.png' : '/logo-light.png'}
+              src="/logo.png"
               alt="Spup"
-              style={{ height: 46, width: 'auto', display: 'block', flexShrink: 0 }}
+              style={{
+                height: 52,
+                width: 'auto',
+                display: 'block',
+                flexShrink: 0,
+                filter: theme === 'dark'
+                  ? 'invert(1) hue-rotate(100deg) brightness(1.15) saturate(1.2)'
+                  : 'invert(0.85) hue-rotate(80deg) brightness(0.55) contrast(1.5)',
+                transition: 'filter 0.2s ease',
+              }}
             />
           </Link>
         </div>

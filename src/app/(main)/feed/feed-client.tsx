@@ -38,11 +38,24 @@ export default function FeedClient({ initialPosts, initialCursor }: FeedClientPr
   const [activeTab, setActiveTab] = useState<Tab>('for-you')
   const [posts, setPosts] = useState<FeedPost[]>(initialPosts)
   const [cursor, setCursor] = useState<string | null>(initialCursor)
-  const [hasMore, setHasMore] = useState(!!initialCursor)
+  const [hasMore, setHasMore] = useState(initialPosts.length > 0 ? !!initialCursor : true)
   const [isPending, startTransition] = useTransition()
   const sentinelRef = useRef<HTMLDivElement>(null)
   const tabRef = useRef<Tab>('for-you')
   tabRef.current = activeTab
+
+  // Server sends empty shell — fetch initial posts on mount client-side
+  useEffect(() => {
+    if (initialPosts.length === 0) {
+      startTransition(async () => {
+        const { posts: fresh, nextCursor } = await getForYouFeedAction()
+        setPosts(fresh)
+        setCursor(nextCursor)
+        setHasMore(!!nextCursor)
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function switchTab(tab: Tab) {
     if (tab === activeTab) return

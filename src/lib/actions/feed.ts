@@ -44,6 +44,14 @@ export interface FeedPost {
     height: number | null
     position: number
   }>
+  quoted_post_id: string | null
+  quoted_post?: {
+    id: string
+    body: string | null
+    created_at: string
+    author: { id: string; username: string; display_name: string; avatar_url: string | null; verification_tier: string }
+    media: Array<{ id: string; media_type: string; url: string; thumbnail_url: string | null; width: number | null; height: number | null; position: number }>
+  } | null
   is_liked: boolean
   is_disliked: boolean
   is_reposted: boolean
@@ -78,7 +86,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -134,7 +142,7 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -193,7 +201,7 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -232,7 +240,7 @@ export async function getPostRepliesAction(postId: string, cursor?: string) {
     .from('posts')
     .select(`
       id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -274,7 +282,7 @@ export async function getBookmarkedPostsAction(cursor?: string) {
     .select(`
       post:posts(
         id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-        bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+        bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
         author:users!posts_user_id_fkey(
           id, username, display_name, avatar_url, verification_tier, is_monetised
         ),
@@ -301,6 +309,132 @@ export async function getBookmarkedPostsAction(cursor?: string) {
   }
 }
 
+// ─── Profile tab feed ─────────────────────────────────────────────────────────
+// Loads posts for a specific profile + tab (posts / replies / media / likes)
+// with engagement state hydrated for the current viewer.
+
+export async function getProfileTabAction(
+  profileUserId: string,
+  tab: 'posts' | 'replies' | 'media' | 'likes',
+  cursor?: string
+): Promise<{ posts: FeedPost[]; nextCursor: string | null }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const viewer = user
+    ? (await supabase.from('users').select('id').eq('auth_id', user.id).single()).data
+    : null
+
+  const BASE_SELECT = `
+    id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+    bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+    author:users!posts_user_id_fkey(
+      id, username, display_name, avatar_url, verification_tier, is_monetised
+    ),
+    media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+  `
+
+  // media tab uses !inner to only return posts that have at least one media row
+  const MEDIA_SELECT = `
+    id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+    bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+    author:users!posts_user_id_fkey(
+      id, username, display_name, avatar_url, verification_tier, is_monetised
+    ),
+    media:post_media!inner(id, media_type, url, thumbnail_url, width, height, position)
+  `
+
+  let rawPosts: any[] = []
+  let hasMore = false
+
+  if (tab === 'likes') {
+    let q = supabase
+      .from('likes')
+      .select(`post:posts(${BASE_SELECT})`)
+      .eq('user_id', profileUserId)
+      .order('created_at', { ascending: false })
+      .limit(PAGE_SIZE + 1)
+    if (cursor) q = q.lt('created_at', cursor)
+    const { data } = await q
+    const rows = data || []
+    hasMore = rows.length > PAGE_SIZE
+    const page = hasMore ? rows.slice(0, PAGE_SIZE) : rows
+    rawPosts = page.map((r: any) => r.post).filter(Boolean)
+  } else {
+    let q = supabase
+      .from('posts')
+      .select(tab === 'media' ? MEDIA_SELECT : BASE_SELECT)
+      .eq('user_id', profileUserId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(PAGE_SIZE + 1)
+
+    if (tab === 'posts') {
+      q = q.is('parent_post_id', null).neq('post_type', 'repost')
+    } else if (tab === 'replies') {
+      q = q.not('parent_post_id', 'is', null)
+    }
+    // media: no extra filter — !inner join handles it
+
+    if (cursor) q = q.lt('created_at', cursor)
+    const { data } = await q
+    const rows = data || []
+    hasMore = rows.length > PAGE_SIZE
+    rawPosts = hasMore ? rows.slice(0, PAGE_SIZE) : rows
+  }
+
+  const nextCursor = hasMore ? rawPosts[rawPosts.length - 1]?.created_at ?? null : null
+
+  const hydrated = viewer
+    ? await hydrateEngagement(supabase, viewer.id, rawPosts)
+    : rawPosts.map(p => ({ ...p, is_liked: false, is_disliked: false, is_reposted: false, is_bookmarked: false }))
+
+  return { posts: hydrated as FeedPost[], nextCursor }
+}
+
+// ─── Profile mutuals list ─────────────────────────────────────────────────────
+// Returns users who mutually follow each other with the given profile user.
+// Used by the "Mutuals" tab on profile pages.
+
+export interface MutualUser {
+  id: string
+  username: string
+  display_name: string
+  avatar_url: string | null
+  verification_tier: string
+  followers_count: number
+  is_monetised: boolean
+}
+
+export async function getProfileMutualsAction(profileUserId: string): Promise<MutualUser[]> {
+  const supabase = await createClient()
+
+  // Everyone profileUser follows
+  const { data: following } = await supabase
+    .from('follows').select('following_id').eq('follower_id', profileUserId)
+  if (!following?.length) return []
+
+  const followingIds = following.map((f: { following_id: string }) => f.following_id)
+
+  // Of those, who also follows profileUser back?
+  const { data: mutualFollows } = await supabase
+    .from('follows').select('follower_id')
+    .eq('following_id', profileUserId)
+    .in('follower_id', followingIds)
+  if (!mutualFollows?.length) return []
+
+  const mutualIds = mutualFollows.map((f: { follower_id: string }) => f.follower_id)
+
+  const { data: users } = await supabase
+    .from('users')
+    .select('id, username, display_name, avatar_url, verification_tier, followers_count, is_monetised')
+    .in('id', mutualIds)
+    .is('deleted_at', null)
+    .order('followers_count', { ascending: false })
+    .limit(50)
+
+  return (users || []) as MutualUser[]
+}
+
 // ─── Internal: batch-hydrate like/repost/bookmark state ──────────────────────
 
 async function hydrateEngagement(
@@ -311,17 +445,30 @@ async function hydrateEngagement(
   if (!posts.length) return []
   const ids = posts.map(p => p.id)
 
-  const [{ data: likes }, { data: dislikes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
+  // Collect quoted_post_ids that need hydrating (quote posts + reposts)
+  const quotedIds = [...new Set(
+    posts.map(p => p.quoted_post_id).filter(Boolean)
+  )] as string[]
+
+  const [{ data: likes }, { data: dislikes }, { data: bookmarks }, { data: reposts }, { data: quotedPosts }] = await Promise.all([
     supabase.from('likes').select('post_id').eq('user_id', userId).in('post_id', ids),
     supabase.from('dislikes').select('post_id').eq('user_id', userId).in('post_id', ids),
     supabase.from('bookmarks').select('post_id').eq('user_id', userId).in('post_id', ids),
-    supabase.from('posts').select('parent_post_id').eq('user_id', userId).eq('post_type', 'repost').in('parent_post_id', ids),
+    supabase.from('posts').select('quoted_post_id').eq('user_id', userId).eq('post_type', 'repost').in('quoted_post_id', ids),
+    quotedIds.length
+      ? supabase.from('posts').select(`
+          id, body, created_at,
+          author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier),
+          media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+        `).in('id', quotedIds)
+      : Promise.resolve({ data: [] }),
   ])
 
   const likedSet = new Set((likes || []).map((l: {post_id: string}) => l.post_id))
   const dislikedSet = new Set((dislikes || []).map((d: {post_id: string}) => d.post_id))
   const bookmarkedSet = new Set((bookmarks || []).map((b: {post_id: string}) => b.post_id))
-  const repostedSet = new Set((reposts || []).map((r: {parent_post_id: string}) => r.parent_post_id))
+  const repostedSet = new Set((reposts || []).map((r: {quoted_post_id: string}) => r.quoted_post_id))
+  const quotedMap = new Map((quotedPosts || []).map((q: any) => [q.id, q]))
 
   return posts.map(p => ({
     ...p,
@@ -329,5 +476,6 @@ async function hydrateEngagement(
     is_disliked: dislikedSet.has(p.id),
     is_bookmarked: bookmarkedSet.has(p.id),
     is_reposted: repostedSet.has(p.id),
+    quoted_post: p.quoted_post_id ? (quotedMap.get(p.quoted_post_id) ?? null) : null,
   }))
 }

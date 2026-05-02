@@ -5,8 +5,8 @@ import LandingNav from '@/components/landing/landing-nav'
 import LandingHeroCards from '@/components/landing/landing-hero-cards'
 import { getWaitlistCountAction } from '@/lib/actions/waitlist'
 import LandingMobileSection from '@/components/landing/landing-mobile-section'
+import OrbitSection from '@/components/landing/orbit-section'
 
-export const revalidate = 60 // re-fetch waitlist count every 60 seconds
 
 /* ─── Data ─────────────────────────────────────────────────────────────── */
 
@@ -292,6 +292,9 @@ export default async function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* ── COMMUNITY ORBIT ── */}
+      <OrbitSection />
 
       {/* ── HOW YOU GET PAID ── */}
       <section className="section-pad-b">

@@ -29,7 +29,7 @@ export default async function MessagesPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)', margin: 0 }}>
-            Messages
+            Chat
           </h1>
           <Link href="/messages/new" style={{
             display: 'flex', alignItems: 'center', gap: 6,
@@ -45,9 +45,11 @@ export default async function MessagesPage() {
 
         {conversations.length === 0 ? (
           <div style={{ padding: '80px 20px', textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>💬</div>
+            <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+              <MessageSquare size={28} color="var(--color-text-secondary)" />
+            </div>
             <h3 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--color-text-primary)', marginBottom: 8 }}>
-              No messages yet
+              No chats yet
             </h3>
             <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 24 }}>
               Start a conversation with someone you follow

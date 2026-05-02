@@ -94,10 +94,11 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   const { post, replies } = data
 
   const { data: viewer } = await supabase
-    .from('users').select('display_name, avatar_url').eq('auth_id', user.id).maybeSingle()
+    .from('users').select('id, display_name, avatar_url').eq('auth_id', user.id).maybeSingle()
   const viewerName = viewer?.display_name ?? 'Me'
   const viewerInitial = viewerName.slice(0, 2).toUpperCase()
   const viewerAvatar = viewer?.avatar_url ?? null
+  const viewerUserId = viewer?.id ?? undefined
 
   const date = new Date(post.created_at).toLocaleString('en-NG', {
     hour: '2-digit', minute: '2-digit',
@@ -122,7 +123,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Main post */}
-      <PostCard post={post} />
+      <PostCard post={post} currentUserId={viewerUserId} />
 
       {/* Timestamp + views */}
       <div style={{
@@ -178,6 +179,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             <ReplyToReply
               reply={reply}
               viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
+              currentUserId={viewerUserId}
             />
             {reply.nested && reply.nested.length > 0 && (
               <div style={{ position: 'relative' }}>
@@ -190,6 +192,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
                     <ReplyToReply
                       reply={nested}
                       viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
+                      currentUserId={viewerUserId}
                     />
                   </div>
                 ))}

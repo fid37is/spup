@@ -238,11 +238,29 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
                 {m.error && (
                   <div style={{
                     position: 'absolute', inset: 0,
-                    background: 'rgba(229,57,53,0.75)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: 8,
+                    background: 'rgba(229,57,53,0.82)',
+                    display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center',
+                    padding: '8px 10px', overflow: 'hidden',
                   }}>
-                    <span style={{ fontSize: 12, color: 'white', textAlign: 'center' }}>{m.error}</span>
+                    <span style={{
+                      fontSize: 12, color: 'white', textAlign: 'center',
+                      wordBreak: 'break-word', lineHeight: 1.4,
+                      display: '-webkit-box', WebkitLineClamp: 3,
+                      WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                    }}>
+                      {m.error}
+                    </span>
+                    <button
+                      onClick={() => removeMedia(m.tempId)}
+                      style={{
+                        marginTop: 6, fontSize: 11, color: 'white',
+                        background: 'rgba(255,255,255,0.2)', border: 'none',
+                        borderRadius: 10, padding: '2px 8px', cursor: 'pointer',
+                      }}
+                    >
+                      Remove
+                    </button>
                   </div>
                 )}
 
