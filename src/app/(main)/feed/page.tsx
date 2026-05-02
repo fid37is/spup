@@ -8,6 +8,10 @@ export default async function FeedPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const { data: viewer } = await supabase
+    .from('users').select('id').eq('auth_id', user.id).maybeSingle()
+  const currentUserId = viewer?.id ?? undefined
+
   // Race the feed fetch against a 8s timeout so we never hit Next.js's 10s
   // server-render limit. On timeout we render with empty posts and let the
   // client-side infinite scroll fetch on mount instead.
@@ -30,5 +34,5 @@ export default async function FeedPage() {
     }
   }
 
-  return <FeedClient initialPosts={posts} initialCursor={nextCursor} />
+  return <FeedClient initialPosts={posts} initialCursor={nextCursor} currentUserId={currentUserId} />
 }
