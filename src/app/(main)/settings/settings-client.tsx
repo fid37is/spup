@@ -1,23 +1,7 @@
 'use client'
 
-/**
- * SettingsClient
- * ───────────────
- * Account & preferences settings. Does NOT handle profile appearance
- * (name / bio / avatar / location) — those live in the EditProfileModal
- * opened from the profile page.
- *
- * Sections:
- *   Account    — username, email (display-only), phone/BVN, change password
- *   Privacy    — private account toggle
- *   Notifications — push / email toggles (stored in preferences)
- *   Appearance — language preference
- *   Session    — sign out
- *   Danger     — delete account (requires typing "DELETE" to confirm)
- */
-
-import { useState, useTransition, useRef } from 'react'
-import { useRouter }   from 'next/navigation'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle,
   X, Check, User, Lock, Eye, EyeOff, Loader, Phone,
@@ -30,8 +14,7 @@ import {
   deleteAccountAction,
 } from '@/lib/actions/profiles'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-type Panel = null | 'username' | 'password' | 'language' | 'notifications'
+type Panel = null | 'username' | 'password' | 'language'
 
 interface SettingsProfile {
   id: string
@@ -54,140 +37,208 @@ const LANGS = [
   { code: 'ha',  label: 'Hausa'   },
 ]
 
-// ── Input style ───────────────────────────────────────────────────────────────
-const INP: React.CSSProperties = {
-  width: '100%',
-  background: 'var(--color-surface-2)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 10,
-  padding: '12px 14px',
-  color: 'var(--color-text-primary)',
-  fontSize: 15,
-  outline: 'none',
-  fontFamily: "'DM Sans', sans-serif",
-  transition: 'border-color 0.15s',
-}
-
-// ── Small helpers ─────────────────────────────────────────────────────────────
-
+// ── Section label ─────────────────────────────────────────────────────────────
 function SectionLabel({ label }: { label: string }) {
   return (
-    <div style={{
-      padding: '20px 20px 8px',
-      fontSize: 11, fontWeight: 700,
-      color: 'var(--color-text-muted)',
-      letterSpacing: '0.08em',
+    <p style={{
+      padding: '24px 20px 8px',
+      margin: 0,
+      fontSize: 11,
+      fontWeight: 700,
+      color: 'var(--color-text-faint)',
+      letterSpacing: '0.09em',
       textTransform: 'uppercase',
-    }}>{label}</div>
+    }}>
+      {label}
+    </p>
   )
 }
 
-function SettingsRow({
-  icon: Icon, label, desc, onClick, danger = false, accent, last = false,
+// ── Icon box — uses surface-raised so it's always visible ────────────────────
+function IconBox({ icon: Icon, danger = false }: { icon: any; danger?: boolean }) {
+  return (
+    <div style={{
+      width: 34,
+      height: 34,
+      borderRadius: 9,
+      flexShrink: 0,
+      background: danger ? 'var(--color-error-muted)' : 'var(--color-surface-raised)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}>
+      <Icon
+        size={15}
+        color={danger ? 'var(--color-error)' : 'var(--color-text-secondary)'}
+        strokeWidth={1.8}
+      />
+    </div>
+  )
+}
+
+// ── Single row ────────────────────────────────────────────────────────────────
+function Row({
+  icon, label, desc, onClick, danger = false, accentDesc = false, last = false, right,
 }: {
   icon: any; label: string; desc?: string
-  onClick?: () => void; danger?: boolean; accent?: string; last?: boolean
+  onClick?: () => void; danger?: boolean; accentDesc?: boolean; last?: boolean
+  right?: React.ReactNode
 }) {
   return (
-    <button
+    <div
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
       style={{
-        display: 'flex', alignItems: 'center', gap: 14,
-        width: '100%', padding: '14px 20px',
-        background: 'none', border: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '12px 20px',
         borderBottom: last ? 'none' : '1px solid var(--color-border)',
         cursor: onClick ? 'pointer' : 'default',
-        textAlign: 'left', transition: 'background 0.12s',
+        WebkitTapHighlightColor: 'transparent',
+        background: 'transparent',
+        transition: 'background 0.1s',
       }}
-      onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface-2)' }}
-      onMouseLeave={e => { if (onClick) (e.currentTarget as HTMLButtonElement).style.background = '' }}
+      onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-2)' }}
+      onMouseLeave={e => { if (onClick) (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
     >
-      <div style={{
-        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: danger ? 'var(--color-error-muted)' : 'var(--color-surface-2)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <Icon size={17} color={danger ? 'var(--color-error)' : (accent || 'var(--color-text-secondary)')} />
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 15, color: danger ? 'var(--color-error)' : 'var(--color-text-primary)', fontWeight: 500 }}>
+      <IconBox icon={icon} danger={danger} />
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 15,
+          fontWeight: 500,
+          color: danger ? 'var(--color-error)' : 'var(--color-text-primary)',
+          lineHeight: 1.3,
+        }}>
           {label}
         </div>
         {desc && (
-          <div style={{ fontSize: 13, color: accent || 'var(--color-text-muted)', marginTop: 2 }}>
+          <div style={{
+            fontSize: 13,
+            color: accentDesc ? 'var(--color-brand)' : 'var(--color-text-muted)',
+            marginTop: 2,
+            lineHeight: 1.3,
+          }}>
             {desc}
           </div>
         )}
       </div>
-      {onClick && <ChevronRight size={16} color="var(--color-border-light)" />}
-    </button>
+
+      {right ?? (onClick && <ChevronRight size={15} color="var(--color-text-faint)" />)}
+    </div>
   )
 }
 
-function Toggle({
-  checked, onChange, disabled,
-}: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+// ── Toggle ────────────────────────────────────────────────────────────────────
+function Toggle({ checked, onChange, disabled }: {
+  checked: boolean; onChange: (v: boolean) => void; disabled?: boolean
+}) {
   return (
     <button
       onClick={() => !disabled && onChange(!checked)}
+      role="switch"
+      aria-checked={checked}
       style={{
-        width: 46, height: 26, borderRadius: 13,
+        width: 44,
+        height: 24,
+        borderRadius: 12,
         background: checked ? 'var(--color-brand)' : 'var(--color-surface-3)',
-        border: 'none', cursor: disabled ? 'default' : 'pointer',
-        position: 'relative', flexShrink: 0,
-        transition: 'background 0.2s', opacity: disabled ? 0.5 : 1,
+        border: 'none',
+        cursor: disabled ? 'default' : 'pointer',
+        position: 'relative',
+        flexShrink: 0,
+        transition: 'background 0.2s',
+        opacity: disabled ? 0.5 : 1,
+        WebkitTapHighlightColor: 'transparent',
+        padding: 0,
       }}
     >
       <span style={{
-        position: 'absolute', top: 3,
+        display: 'block',
+        position: 'absolute',
+        top: 3,
         left: checked ? 23 : 3,
-        width: 20, height: 20, borderRadius: '50%',
-        background: 'white', transition: 'left 0.2s',
+        width: 18,
+        height: 18,
+        borderRadius: '50%',
+        background: 'white',
+        transition: 'left 0.18s',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
       }} />
     </button>
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Inline expanded panel ─────────────────────────────────────────────────────
+function Panel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      padding: '16px 20px 20px',
+      borderBottom: '1px solid var(--color-border)',
+      background: 'var(--color-surface-2)',
+    }}>
+      {children}
+    </div>
+  )
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: '0.07em',
+      textTransform: 'uppercase',
+      color: 'var(--color-text-muted)',
+      marginBottom: 8,
+    }}>
+      {children}
+    </div>
+  )
+}
+
+// ── Card wrapper ─────────────────────────────────────────────────────────────
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'var(--color-surface)',
+      borderTop: '1px solid var(--color-border)',
+      borderBottom: '1px solid var(--color-border)',
+    }}>
+      {children}
+    </div>
+  )
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function SettingsClient({ profile }: { profile: SettingsProfile }) {
   const router = useRouter()
+  const [panel,       setPanel]   = useState<Panel>(null)
+  const [isPending,   startT]     = useTransition()
+  const [flash,       setFlash]   = useState<{ text: string; ok: boolean } | null>(null)
 
-  // panel state
-  const [panel, setPanel] = useState<Panel>(null)
-
-  // transient UI state
-  const [isPending,   startT] = useTransition()
-  const [flash, setFlash]     = useState<{ text: string; ok: boolean } | null>(null)
-
-  // account fields
   const [username,    setUsername]    = useState(profile.username)
   const [usernameErr, setUsernameErr] = useState('')
-
-  // password fields
-  const [newPass,     setNewPass]     = useState('')
-  const [confPass,    setConfPass]    = useState('')
-  const [showNew,     setShowNew]     = useState(false)
-  const [showConf,    setShowConf]    = useState(false)
-  const [passErr,     setPassErr]     = useState('')
-
-  // preferences
-  const [isPrivate,   setIsPrivate]   = useState(profile.is_private)
-  const [notifPush,   setNotifPush]   = useState(profile.notif_push ?? true)
-  const [notifEmail,  setNotifEmail]  = useState(profile.notif_email ?? true)
-  const [lang,        setLang]        = useState(profile.language_preference || 'en')
-
-  // delete account
+  const [newPass,   setNewPass]   = useState('')
+  const [confPass,  setConfPass]  = useState('')
+  const [showNew,   setShowNew]   = useState(false)
+  const [showConf,  setShowConf]  = useState(false)
+  const [passErr,   setPassErr]   = useState('')
+  const [isPrivate,  setIsPrivate]  = useState(profile.is_private)
+  const [notifPush,  setNotifPush]  = useState(profile.notif_push  ?? true)
+  const [notifEmail, setNotifEmail] = useState(profile.notif_email ?? true)
+  const [lang,       setLang]       = useState(profile.language_preference || 'en')
   const [showDelete,  setShowDelete]  = useState(false)
   const [deleteInput, setDeleteInput] = useState('')
   const [deleting,    setDeleting]    = useState(false)
 
-  // ── Flash helper ────────────────────────────────────────────────────────────
   function showFlash(text: string, ok = true) {
     setFlash({ text, ok })
-    setTimeout(() => setFlash(null), 3200)
+    setTimeout(() => setFlash(null), 3000)
   }
+  function togglePanel(p: Panel) { setPanel(prev => prev === p ? null : p) }
 
-  // ── Username save ───────────────────────────────────────────────────────────
   function handleUsernameChange() {
     setUsernameErr('')
     startT(async () => {
@@ -198,18 +249,16 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     })
   }
 
-  // ── Password save ───────────────────────────────────────────────────────────
   function handlePasswordChange() {
     setPassErr('')
     startT(async () => {
       const r = await changePasswordAction(newPass, confPass)
       if (r.error) { setPassErr(r.error); return }
-      showFlash('Password changed successfully')
+      showFlash('Password changed')
       setNewPass(''); setConfPass(''); setPanel(null)
     })
   }
 
-  // ── Privacy toggle ──────────────────────────────────────────────────────────
   function togglePrivacy(val: boolean) {
     setIsPrivate(val)
     startT(async () => {
@@ -218,10 +267,8 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     })
   }
 
-  // ── Notification prefs ──────────────────────────────────────────────────────
-  function handleNotifToggle(key: 'push' | 'email', val: boolean) {
-    if (key === 'push')  setNotifPush(val)
-    else                 setNotifEmail(val)
+  function handleNotif(key: 'push' | 'email', val: boolean) {
+    if (key === 'push') setNotifPush(val); else setNotifEmail(val)
     startT(async () => {
       await updateProfileAction(
         key === 'push' ? { notif_push: val } as any : { notif_email: val } as any
@@ -229,8 +276,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     })
   }
 
-  // ── Language save ───────────────────────────────────────────────────────────
-  function handleLangChange(code: string, label: string) {
+  function handleLang(code: string, label: string) {
     setLang(code)
     startT(async () => {
       await updateProfileAction({ language_preference: code as any })
@@ -239,61 +285,65 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     })
   }
 
-  // ── Delete account ──────────────────────────────────────────────────────────
   async function handleDeleteAccount() {
     if (deleteInput !== 'DELETE') return
     setDeleting(true)
     const r = await deleteAccountAction()
     if (r.error) { showFlash(r.error, false); setDeleting(false); return }
-    // Auth row is gone — hard redirect to landing, no router.push
     window.location.replace('/')
   }
 
+  const passScore = [
+    newPass.length >= 8,
+    /[A-Z]/.test(newPass),
+    /[0-9]/.test(newPass),
+    /[^A-Za-z0-9]/.test(newPass),
+  ].filter(Boolean).length
+
+  const passColor = ['var(--color-error)', 'var(--color-error)', '#F59E0B', 'var(--color-brand)'][passScore - 1] || 'var(--color-border)'
+  const passLabel = ['Weak', 'Fair', 'Good', 'Strong'][passScore - 1] || ''
+
   return (
-    <div style={{ paddingBottom: 80 }}>
+    <div style={{ paddingBottom: 80, background: 'var(--color-bg)', minHeight: '100vh' }}>
 
       {/* Flash toast */}
       {flash && (
         <div style={{
-          position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)',
+          position: 'fixed', top: 68, left: '50%', transform: 'translateX(-50%)',
           zIndex: 500,
-          padding: '12px 20px', borderRadius: 12,
+          padding: '10px 18px',
+          borderRadius: 10,
           background: flash.ok ? 'var(--color-brand)' : 'var(--color-error)',
           color: 'white',
           fontSize: 14, fontWeight: 600,
           fontFamily: "'Syne', sans-serif",
           display: 'flex', alignItems: 'center', gap: 8,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
           pointerEvents: 'none',
           whiteSpace: 'nowrap',
           maxWidth: 'calc(100vw - 40px)',
         }}>
-          {flash.ok ? <Check size={15} /> : <X size={15} />} {flash.text}
+          {flash.ok ? <Check size={14} /> : <X size={14} />}
+          {flash.text}
         </div>
       )}
 
-      {/* ── ACCOUNT ─────────────────────────────────────────────────── */}
+      {/* ── ACCOUNT ──────────────────────────────────────────────────────── */}
       <SectionLabel label="Account" />
-      <div style={{ border: '1px solid var(--color-border)', borderLeft: 'none', borderRight: 'none' }}>
-
-        {/* Username */}
-        <SettingsRow
+      <Card>
+        <Row
           icon={User}
           label="Change username"
           desc={`@${profile.username}`}
-          onClick={() => setPanel(panel === 'username' ? null : 'username')}
+          onClick={() => togglePanel('username')}
         />
-
-        {/* Username panel */}
         {panel === 'username' && (
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface-2)' }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8, letterSpacing: '0.04em' }}>
-              NEW USERNAME
-            </label>
+          <Panel>
+            <FieldLabel>New username</FieldLabel>
             <div style={{ position: 'relative', marginBottom: 6 }}>
               <span style={{
                 position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)',
-                color: 'var(--color-text-muted)', pointerEvents: 'none',
+                color: 'var(--color-text-muted)', fontSize: 15, pointerEvents: 'none',
               }}>@</span>
               <input
                 value={username}
@@ -301,11 +351,12 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                 maxLength={20}
                 autoCapitalize="none"
                 autoCorrect="off"
-                style={{ ...INP, paddingLeft: 30 }}
+                className="para-input"
+                style={{ paddingLeft: 28 }}
               />
             </div>
-            <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 12 }}>
-              3–20 characters. Letters, numbers, underscores only.
+            <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 14, marginTop: 4 }}>
+              3–20 characters · Letters, numbers, underscores only
             </p>
             {usernameErr && (
               <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 10 }}>{usernameErr}</p>
@@ -314,265 +365,191 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
               <button
                 onClick={handleUsernameChange}
                 disabled={isPending || username.length < 3 || username === profile.username}
-                style={{
-                  flex: 1, padding: '11px 0', background: 'var(--color-brand)',
-                  color: 'white', border: 'none', borderRadius: 10,
-                  fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
-                  cursor: isPending || username.length < 3 || username === profile.username ? 'not-allowed' : 'pointer',
-                  opacity: isPending || username.length < 3 || username === profile.username ? 0.5 : 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                }}
+                className="para-btn-primary"
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
-                {isPending ? <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} /> : null}
+                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
                 {isPending ? 'Checking…' : 'Save username'}
               </button>
               <button
                 onClick={() => { setPanel(null); setUsername(profile.username); setUsernameErr('') }}
-                style={{
-                  padding: '11px 18px', background: 'var(--color-surface-3)',
-                  border: '1px solid var(--color-border-light)',
-                  borderRadius: 10, color: 'var(--color-text-secondary)',
-                  cursor: 'pointer', fontSize: 14,
-                }}
-              >Cancel</button>
+                className="para-btn-ghost"
+              >
+                Cancel
+              </button>
             </div>
-          </div>
+          </Panel>
         )}
 
-        {/* Email (display-only, no in-app change — managed through Supabase magic link/OTP) */}
         {profile.email && (
-          <SettingsRow
-            icon={Shield}
-            label="Email address"
-            desc={profile.email}
-          />
+          <Row icon={Shield} label="Email address" desc={profile.email} />
         )}
 
-        {/* Phone / BVN */}
-        <SettingsRow
+        <Row
           icon={Phone}
           label="Phone & BVN verification"
-          desc={profile.bvn_verified ? '✓ Verified — withdrawals enabled' : 'Required to withdraw earnings'}
-          accent={profile.bvn_verified ? 'var(--color-brand)' : undefined}
+          desc={profile.bvn_verified ? 'Verified — withdrawals enabled' : 'Required to withdraw earnings'}
+          accentDesc={!!profile.bvn_verified}
           onClick={() => router.push('/settings/verify-phone')}
         />
 
-        {/* Security / change password */}
-        <SettingsRow
+        <Row
           icon={Lock}
-          label="Security & password"
-          desc="Change your password"
-          onClick={() => setPanel(panel === 'password' ? null : 'password')}
-          last
+          label="Change password"
+          desc="Update your account password"
+          onClick={() => togglePanel('password')}
+          last={panel !== 'password'}
         />
-
-        {/* Password panel */}
         {panel === 'password' && (
-          <div style={{ padding: '16px 20px', borderTop: '1px solid var(--color-border)', background: 'var(--color-surface-2)' }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8, letterSpacing: '0.04em' }}>
-              NEW PASSWORD
-            </label>
-            <div style={{ position: 'relative', marginBottom: 12 }}>
+          <Panel>
+            <FieldLabel>New password</FieldLabel>
+            <div style={{ position: 'relative', marginBottom: 14 }}>
               <input
                 value={newPass}
                 onChange={e => setNewPass(e.target.value)}
                 type={showNew ? 'text' : 'password'}
-                placeholder="At least 8 chars, 1 uppercase, 1 number"
+                placeholder="Min 8 chars, 1 uppercase, 1 number"
                 autoComplete="new-password"
-                style={{ ...INP, paddingRight: 44 }}
+                className="para-input"
+                style={{ paddingRight: 44 }}
               />
-              <button
-                onClick={() => setShowNew(v => !v)}
-                style={{
-                  position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--color-text-muted)', padding: 4,
-                }}
-              >
-                {showNew ? <EyeOff size={17} /> : <Eye size={17} />}
+              <button onClick={() => setShowNew(v => !v)} style={{
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
+              }}>
+                {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8, letterSpacing: '0.04em' }}>
-              CONFIRM PASSWORD
-            </label>
-            <div style={{ position: 'relative', marginBottom: 14 }}>
+            {newPass.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 5 }}>
+                  {[0,1,2,3].map(i => (
+                    <div key={i} style={{
+                      flex: 1, height: 3, borderRadius: 2,
+                      background: i < passScore ? passColor : 'var(--color-border)',
+                      transition: 'background 0.2s',
+                    }} />
+                  ))}
+                </div>
+                {passLabel && <span style={{ fontSize: 12, color: passColor }}>{passLabel}</span>}
+              </div>
+            )}
+
+            <FieldLabel>Confirm password</FieldLabel>
+            <div style={{ position: 'relative', marginBottom: 16 }}>
               <input
                 value={confPass}
                 onChange={e => setConfPass(e.target.value)}
                 type={showConf ? 'text' : 'password'}
                 placeholder="Repeat new password"
                 autoComplete="new-password"
-                style={{ ...INP, paddingRight: 44 }}
+                className="para-input"
+                style={{ paddingRight: 44 }}
               />
-              <button
-                onClick={() => setShowConf(v => !v)}
-                style={{
-                  position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--color-text-muted)', padding: 4,
-                }}
-              >
-                {showConf ? <EyeOff size={17} /> : <Eye size={17} />}
+              <button onClick={() => setShowConf(v => !v)} style={{
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
+              }}>
+                {showConf ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
 
-            {passErr && (
-              <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 10 }}>{passErr}</p>
-            )}
-
-            {/* Simple strength indicator */}
-            {newPass.length > 0 && (() => {
-              const checks = [
-                newPass.length >= 8,
-                /[A-Z]/.test(newPass),
-                /[0-9]/.test(newPass),
-                /[^A-Za-z0-9]/.test(newPass),
-              ]
-              const score = checks.filter(Boolean).length
-              const colors = ['#E53935','#F4511E','#FDD835','#1A9E5F']
-              const labels = ['Weak','Fair','Good','Strong']
-              return (
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                    {[0,1,2,3].map(i => (
-                      <div key={i} style={{
-                        flex: 1, height: 3, borderRadius: 2,
-                        background: i < score ? colors[score - 1] : 'var(--color-border)',
-                        transition: 'background 0.2s',
-                      }} />
-                    ))}
-                  </div>
-                  <span style={{ fontSize: 12, color: colors[score - 1] || 'var(--color-text-muted)' }}>
-                    {score > 0 ? labels[score - 1] : ''}
-                  </span>
-                </div>
-              )
-            })()}
+            {passErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 12 }}>{passErr}</p>}
 
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 onClick={handlePasswordChange}
                 disabled={isPending || newPass.length < 8 || confPass.length < 8}
-                style={{
-                  flex: 1, padding: '11px 0', background: 'var(--color-brand)',
-                  color: 'white', border: 'none', borderRadius: 10,
-                  fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
-                  cursor: isPending || newPass.length < 8 || confPass.length < 8 ? 'not-allowed' : 'pointer',
-                  opacity: isPending || newPass.length < 8 || confPass.length < 8 ? 0.5 : 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                }}
+                className="para-btn-primary"
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
-                {isPending ? <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} /> : null}
+                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
                 {isPending ? 'Saving…' : 'Change password'}
               </button>
               <button
                 onClick={() => { setPanel(null); setNewPass(''); setConfPass(''); setPassErr('') }}
-                style={{
-                  padding: '11px 18px', background: 'var(--color-surface-3)',
-                  border: '1px solid var(--color-border-light)',
-                  borderRadius: 10, color: 'var(--color-text-secondary)',
-                  cursor: 'pointer', fontSize: 14,
-                }}
-              >Cancel</button>
+                className="para-btn-ghost"
+              >
+                Cancel
+              </button>
             </div>
-          </div>
+          </Panel>
         )}
-      </div>
+      </Card>
 
-      {/* ── PRIVACY ─────────────────────────────────────────────────── */}
+      {/* ── PRIVACY ──────────────────────────────────────────────────────── */}
       <SectionLabel label="Privacy" />
-      <div style={{ border: '1px solid var(--color-border)', borderLeft: 'none', borderRight: 'none' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 14,
-          padding: '14px 20px',
-        }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-            background: 'var(--color-surface-2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Eye size={17} color="var(--color-text-secondary)" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 15, color: 'var(--color-text-primary)', fontWeight: 500 }}>
-              Private account
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 2 }}>
-              Only approved followers can see your posts
-            </div>
-          </div>
-          <Toggle checked={isPrivate} onChange={togglePrivacy} disabled={isPending} />
-        </div>
-      </div>
+      <Card>
+        <Row
+          icon={Eye}
+          label="Private account"
+          desc="Only approved followers can see your posts"
+          last
+          right={<Toggle checked={isPrivate} onChange={togglePrivacy} disabled={isPending} />}
+        />
+      </Card>
 
-      {/* ── NOTIFICATIONS ───────────────────────────────────────────── */}
+      {/* ── NOTIFICATIONS ────────────────────────────────────────────────── */}
       <SectionLabel label="Notifications" />
-      <div style={{ border: '1px solid var(--color-border)', borderLeft: 'none', borderRight: 'none' }}>
+      <Card>
+        <Row
+          icon={Bell}
+          label="Push notifications"
+          desc="Likes, replies, new followers"
+          right={<Toggle checked={notifPush} onChange={v => handleNotif('push', v)} disabled={isPending} />}
+        />
+        <Row
+          icon={Bell}
+          label="Email notifications"
+          desc="Weekly digest and important alerts"
+          last
+          right={<Toggle checked={notifEmail} onChange={v => handleNotif('email', v)} disabled={isPending} />}
+        />
+      </Card>
 
-        {[
-          { key: 'push' as const,  icon: Bell, label: 'Push notifications', desc: 'Likes, replies, new followers',     val: notifPush  },
-          { key: 'email' as const, icon: Bell, label: 'Email notifications', desc: 'Weekly digest & important alerts', val: notifEmail },
-        ].map(({ key, icon: Icon, label, desc, val }, i, arr) => (
-          <div key={key} style={{
-            display: 'flex', alignItems: 'center', gap: 14,
-            padding: '14px 20px',
-            borderBottom: i < arr.length - 1 ? '1px solid var(--color-border)' : 'none',
-          }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-              background: 'var(--color-surface-2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Icon size={17} color="var(--color-text-secondary)" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, color: 'var(--color-text-primary)', fontWeight: 500 }}>{label}</div>
-              <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 2 }}>{desc}</div>
-            </div>
-            <Toggle checked={val} onChange={v => handleNotifToggle(key, v)} disabled={isPending} />
-          </div>
-        ))}
-      </div>
-
-      {/* ── APPEARANCE ──────────────────────────────────────────────── */}
+      {/* ── APPEARANCE ───────────────────────────────────────────────────── */}
       <SectionLabel label="Appearance" />
-      <div style={{ border: '1px solid var(--color-border)', borderLeft: 'none', borderRight: 'none' }}>
-        <SettingsRow
+      <Card>
+        <Row
           icon={Globe}
           label="Language"
           desc={LANGS.find(l => l.code === lang)?.label || 'English'}
-          onClick={() => setPanel(panel === 'language' ? null : 'language')}
-          last
+          onClick={() => togglePanel('language')}
+          last={panel !== 'language'}
         />
         {panel === 'language' && (
-          <div style={{ borderTop: '1px solid var(--color-border)', background: 'var(--color-surface-2)' }}>
+          <Panel>
             {LANGS.map((l, i) => (
               <button
                 key={l.code}
-                onClick={() => handleLangChange(l.code, l.label)}
+                onClick={() => handleLang(l.code, l.label)}
                 style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  width: '100%', padding: '14px 20px',
+                  width: '100%', padding: '13px 0',
                   background: 'none', border: 'none',
                   borderBottom: i < LANGS.length - 1 ? '1px solid var(--color-border)' : 'none',
                   cursor: 'pointer',
                   color: lang === l.code ? 'var(--color-brand)' : 'var(--color-text-primary)',
-                  fontSize: 15, fontFamily: "'DM Sans', sans-serif",
+                  fontSize: 15,
+                  fontFamily: "'DM Sans', sans-serif",
+                  WebkitTapHighlightColor: 'transparent',
                 }}
               >
                 {l.label}
-                {lang === l.code && <Check size={16} color="var(--color-brand)" />}
+                {lang === l.code && <Check size={15} color="var(--color-brand)" />}
               </button>
             ))}
-          </div>
+          </Panel>
         )}
-      </div>
+      </Card>
 
-      {/* ── SESSION ─────────────────────────────────────────────────── */}
+      {/* ── SESSION ──────────────────────────────────────────────────────── */}
       <SectionLabel label="Session" />
-      <div style={{ border: '1px solid var(--color-border)', borderLeft: 'none', borderRight: 'none' }}>
-        <SettingsRow
+      <Card>
+        <Row
           icon={LogOut}
           label={isPending ? 'Signing out…' : 'Sign out'}
           desc="Sign out of your Spup account"
@@ -580,12 +557,12 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
           danger
           last
         />
-      </div>
+      </Card>
 
-      {/* ── DANGER ZONE ─────────────────────────────────────────────── */}
+      {/* ── DANGER ZONE ──────────────────────────────────────────────────── */}
       <SectionLabel label="Danger zone" />
-      <div style={{ border: '1px solid var(--color-border)', borderLeft: 'none', borderRight: 'none' }}>
-        <SettingsRow
+      <Card>
+        <Row
           icon={AlertTriangle}
           label="Delete account"
           desc="Permanently delete your account and all data"
@@ -593,9 +570,9 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
           danger
           last
         />
-      </div>
+      </Card>
 
-      {/* ── Delete confirmation dialog ────────────────────────────────────── */}
+      {/* ── Delete confirmation sheet ─────────────────────────────────────── */}
       {showDelete && (
         <>
           <div
@@ -610,80 +587,88 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
               onClick={e => e.stopPropagation()}
               style={{
                 background: 'var(--color-surface)',
-                borderTopLeftRadius: 20, borderTopRightRadius: 20,
-                padding: '28px 24px calc(28px + env(safe-area-inset-bottom))',
-                width: '100%', maxWidth: 480,
                 borderTop: '1px solid var(--color-border)',
+                borderTopLeftRadius: 20, borderTopRightRadius: 20,
+                padding: `28px 24px calc(28px + env(safe-area-inset-bottom))`,
+                width: '100%', maxWidth: 480,
               }}
             >
-              <div style={{ fontSize: 28, textAlign: 'center', marginBottom: 12 }}>🗑️</div>
+              <div style={{
+                width: 48, height: 48, borderRadius: '50%',
+                background: 'var(--color-error-muted)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 16px',
+              }}>
+                <AlertTriangle size={20} color="var(--color-error)" strokeWidth={2} />
+              </div>
+
               <h3 style={{
-                fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 19,
+                fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 18,
                 color: 'var(--color-text-primary)', textAlign: 'center', marginBottom: 10,
-              }}>Delete your account?</h3>
+              }}>
+                Delete your account?
+              </h3>
 
               <p style={{
                 fontSize: 14, color: 'var(--color-text-secondary)',
-                textAlign: 'center', lineHeight: 1.65, marginBottom: 20,
+                textAlign: 'center', lineHeight: 1.65, marginBottom: 24,
               }}>
-                This <strong>permanently deletes</strong> your posts, followers, following,
-                and any unwithdrawn wallet balance. This action cannot be undone.
+                This permanently removes your posts, followers, following, and any unwithdrawn
+                wallet balance. This action cannot be undone.
               </p>
 
-              <label style={{
-                fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)',
-                display: 'block', marginBottom: 8, letterSpacing: '0.04em',
+              <div style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.07em',
+                color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 8,
               }}>
-                TYPE <span style={{ color: 'var(--color-error)', fontFamily: 'monospace', letterSpacing: 0 }}>DELETE</span> TO CONFIRM
-              </label>
+                Type{' '}
+                <span style={{ color: 'var(--color-error)', fontFamily: 'monospace', letterSpacing: 0 }}>
+                  DELETE
+                </span>{' '}
+                to confirm
+              </div>
               <input
                 value={deleteInput}
                 onChange={e => setDeleteInput(e.target.value)}
                 placeholder="DELETE"
                 autoCapitalize="characters"
+                className="para-input"
                 style={{
-                  ...INP,
-                  borderColor: deleteInput.length > 0 && deleteInput !== 'DELETE'
-                    ? 'var(--color-error)'
-                    : 'var(--color-border)',
                   marginBottom: 20,
                   fontFamily: 'monospace',
                   letterSpacing: '0.1em',
                   fontSize: 16,
+                  borderColor: deleteInput.length > 0 && deleteInput !== 'DELETE'
+                    ? 'var(--color-error)'
+                    : undefined,
                 }}
               />
 
               <div style={{ display: 'flex', gap: 12 }}>
                 <button
                   onClick={() => { setShowDelete(false); setDeleteInput('') }}
-                  style={{
-                    flex: 1, padding: 13,
-                    background: 'var(--color-surface-3)',
-                    border: '1px solid var(--color-border-light)',
-                    borderRadius: 12,
-                    color: 'var(--color-text-primary)',
-                    cursor: 'pointer',
-                    fontFamily: "'Syne', sans-serif", fontWeight: 600, fontSize: 15,
-                  }}
-                >Cancel</button>
-
+                  className="para-btn-ghost"
+                  style={{ flex: 1, padding: '13px 0', fontSize: 15, fontFamily: "'Syne', sans-serif", fontWeight: 600 }}
+                >
+                  Cancel
+                </button>
                 <button
                   onClick={handleDeleteAccount}
                   disabled={deleteInput !== 'DELETE' || deleting}
                   style={{
                     flex: 1, padding: 13,
                     background: 'var(--color-error)',
-                    border: 'none', borderRadius: 12,
+                    border: 'none', borderRadius: 10,
                     color: 'white',
                     cursor: deleteInput !== 'DELETE' || deleting ? 'not-allowed' : 'pointer',
                     opacity: deleteInput !== 'DELETE' || deleting ? 0.45 : 1,
                     fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
                     transition: 'opacity 0.15s',
                   }}
                 >
                   {deleting
-                    ? <><Loader size={15} style={{ animation: 'spin .7s linear infinite' }} /> Deleting…</>
+                    ? <><Loader size={14} style={{ animation: 'spin .7s linear infinite' }} /> Deleting…</>
                     : 'Delete forever'
                   }
                 </button>

@@ -77,19 +77,15 @@ export async function toggleLikeAction(postId: string) {
     .maybeSingle()
 
   if (existing) {
+    // Unlike
     await supabase.from('likes').delete().match({ user_id: profile.id, post_id: postId })
     await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
+    revalidatePath('/feed')
+    revalidatePath(`/post/${postId}`)
     return { liked: false }
   }
 
-  // Adding a like — remove any existing dislike first
-  const { data: existingDislike } = await supabase
-    .from('dislikes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
-  if (existingDislike) {
-    await supabase.from('dislikes').delete().match({ user_id: profile.id, post_id: postId })
-    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'dislikes_count', p_id: postId, p_amount: -1 })
-  }
-
+  // Like — use upsert to prevent duplicate likes at DB level
   const { error: insertError } = await supabase
     .from('likes')
     .upsert({ user_id: profile.id, post_id: postId }, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
@@ -98,6 +94,8 @@ export async function toggleLikeAction(postId: string) {
 
   await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_like')
+  revalidatePath('/feed')
+  revalidatePath(`/post/${postId}`)
   return { liked: true }
 }
 
@@ -105,16 +103,7 @@ export async function toggleDislikeAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
 
-  const { data: existing } = await supabase
-    .from('dislikes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
-
-  if (existing) {
-    await supabase.from('dislikes').delete().match({ user_id: profile.id, post_id: postId })
-    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'dislikes_count', p_id: postId, p_amount: -1 })
-    return { disliked: false }
-  }
-
-  // Adding a dislike — remove any existing like first
+  // Remove a like if the user had liked it (can't like and dislike simultaneously)
   const { data: existingLike } = await supabase
     .from('likes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
   if (existingLike) {
@@ -122,40 +111,38 @@ export async function toggleDislikeAction(postId: string) {
     await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
   }
 
+  const { data: existing } = await supabase
+    .from('dislikes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
+  if (existing) {
+    await supabase.from('dislikes').delete().match({ user_id: profile.id, post_id: postId })
+    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'dislikes_count', p_id: postId, p_amount: -1 })
+    revalidatePath('/feed')
+    revalidatePath(`/post/${postId}`)
+    return { disliked: false }
+  }
   await supabase
     .from('dislikes')
     .upsert({ user_id: profile.id, post_id: postId }, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
   await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'dislikes_count', p_id: postId, p_amount: 1 })
+  revalidatePath('/feed')
+  revalidatePath(`/post/${postId}`)
   return { disliked: true }
 }
 
 export async function toggleRepostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
-
-  // A repost row: post_type='repost', parent_post_id=null, quoted_post_id=original
-  // We use quoted_post_id so it doesn't get treated as a reply (parent_post_id=null)
-  const { data: existing } = await supabase
-    .from('posts')
-    .select('id')
-    .match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId })
-    .maybeSingle()
-
+  const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', parent_post_id: postId }).maybeSingle()
   if (existing) {
     await supabase.from('posts').delete().match({ id: existing.id })
     await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
+    revalidatePath('/feed')
     return { reposted: false }
   }
-
-  await supabase.from('posts').insert({
-    user_id: profile.id,
-    post_type: 'repost',
-    quoted_post_id: postId,
-    parent_post_id: null,
-    body: null,
-  })
+  await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', parent_post_id: postId })
   await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
+  revalidatePath('/feed')
   return { reposted: true }
 }
 

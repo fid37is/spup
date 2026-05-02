@@ -191,7 +191,7 @@ export async function resendEmailOtpAction(email: string) {
 
 // ── Email login ───────────────────────────────────────────────────────────────
 
-export async function loginAction(data: LoginSchema) {
+export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
   const parsed = loginSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
@@ -217,7 +217,7 @@ export async function loginAction(data: LoginSchema) {
   }
 
   revalidatePath('/', 'layout')
-  return { success: true }
+  redirect(redirectTo)
 }
 
 // ── OAuth (Google / Facebook) ─────────────────────────────────────────────────
@@ -269,7 +269,6 @@ export async function handleOAuthCallbackAction() {
     await upsertOnboarding(existing.id)
     return { success: true, isNewUser: false }
   }
-  
 
   // New OAuth user — create profile + onboarding using admin client
   const meta = user.user_metadata
