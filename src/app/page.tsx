@@ -6,7 +6,7 @@ import LandingHeroCards from '@/components/landing/landing-hero-cards'
 import { getWaitlistCountAction } from '@/lib/actions/waitlist'
 import LandingMobileSection from '@/components/landing/landing-mobile-section'
 import OrbitSection from '@/components/landing/orbit-section'
-
+import { formatCreatorCount } from '@/lib/utils/format-creator-count'
 
 /* ─── Data ─────────────────────────────────────────────────────────────── */
 
@@ -222,9 +222,10 @@ export default async function LandingPage() {
                 </div>
               ))}
             </div>
+            {/* FIX: was waitlistCount.toLocaleString()+ which always shows + */}
             <div>
               <span style={{ fontSize: 14, color: 'var(--color-text-primary)', fontWeight: 600 }}>
-                {waitlistCount.toLocaleString()}+ creators
+                {formatCreatorCount(waitlistCount)} creators
               </span>
               <span style={{ fontSize: 14, color: 'var(--color-text-secondary)' }}> already on the waitlist</span>
             </div>
@@ -294,7 +295,7 @@ export default async function LandingPage() {
       </section>
 
       {/* ── COMMUNITY ORBIT ── */}
-      <OrbitSection />
+      <OrbitSection count={waitlistCount} mode="waitlist" />
 
       {/* ── HOW YOU GET PAID ── */}
       <section className="section-pad-b">
@@ -441,13 +442,16 @@ export default async function LandingPage() {
           }}>
             Ready to<br />soro soke?
           </h2>
-          <p style={{
+
+          {/* FIX: was <p> containing <p> — changed outer to <div> to fix hydration error */}
+          <div style={{
             fontSize: 17, color: 'var(--color-text-secondary)',
             marginBottom: 40, lineHeight: 1.65, position: 'relative',
           }}>
-            Join {waitlistCount.toLocaleString()}+ Nigerian creators already on the waitlist.<br />
+            Join {formatCreatorCount(waitlistCount)} Nigerian creators already on the waitlist.<br />
             Free forever for regular users.
-          </p>
+          </div>
+
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', position: 'relative' }}>
             <LandingCTA label="Join the waitlist" variant="primary" opensModal={true} />
             <LandingCTA label="See how it works" variant="ghost" opensModal={false} href="#features" />
