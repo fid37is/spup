@@ -141,30 +141,30 @@ export default function OrbitSection() {
           {/* Center — Black Nigerian woman selfie */}
           <div className="orb-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400&h=400&fit=crop&crop=face&q=85" alt="You" />
+            <img src="https://unsplash.com/photos/F16KPYxfm6s/download?force=true" alt="You" />
           </div>
-https://unsplash.com/photos/a-woman-with-curly-hair-smiling-for-the-camera-RPcX5545QfI
           {/* ── CLOCKWISE ring — inner, 4 avatars at 0/90/180/270 ── */}
           <div className="orb-cw">
             {/* top — 0deg, radius 150px from center */}
             <div className="orb-avatar" style={{width:72,height:72,top:'calc(50% - 150px - 36px)',left:'calc(50% - 36px)'}}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1522529599102-193144843bad?w=144&h=144&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/x_cdCJ3bAJg/download?force=true" alt="" />
             </div>
+            
             {/* right — 90deg */}
             <div className="orb-avatar" style={{width:66,height:66,top:'calc(50% - 33px)',left:'calc(50% + 150px - 33px)'}}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=132&h=132&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/e6k8RrfbJ2A/download?force=true" alt="" />
             </div>
             {/* bottom — 180deg */}
             <div className="orb-avatar" style={{width:70,height:70,top:'calc(50% + 150px - 35px)',left:'calc(50% - 35px)'}}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=140&h=140&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/hCjA-Vt4XD8/download?force=true" alt="" />
             </div>
             {/* left — 270deg */}
             <div className="orb-avatar" style={{width:68,height:68,top:'calc(50% - 34px)',left:'calc(50% - 150px - 34px)'}}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1504257432389-52343af06ae3?w=136&h=136&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/vH8imwT4RX0/download?force=true " alt="" />
             </div>
           </div>
 
@@ -177,7 +177,7 @@ https://unsplash.com/photos/a-woman-with-curly-hair-smiling-for-the-camera-RPcX5
               left:`calc(50% + ${Math.round(245*Math.cos(45*Math.PI/180))}px - 45px)`,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=180&h=180&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/R0ipcguzRIU/download?force=true" alt="" />
             </div>
             {/* bottom-right 135deg */}
             <div className="orb-avatar" style={{
@@ -186,7 +186,7 @@ https://unsplash.com/photos/a-woman-with-curly-hair-smiling-for-the-camera-RPcX5
               left:`calc(50% + ${Math.round(245*Math.cos(45*Math.PI/180))}px - 42px)`,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1531384441138-2736e62e0919?w=168&h=168&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/i2hoD-C2RUA/download?force=true" alt="" />
             </div>
             {/* bottom-left 225deg */}
             <div className="orb-avatar" style={{
@@ -195,7 +195,7 @@ https://unsplash.com/photos/a-woman-with-curly-hair-smiling-for-the-camera-RPcX5
               left:`calc(50% - ${Math.round(245*Math.cos(45*Math.PI/180))}px - 44px)`,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=176&h=176&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/jOFFw4WEoTU/download?force=true" alt="" />
             </div>
             {/* top-left 315deg */}
             <div className="orb-avatar" style={{
@@ -204,7 +204,7 @@ https://unsplash.com/photos/a-woman-with-curly-hair-smiling-for-the-camera-RPcX5
               left:`calc(50% - ${Math.round(245*Math.cos(45*Math.PI/180))}px - 41px)`,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://images.unsplash.com/photo-1589156280159-27698a70f29e?w=164&h=164&fit=crop&crop=face&q=80" alt="" />
+              <img src="https://unsplash.com/photos/cIoGMY1DrRI/download?force=true" alt="" />
             </div>
           </div>
 
