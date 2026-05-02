@@ -124,6 +124,7 @@ export default function ReplyComposer({
             value={body}
             onChange={handleChange}
             onFocus={() => setFocused(true)}
+            onBlur={() => { if (!body && !media.length) setFocused(false) }}
             onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleReply() }}
             placeholder="Soro soke…"
             rows={1}
@@ -162,9 +163,9 @@ export default function ReplyComposer({
           )}
 
           {error && (
-            <p style={{ fontSize: 13, color: 'var(--color-error)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ fontSize: 13, color: 'var(--color-error)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
               <X size={12} /> {error}
-            </p>
+            </div>
           )}
 
           {/* Toolbar — only when expanded */}

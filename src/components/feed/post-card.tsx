@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   MessageCircle, Repeat2, ThumbsUp, ThumbsDown,
-  Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag,
+  Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag, BarChart2,
 } from 'lucide-react'
 import {
   toggleLikeAction,
@@ -13,6 +13,7 @@ import {
   toggleBookmarkAction,
   deletePostAction,
   createPostAction,
+  recordImpressionAction,
 } from '@/lib/actions'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import type { FeedPost } from '@/lib/actions/feed'
@@ -147,86 +148,12 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
   )
 }
 
-// ── RepostCard ────────────────────────────────────────────────────────────────
-function RepostCard({ post, currentUserId }: { post: FeedPost; currentUserId?: string }) {
-  const router = useRouter()
-  const original = post.quoted_post
-  if (!original) return null
-
-  return (
-    <article
-      onClick={() => router.push(`/post/${original.id}`)}
-      style={{
-        borderBottom: '1px solid var(--color-border)',
-        cursor: 'pointer',
-        transition: 'background 0.12s',
-        padding: '10px 16px 12px',
-      }}
-      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingLeft: 26 }}>
-        <div style={{
-          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-          background: post.author.avatar_url ? 'transparent' : '#1A7A4A',
-          overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 8, color: 'white', fontWeight: 800,
-        }}>
-          {post.author.avatar_url
-            ? <img src={post.author.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : post.author.display_name.slice(0, 1).toUpperCase()
-          }
-        </div>
-        <Repeat2 size={13} color="var(--color-text-muted)" />
-        <span style={{ fontSize: 13, color: 'var(--color-text-muted)', fontFamily: "'DM Sans',sans-serif" }}>
-          <span
-            onClick={e => { e.stopPropagation(); router.push(`/user/${post.author.username}`) }}
-            style={{ color: 'var(--color-text-secondary)', fontWeight: 600, cursor: 'pointer' }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--color-text-primary)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-secondary)'}
-          >
-            {post.author.display_name}
-          </span>
-          {' '}reposted
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', gap: 12 }}>
-        <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable size={42} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
-            <span
-              onClick={e => { e.stopPropagation(); router.push(`/user/${original.author.username}`) }}
-              style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
-              onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
-              onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
-            >
-              {original.author.display_name}
-            </span>
-            {original.author.verification_tier !== 'none' && (
-              <span style={{ fontSize: 10, background: 'var(--color-brand)', color: 'white', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>✓</span>
-            )}
-            <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{original.author.username}</span>
-            <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
-            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(original.created_at)}</span>
-          </div>
-          {original.body && (
-            <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap', marginBottom: original.media?.length ? 10 : 0 }}>
-              {original.body}
-            </p>
-          )}
-          <MediaRow media={original.media} />
-        </div>
-      </div>
-    </article>
-  )
-}
-
 // ── ActionBtn ─────────────────────────────────────────────────────────────────
-function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false }: {
+function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false, hidden = false }: {
   icon: React.ReactNode; count: number | null; active: boolean; activeColor: string
-  onClick: (e: React.MouseEvent) => void; label: string; showZero?: boolean
+  onClick: (e: React.MouseEvent) => void; label: string; showZero?: boolean; hidden?: boolean
 }) {
+  if (hidden) return null
   return (
     <button
       onClick={onClick} aria-label={label}
@@ -250,13 +177,15 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
   )
 }
 
-// ── PostCard ──────────────────────────────────────────────────────────────────
-export default function PostCard({
+// ── PostActions — shared action bar used in both PostCard and RepostCard ──────
+function PostActions({
   post,
   currentUserId,
+  onReplyClick,
 }: {
   post: FeedPost
   currentUserId?: string
+  onReplyClick?: () => void
 }) {
   const [, startTransition] = useTransition()
   const [liked, setLiked] = useState(post.is_liked)
@@ -267,16 +196,11 @@ export default function PostCard({
   const [repostCount, setRepostCount] = useState(post.reposts_count)
   const [bookmarked, setBookmarked] = useState(post.is_bookmarked)
   const [bookmarkCount, setBookmarkCount] = useState(post.bookmarks_count || 0)
-  const [showMenu, setShowMenu] = useState(false)
   const [showRepostMenu, setShowRepostMenu] = useState(false)
   const [showQuoteModal, setShowQuoteModal] = useState(false)
-  const [deleted, setDeleted] = useState(false)
-  const router = useRouter()
   const repostRef = useRef<HTMLDivElement>(null)
-  const { success, error: toastError, info } = useToast()
-
-  const isOwnPost = !!currentUserId && post.author?.id === currentUserId
-  const isRepost = post.post_type === 'repost'
+  const router = useRouter()
+  const { success, error: toastError } = useToast()
 
   useEffect(() => {
     if (!showRepostMenu) return
@@ -286,14 +210,6 @@ export default function PostCard({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [showRepostMenu])
-
-  if (deleted) return null
-  if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} />
-
-  function navigate(e: React.MouseEvent) {
-    if ((e.target as HTMLElement).closest('button,a,textarea,input,video')) return
-    router.push(`/post/${post.id}`)
-  }
 
   function handleLike(e: React.MouseEvent) {
     e.stopPropagation()
@@ -364,6 +280,222 @@ export default function PostCard({
     })
   }
 
+  async function handleShare(e: React.MouseEvent) {
+    e.stopPropagation()
+    e.preventDefault()
+    const url = `${window.location.origin}/post/${post.id}`
+    try {
+      if (navigator.share) await navigator.share({ title: post.author?.display_name, text: post.body || '', url })
+      else { await navigator.clipboard.writeText(url); success('Link copied to clipboard') }
+    } catch { /* user dismissed share sheet */ }
+  }
+
+  function handleAnalytics(e: React.MouseEvent) {
+    e.stopPropagation()
+    // Record impression and show count — future: open analytics modal
+    void recordImpressionAction(post.id)
+  }
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, width: '100%', maxWidth: 480 }}>
+        {/* Reply */}
+        <ActionBtn
+          icon={<MessageCircle size={18} />}
+          count={post.comments_count}
+          active={false} activeColor="#378ADD"
+          onClick={e => {
+            e.stopPropagation()
+            if (onReplyClick) onReplyClick()
+            else router.push(`/post/${post.id}`)
+          }}
+          label="Reply"
+        />
+
+        {/* Repost */}
+        <div ref={repostRef} style={{ position: 'relative' }}>
+          <ActionBtn
+            icon={<Repeat2 size={18} />} count={repostCount}
+            active={reposted} activeColor="var(--color-brand)"
+            onClick={e => { e.stopPropagation(); setShowRepostMenu(v => !v) }}
+            label="Repost"
+          />
+          {showRepostMenu && (
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, zIndex: 30, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 6, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
+            >
+              <button onClick={handleRepost} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: reposted ? 'var(--color-brand)' : 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
+                <Repeat2 size={16} /> {reposted ? 'Undo repost' : 'Repost'}
+              </button>
+              <button onClick={e => { e.stopPropagation(); setShowRepostMenu(false); setShowQuoteModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
+                <Quote size={16} /> Quote post
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Like */}
+        <ActionBtn
+          icon={<ThumbsUp size={18} fill={liked ? 'var(--color-brand)' : 'none'} />}
+          count={likeCount} active={liked} activeColor="var(--color-brand)"
+          onClick={handleLike} label="Like"
+        />
+
+        {/* Dislike */}
+        <ActionBtn
+          icon={<ThumbsDown size={18} fill={disliked ? 'var(--color-error)' : 'none'} />}
+          count={dislikeCount} active={disliked} activeColor="var(--color-error)"
+          onClick={handleDislike} label="Dislike"
+        />
+
+        {/* Analytics */}
+        <ActionBtn
+          icon={<BarChart2 size={18} />}
+          count={post.impressions_count > 0 ? post.impressions_count : null}
+          active={false} activeColor="var(--color-brand)"
+          onClick={handleAnalytics} label="Analytics"
+        />
+
+        {/* Bookmark — hidden for now, preserved for later */}
+        <div style={{ display: 'none' }}>
+          <ActionBtn
+            icon={<Bookmark size={18} fill={bookmarked ? 'var(--color-gold)' : 'none'} />}
+            count={bookmarkCount} active={bookmarked} activeColor="var(--color-gold)"
+            onClick={handleBookmark} label="Save"
+          />
+        </div>
+
+        {/* Share */}
+        <ActionBtn
+          icon={<Share2 size={18} />} count={null}
+          active={false} activeColor="var(--color-brand)"
+          onClick={handleShare} label="Share"
+        />
+      </div>
+
+      {showQuoteModal && <QuoteModal post={post} onClose={() => setShowQuoteModal(false)} />}
+    </>
+  )
+}
+
+// ── RepostCard ────────────────────────────────────────────────────────────────
+function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; currentUserId?: string; onReplyClick?: () => void }) {
+  const router = useRouter()
+  const original = post.quoted_post
+  if (!original) return null
+
+  // Build a FeedPost-compatible object for the original post so we can reuse PostActions
+  const originalAsPost: FeedPost = {
+    ...(original as any),
+    is_liked: (original as any).is_liked ?? false,
+    is_disliked: (original as any).is_disliked ?? false,
+    is_reposted: (original as any).is_reposted ?? false,
+    is_bookmarked: (original as any).is_bookmarked ?? false,
+    impressions_count: (original as any).impressions_count ?? 0,
+  }
+
+  return (
+    <article
+      onClick={() => router.push(`/post/${original.id}`)}
+      style={{
+        borderBottom: '1px solid var(--color-border)',
+        cursor: 'pointer',
+        transition: 'background 0.12s',
+        padding: '10px 16px 12px',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+    >
+      {/* Repost attribution row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingLeft: 26 }}>
+        <div style={{
+          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+          background: post.author.avatar_url ? 'transparent' : '#1A7A4A',
+          overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 8, color: 'white', fontWeight: 800,
+        }}>
+          {post.author.avatar_url
+            ? <img src={post.author.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : post.author.display_name.slice(0, 1).toUpperCase()
+          }
+        </div>
+        <Repeat2 size={13} color="var(--color-text-muted)" />
+        <span style={{ fontSize: 13, color: 'var(--color-text-muted)', fontFamily: "'DM Sans',sans-serif" }}>
+          <span
+            onClick={e => { e.stopPropagation(); router.push(`/user/${post.author.username}`) }}
+            style={{ color: 'var(--color-text-secondary)', fontWeight: 600, cursor: 'pointer' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--color-text-primary)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-secondary)'}
+          >
+            {post.author.display_name}
+          </span>
+          {' '}reposted
+        </span>
+      </div>
+
+      {/* Original post content */}
+      <div style={{ display: 'flex', gap: 12 }}>
+        <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable size={42} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
+            <span
+              onClick={e => { e.stopPropagation(); router.push(`/user/${original.author.username}`) }}
+              style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
+              onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
+            >
+              {original.author.display_name}
+            </span>
+            {original.author.verification_tier !== 'none' && (
+              <span style={{ fontSize: 10, background: 'var(--color-brand)', color: 'white', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>✓</span>
+            )}
+            <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{original.author.username}</span>
+            <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
+            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(original.created_at)}</span>
+          </div>
+          {original.body && (
+            <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap', marginBottom: original.media?.length ? 10 : 0 }}>
+              {original.body}
+            </p>
+          )}
+          <MediaRow media={original.media} />
+
+          {/* Action bar on the original post inside repost */}
+          <PostActions post={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+        </div>
+      </div>
+    </article>
+  )
+}
+
+// ── PostCard ──────────────────────────────────────────────────────────────────
+export default function PostCard({
+  post,
+  currentUserId,
+  onReplyClick,
+}: {
+  post: FeedPost
+  currentUserId?: string
+  onReplyClick?: () => void
+}) {
+  const [, startTransition] = useTransition()
+  const [showMenu, setShowMenu] = useState(false)
+  const [deleted, setDeleted] = useState(false)
+  const router = useRouter()
+  const { success, error: toastError, info } = useToast()
+
+  const isOwnPost = !!currentUserId && post.author?.id === currentUserId
+  const isRepost = post.post_type === 'repost'
+
+  if (deleted) return null
+  if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+
+  function navigate(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest('button,a,textarea,input,video')) return
+    router.push(`/post/${post.id}`)
+  }
+
   function handleDelete(e: React.MouseEvent) {
     e.stopPropagation()
     setShowMenu(false)
@@ -376,16 +508,6 @@ export default function PostCard({
         success('Post deleted')
       }
     })
-  }
-
-  async function handleShare(e: React.MouseEvent) {
-    e.stopPropagation()
-    e.preventDefault()
-    const url = `${window.location.origin}/post/${post.id}`
-    try {
-      if (navigator.share) await navigator.share({ title: post.author?.display_name, text: post.body || '', url })
-      else { await navigator.clipboard.writeText(url); success('Link copied to clipboard') }
-    } catch { /* user dismissed share sheet */ }
   }
 
   const author = post.author
@@ -492,65 +614,10 @@ export default function PostCard({
           <MediaRow media={post.media} />
 
           {/* Action bar */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, width: '100%', maxWidth: 480 }}>
-            <ActionBtn
-              icon={<MessageCircle size={18} />}
-              count={post.comments_count}
-              active={false} activeColor="#378ADD"
-              onClick={e => { e.stopPropagation(); router.push(`/post/${post.id}`) }}
-              label="Reply"
-            />
-
-            <div ref={repostRef} style={{ position: 'relative' }}>
-              <ActionBtn
-                icon={<Repeat2 size={18} />} count={repostCount}
-                active={reposted} activeColor="var(--color-brand)"
-                onClick={e => { e.stopPropagation(); setShowRepostMenu(v => !v) }}
-                label="Repost"
-              />
-              {showRepostMenu && (
-                <div
-                  onClick={e => e.stopPropagation()}
-                  style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, zIndex: 30, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 6, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
-                >
-                  <button onClick={handleRepost} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: reposted ? 'var(--color-brand)' : 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
-                    <Repeat2 size={16} /> {reposted ? 'Undo repost' : 'Repost'}
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); setShowRepostMenu(false); setShowQuoteModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
-                    <Quote size={16} /> Quote post
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <ActionBtn
-              icon={<ThumbsUp size={18} fill={liked ? 'var(--color-brand)' : 'none'} />}
-              count={likeCount} active={liked} activeColor="var(--color-brand)"
-              onClick={handleLike} label="Like"
-            />
-
-            <ActionBtn
-              icon={<ThumbsDown size={18} fill={disliked ? 'var(--color-error)' : 'none'} />}
-              count={dislikeCount} active={disliked} activeColor="var(--color-error)"
-              onClick={handleDislike} label="Dislike"
-            />
-
-            <ActionBtn
-              icon={<Bookmark size={18} fill={bookmarked ? 'var(--color-gold)' : 'none'} />}
-              count={bookmarkCount} active={bookmarked} activeColor="var(--color-gold)"
-              onClick={handleBookmark} label="Save"
-            />
-
-            <ActionBtn
-              icon={<Share2 size={18} />} count={null}
-              active={false} activeColor="var(--color-brand)"
-              onClick={handleShare} label="Share"
-            />
-          </div>
+          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
         </div>
       </article>
 
-      {showQuoteModal && <QuoteModal post={post} onClose={() => setShowQuoteModal(false)} />}
       <style>{`@keyframes modalIn { from { opacity:0;transform:translateY(-10px) scale(0.98); } to { opacity:1;transform:none; } }`}</style>
     </>
   )

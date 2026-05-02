@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 interface ReplyToReplyProps {
   reply: any
   viewer: { display_name: string; avatar_url: string | null }
+  currentUserId?: string
 }
 
 function useIsMobile() {
@@ -22,14 +23,13 @@ function useIsMobile() {
   return mobile
 }
 
-export default function ReplyToReply({ reply, viewer }: ReplyToReplyProps) {
+export default function ReplyToReply({ reply, viewer, currentUserId }: ReplyToReplyProps) {
   const [showModal, setShowModal] = useState(false)
   const isMobile = useIsMobile()
   const router = useRouter()
 
   function handleReplyClick() {
     if (isMobile) {
-      // On mobile, open as a separate page
       router.push(`/post/${reply.id}`)
     } else {
       setShowModal(true)
@@ -40,6 +40,7 @@ export default function ReplyToReply({ reply, viewer }: ReplyToReplyProps) {
     <>
       <PostCard
         post={reply}
+        currentUserId={currentUserId}
         onReplyClick={handleReplyClick}
       />
       {showModal && (

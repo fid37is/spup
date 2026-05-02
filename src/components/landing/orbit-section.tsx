@@ -143,7 +143,7 @@ export default function OrbitSection() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400&h=400&fit=crop&crop=face&q=85" alt="You" />
           </div>
-
+https://unsplash.com/photos/a-woman-with-curly-hair-smiling-for-the-camera-RPcX5545QfI
           {/* ── CLOCKWISE ring — inner, 4 avatars at 0/90/180/270 ── */}
           <div className="orb-cw">
             {/* top — 0deg, radius 150px from center */}

@@ -66,29 +66,21 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
           padding: collapsed ? '18px 0 20px' : '18px 10px 20px',
           display: 'flex', justifyContent: collapsed ? 'center' : 'flex-start',
         }}>
-          <Link href="/feed" style={{
-            textDecoration: 'none', display: 'flex', alignItems: 'center',
-            gap: collapsed ? 0 : 10,
-          }}>
+          <Link href="/feed" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
             <img
-              src={theme === 'dark' ? '/logo.png' : '/logo-light.png'}
+              src="/logo.png"
               alt="Spup"
-              style={{ height: 36, width: 'auto', display: 'block', flexShrink: 0 }}
+              style={{
+                height: 52,
+                width: 'auto',
+                display: 'block',
+                flexShrink: 0,
+                filter: theme === 'dark'
+                  ? 'invert(1) hue-rotate(100deg) brightness(1.15) saturate(1.2)'
+                  : 'invert(0.85) hue-rotate(80deg) brightness(0.55) contrast(1.5)',
+                transition: 'filter 0.2s ease',
+              }}
             />
-            {!collapsed && (
-              <span style={{
-                fontFamily: "'Syne', sans-serif", fontWeight: 800,
-                fontSize: 26, letterSpacing: '-0.05em', lineHeight: 1,
-                color: 'var(--color-text-primary)',
-                textDecoration: 'underline',
-                textDecorationColor: 'var(--color-brand)',
-                textDecorationThickness: 3,
-                textUnderlineOffset: 5,
-                textDecorationStyle: 'wavy',
-              }}>
-                Spup
-              </span>
-            )}
           </Link>
         </div>
 
