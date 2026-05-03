@@ -7,6 +7,7 @@ import AdSlot from '@/components/feed/ad-card'
 import { Loader } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
+import PostAnalyticsDrawer from '@/components/feed/post-analytics-drawer'
 
 type Tab = 'for-you' | 'following' | 'mutuals'
 const AD_EVERY = 5
@@ -14,6 +15,7 @@ const AD_EVERY = 5
 interface FeedClientProps {
   initialPosts: FeedPost[]
   initialCursor: string | null
+  currentUserId?: string
 }
 
 const TABS: { key: Tab; label: string }[] = [
@@ -34,12 +36,13 @@ const EMPTY: Record<Tab, { title: string; body: string }> = {
   'mutuals':   { title: 'No mutuals yet',       body: 'When someone follows you back, their posts appear here.' },
 }
 
-export default function FeedClient({ initialPosts, initialCursor }: FeedClientProps) {
+export default function FeedClient({ initialPosts, initialCursor, currentUserId }: FeedClientProps) {
   const [activeTab, setActiveTab] = useState<Tab>('for-you')
   const [posts, setPosts] = useState<FeedPost[]>(initialPosts)
   const [cursor, setCursor] = useState<string | null>(initialCursor)
   const [hasMore, setHasMore] = useState(initialPosts.length > 0 ? !!initialCursor : true)
   const [isPending, startTransition] = useTransition()
+  const [openAnalyticsId, setOpenAnalyticsId] = useState<string | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const tabRef = useRef<Tab>('for-you')
   tabRef.current = activeTab
@@ -183,7 +186,22 @@ export default function FeedClient({ initialPosts, initialCursor }: FeedClientPr
 
       {posts.map((post, index) => (
         <div key={post.id}>
-          <PostCard post={post} />
+          <PostCard
+            post={post}
+            currentUserId={currentUserId}
+            onAnalyticsClick={
+              currentUserId && post.author?.id === currentUserId
+                ? () => setOpenAnalyticsId(id => id === post.id ? null : post.id)
+                : undefined
+            }
+            analyticsOpen={openAnalyticsId === post.id}
+          />
+          {openAnalyticsId === post.id && (
+            <PostAnalyticsDrawer
+              post={post}
+              onClose={() => setOpenAnalyticsId(null)}
+            />
+          )}
           {(index + 1) % AD_EVERY === 0 && (
             <AdSlot postId={post.id} position={Math.floor(index / AD_EVERY)} />
           )}

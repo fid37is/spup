@@ -182,10 +182,14 @@ function PostActions({
   post,
   currentUserId,
   onReplyClick,
+  onAnalyticsClick,
+  analyticsOpen,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
+  onAnalyticsClick?: () => void
+  analyticsOpen?: boolean
 }) {
   const [, startTransition] = useTransition()
   const [liked, setLiked] = useState(post.is_liked)
@@ -292,7 +296,6 @@ function PostActions({
 
   function handleAnalytics(e: React.MouseEvent) {
     e.stopPropagation()
-    // Record impression and show count — future: open analytics modal
     void recordImpressionAction(post.id)
   }
 
@@ -349,13 +352,15 @@ function PostActions({
           onClick={handleDislike} label="Dislike"
         />
 
-        {/* Analytics */}
-        <ActionBtn
-          icon={<BarChart2 size={18} />}
-          count={post.impressions_count > 0 ? post.impressions_count : null}
-          active={false} activeColor="var(--color-brand)"
-          onClick={handleAnalytics} label="Analytics"
-        />
+        {/* Analytics — only visible to post author */}
+        {currentUserId && post.author?.id === currentUserId && (
+          <ActionBtn
+            icon={<BarChart2 size={18} />}
+            count={post.impressions_count > 0 ? post.impressions_count : null}
+            active={!!analyticsOpen} activeColor="var(--color-brand)"
+            onClick={handleAnalytics} label="Analytics"
+          />
+        )}
 
         {/* Bookmark — hidden for now, preserved for later */}
         <div style={{ display: 'none' }}>
@@ -380,7 +385,7 @@ function PostActions({
 }
 
 // ── RepostCard ────────────────────────────────────────────────────────────────
-function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; currentUserId?: string; onReplyClick?: () => void }) {
+function RepostCard({ post, currentUserId, onReplyClick, onAnalyticsClick }: { post: FeedPost; currentUserId?: string; onReplyClick?: () => void; onAnalyticsClick?: () => void }) {
   const router = useRouter()
   const original = post.quoted_post
   if (!original) return null
@@ -462,7 +467,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
           <MediaRow media={original.media} />
 
           {/* Action bar on the original post inside repost */}
-          <PostActions post={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+          <PostActions post={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} />
         </div>
       </div>
     </article>
@@ -474,10 +479,14 @@ export default function PostCard({
   post,
   currentUserId,
   onReplyClick,
+  onAnalyticsClick,
+  analyticsOpen,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
+  onAnalyticsClick?: () => void
+  analyticsOpen?: boolean
 }) {
   const [, startTransition] = useTransition()
   const [showMenu, setShowMenu] = useState(false)
@@ -489,7 +498,7 @@ export default function PostCard({
   const isRepost = post.post_type === 'repost'
 
   if (deleted) return null
-  if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+  if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} />
 
   function navigate(e: React.MouseEvent) {
     if ((e.target as HTMLElement).closest('button,a,textarea,input,video')) return
@@ -614,7 +623,7 @@ export default function PostCard({
           <MediaRow media={post.media} />
 
           {/* Action bar */}
-          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} analyticsOpen={analyticsOpen} />
         </div>
       </article>
 
