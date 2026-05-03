@@ -38,8 +38,9 @@ export async function toggleFollowAction(targetUserId: string) {
   }
 
   const { error } = await supabase.from('follows').insert({ follower_id: profile.id, following_id: targetUserId })
-  if (error?.code === '23505') return { following: true }
-  if (error) return { error: 'Could not follow. Please try again.' }
+  if (error?.code === '23505') return { following: true }  // duplicate — already following
+  if (error?.code === '42501') return { error: 'Permission denied. Please log out and back in.' }
+  if (error) return { error: `Could not follow: ${error.message}` }
 
   void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'following_count', p_id: profile.id, p_amount: 1 })
   void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'followers_count', p_id: targetUserId, p_amount: 1 })

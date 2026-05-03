@@ -1,17 +1,7 @@
+// src/components/profile/profile-page-client.tsx
 'use client'
 
-/**
- * ProfilePageClient
- * ──────────────────
- * Client-side wrapper for /profile (own profile).
- * Manages edit-modal open state — the profile page itself is still a
- * server component that fetches data; this component handles interactivity.
- */
-
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import ProfileHeader from '@/components/profile/profile-header'
-import EditProfileModal from '@/components/profile/edit-profile-modal'
 import ProfileTabs from '@/components/profile/profile-tabs'
 import type { FeedPost } from '@/lib/actions/feed'
 
@@ -33,36 +23,25 @@ interface Props {
     following: string
     followers: string
     posts: string
+    mutuals: string
   }
   initialPosts: FeedPost[]
 }
 
 export default function ProfilePageClient({ profile, stats, initialPosts }: Props) {
-  const router = useRouter()
-  const [editOpen, setEditOpen] = useState(false)
-
   return (
     <>
       <ProfileHeader
         profile={profile}
         stats={stats}
         isOwner={true}
-        onEditProfile={() => setEditOpen(true)}
       />
-
-      {editOpen && (
-        <EditProfileModal
-          profile={profile}
-          onClose={() => setEditOpen(false)}
-          onSaved={() => router.refresh()}
-        />
-      )}
-
       <ProfileTabs
         profileId={profile.id}
         initialPosts={initialPosts}
         isOwner={true}
         canSeeContent={true}
+        currentUserId={profile.id}
       />
     </>
   )

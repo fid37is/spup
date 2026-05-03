@@ -24,6 +24,10 @@ export interface FeedPost {
   reposts_count: number
   bookmarks_count: number
   impressions_count: number
+  link_clicks_count: number
+  detail_expands_count: number
+  video_views_count: number
+  video_completions_count: number
   created_at: string
   edited_at: string | null
   is_sensitive: boolean
@@ -86,7 +90,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -142,7 +146,7 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -201,7 +205,7 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -240,7 +244,7 @@ export async function getPostRepliesAction(postId: string, cursor?: string) {
     .from('posts')
     .select(`
       id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -282,7 +286,7 @@ export async function getBookmarkedPostsAction(cursor?: string) {
     .select(`
       post:posts(
         id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-        bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+        bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, quoted_post_id,
         author:users!posts_user_id_fkey(
           id, username, display_name, avatar_url, verification_tier, is_monetised
         ),
@@ -326,7 +330,7 @@ export async function getProfileTabAction(
 
   const BASE_SELECT = `
     id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-    bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+    bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, quoted_post_id,
     author:users!posts_user_id_fkey(
       id, username, display_name, avatar_url, verification_tier, is_monetised
     ),
@@ -336,7 +340,7 @@ export async function getProfileTabAction(
   // media tab uses !inner to only return posts that have at least one media row
   const MEDIA_SELECT = `
     id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
-    bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
+    bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, quoted_post_id,
     author:users!posts_user_id_fkey(
       id, username, display_name, avatar_url, verification_tier, is_monetised
     ),

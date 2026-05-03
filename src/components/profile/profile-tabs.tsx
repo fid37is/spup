@@ -10,7 +10,7 @@
 import { useState, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader, PenLine, MessageCircle, Image, Heart, Play, Lock } from 'lucide-react'
-import PostCard from '@/components/feed/post-card'
+import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import { getProfileTabAction } from '@/lib/actions/feed'
 import type { FeedPost } from '@/lib/actions/feed'
 
@@ -27,6 +27,7 @@ interface ProfileTabsProps {
   initialPosts: FeedPost[]
   isOwner: boolean
   canSeeContent: boolean
+  currentUserId?: string
 }
 
 const ALL_TABS: { key: Tab; label: string }[] = [
@@ -113,7 +114,7 @@ function Empty({ tab }: { tab: Tab }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function ProfileTabs({ profileId, initialPosts, isOwner, canSeeContent }: ProfileTabsProps) {
+export default function ProfileTabs({ profileId, initialPosts, isOwner, canSeeContent, currentUserId }: ProfileTabsProps) {
   const [activeTab,   setActiveTab]   = useState<Tab>('posts')
   const [isPending,   startTransition] = useTransition()
   const [loadingMore, setLoadingMore]  = useState(false)
@@ -235,7 +236,7 @@ export default function ProfileTabs({ profileId, initialPosts, isOwner, canSeeCo
         <>
           {state.posts.length === 0
             ? <Empty tab={activeTab} />
-            : state.posts.map(post => <PostCard key={post.id} post={post as any} />)
+            : state.posts.map(post => <PostCardWithAnalytics key={post.id} post={post as any} currentUserId={currentUserId} />)
           }
 
           {state.cursor && (

@@ -1,3 +1,4 @@
+// src/app/(main)/notifications/notifications-list.tsx
 'use client'
 
 import { useState, useEffect, useTransition, useCallback, useRef } from 'react'
@@ -69,8 +70,10 @@ function NotifAvatar({ actor, cfg }: { actor: any; cfg: typeof TYPES[string] }) 
 /* ── Single notification row ─────────────────────────────────────────────── */
 function NotifItem({ notif, onRead }: { notif: any; onRead: (id: string) => void }) {
   const router = useRouter()
-  const cfg = TYPES[notif.type] || TYPES.system
-  const href = cfg.href?.(notif)
+  // Supabase returns joined relations as arrays — normalize to single object
+  const normalized = { ...notif, actor: Array.isArray(notif.actor) ? (notif.actor[0] ?? null) : notif.actor }
+  const cfg = TYPES[normalized.type] || TYPES.system
+  const href = cfg.href?.(normalized)
 
   function handleClick() {
     if (!notif.is_read) onRead(notif.id)
@@ -101,13 +104,13 @@ function NotifItem({ notif, onRead }: { notif: any; onRead: (id: string) => void
         }} />
       )}
 
-      <NotifAvatar actor={notif.actor} cfg={cfg} />
+      <NotifAvatar actor={normalized.actor} cfg={cfg} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.5, marginBottom: 3 }}>
-          {notif.actor && (
+          {normalized.actor && (
             <span style={{ fontWeight: 700, fontFamily: "'Syne', sans-serif" }}>
-              {notif.actor.display_name}{' '}
+              {normalized.actor.display_name}{''}
             </span>
           )}
           <span style={{ color: 'var(--color-text-secondary)' }}>{cfg.label}</span>
@@ -118,7 +121,7 @@ function NotifItem({ notif, onRead }: { notif: any; onRead: (id: string) => void
             overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
             marginBottom: 3,
           }}>
-            "{notif.metadata.post_body}"
+            "{normalized.metadata.post_body}"
           </p>
         )}
         <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>

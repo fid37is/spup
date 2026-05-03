@@ -1,13 +1,13 @@
+// src/app/(main)/feed/feed-client.tsx
 'use client'
 
 import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
 import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, type FeedPost } from '@/lib/actions'
-import PostCard from '@/components/feed/post-card'
+import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import AdSlot from '@/components/feed/ad-card'
 import { Loader } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
-import PostAnalyticsDrawer from '@/components/feed/post-analytics-drawer'
 
 type Tab = 'for-you' | 'following' | 'mutuals'
 const AD_EVERY = 5
@@ -42,7 +42,6 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
   const [cursor, setCursor] = useState<string | null>(initialCursor)
   const [hasMore, setHasMore] = useState(initialPosts.length > 0 ? !!initialCursor : true)
   const [isPending, startTransition] = useTransition()
-  const [openAnalyticsId, setOpenAnalyticsId] = useState<string | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const tabRef = useRef<Tab>('for-you')
   tabRef.current = activeTab
@@ -186,22 +185,10 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
 
       {posts.map((post, index) => (
         <div key={post.id}>
-          <PostCard
+          <PostCardWithAnalytics
             post={post}
             currentUserId={currentUserId}
-            onAnalyticsClick={
-              currentUserId && post.author?.id === currentUserId
-                ? () => setOpenAnalyticsId(id => id === post.id ? null : post.id)
-                : undefined
-            }
-            analyticsOpen={openAnalyticsId === post.id}
           />
-          {openAnalyticsId === post.id && (
-            <PostAnalyticsDrawer
-              post={post}
-              onClose={() => setOpenAnalyticsId(null)}
-            />
-          )}
           {(index + 1) % AD_EVERY === 0 && (
             <AdSlot postId={post.id} position={Math.floor(index / AD_EVERY)} />
           )}
