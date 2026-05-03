@@ -194,6 +194,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
                 ? () => setOpenAnalyticsId(id => id === post.id ? null : post.id)
                 : undefined
             }
+            analyticsOpen={openAnalyticsId === post.id}
           />
           {openAnalyticsId === post.id && (
             <PostAnalyticsDrawer

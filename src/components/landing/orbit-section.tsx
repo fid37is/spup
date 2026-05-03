@@ -80,6 +80,7 @@ export default function OrbitSection({ count, mode = 'waitlist' }: Props) {
           <div className={`${styles.ring} ${styles.ring2}`} style={{width:490,height:490}} />
 
           <div className={styles.beam} />
+          <div className={styles.beamReverse} />
 
           {/* Center */}
           <div className={styles.center}>

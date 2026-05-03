@@ -183,11 +183,13 @@ function PostActions({
   currentUserId,
   onReplyClick,
   onAnalyticsClick,
+  analyticsOpen,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
   onAnalyticsClick?: () => void
+  analyticsOpen?: boolean
 }) {
   const [, startTransition] = useTransition()
   const [liked, setLiked] = useState(post.is_liked)
@@ -355,7 +357,7 @@ function PostActions({
           <ActionBtn
             icon={<BarChart2 size={18} />}
             count={post.impressions_count > 0 ? post.impressions_count : null}
-            active={false} activeColor="var(--color-brand)"
+            active={!!analyticsOpen} activeColor="var(--color-brand)"
             onClick={handleAnalytics} label="Analytics"
           />
         )}
@@ -478,11 +480,13 @@ export default function PostCard({
   currentUserId,
   onReplyClick,
   onAnalyticsClick,
+  analyticsOpen,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
   onAnalyticsClick?: () => void
+  analyticsOpen?: boolean
 }) {
   const [, startTransition] = useTransition()
   const [showMenu, setShowMenu] = useState(false)
@@ -619,7 +623,7 @@ export default function PostCard({
           <MediaRow media={post.media} />
 
           {/* Action bar */}
-          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} />
+          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} analyticsOpen={analyticsOpen} />
         </div>
       </article>
 

@@ -38,8 +38,12 @@ export default function PostAnalyticsDrawer({
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    const id = requestAnimationFrame(() => setOpen(true))
-    return () => cancelAnimationFrame(id)
+    // Double rAF ensures the browser paints max-height:0 before transitioning to open
+    let id1: number, id2: number
+    id1 = requestAnimationFrame(() => {
+      id2 = requestAnimationFrame(() => setOpen(true))
+    })
+    return () => { cancelAnimationFrame(id1); cancelAnimationFrame(id2) }
   }, [])
 
   function handleClose() {
