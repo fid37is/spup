@@ -22,6 +22,7 @@ import {
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import type { FeedPost } from '@/lib/actions/feed'
 import { useToast } from '@/components/layout/toast'
+import MediaViewer from '@/components/feed/media-viewer'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -89,33 +90,60 @@ function TrackedVideo({ src, postId }: { src: string; postId: string }) {
   )
 }
 
-function MediaRow({ media, postId }: { media: FeedPost['media']; postId: string }) {
+function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: string; post: FeedPost }) {
+  const [viewerIdx, setViewerIdx] = useState<number | null>(null)
   if (!media || media.length === 0) return null
   const sorted = [...media].sort((a, b) => a.position - b.position)
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: sorted.length === 1 ? '1fr' : 'repeat(2,1fr)',
-      gap: 3, borderRadius: 14, overflow: 'hidden',
-      marginBottom: 10, maxHeight: 420,
-    }}>
-      {sorted.slice(0, 4).map((m, i) => (
-        <div
-          key={m.id || i}
-          style={{
-            background: 'var(--color-surface-2)',
-            aspectRatio: sorted.length === 1 ? '16/9' : '1/1',
-            gridColumn: sorted.length === 3 && i === 0 ? '1/-1' : undefined,
-            overflow: 'hidden',
-          }}
-        >
-          {m.media_type === 'image'
-            ? <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <TrackedVideo src={m.url} postId={postId} />
-          }
-        </div>
-      ))}
-    </div>
+    <>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: sorted.length === 1 ? '1fr' : 'repeat(2,1fr)',
+        gap: 3, borderRadius: 14, overflow: 'hidden',
+        marginBottom: 10, maxHeight: 420,
+        cursor: 'pointer',
+      }}>
+        {sorted.slice(0, 4).map((m, i) => (
+          <div
+            key={m.id || i}
+            onClick={e => { e.stopPropagation(); setViewerIdx(i) }}
+            style={{
+              background: 'var(--color-surface-2)',
+              aspectRatio: sorted.length === 1 ? '16/9' : '1/1',
+              gridColumn: sorted.length === 3 && i === 0 ? '1/-1' : undefined,
+              overflow: 'hidden', position: 'relative',
+              transition: 'opacity 0.12s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+          >
+            {m.media_type === 'image'
+              ? <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <TrackedVideo src={m.url} postId={postId} />
+            }
+            {/* Overflow count badge for 4+ items */}
+            {sorted.length > 4 && i === 3 && (
+              <div style={{
+                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 22, fontWeight: 800, color: 'white',
+              }}>
+                +{sorted.length - 4}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {viewerIdx !== null && (
+        <MediaViewer
+          media={sorted}
+          initialIndex={viewerIdx}
+          post={post}
+          onClose={() => setViewerIdx(null)}
+        />
+      )}
+    </>
   )
 }
 
@@ -208,7 +236,7 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
 }
 
 // ── PostActions — shared action bar used in both PostCard and RepostCard ──────
-function PostActions({
+export function PostActions({
   post,
   currentUserId,
   onReplyClick,
@@ -493,7 +521,7 @@ function RepostCard({ post, currentUserId, onReplyClick, onAnalyticsClick }: { p
               {original.body}
             </p>
           )}
-          <MediaRow media={original.media} postId={original.id} />
+          <MediaRow media={original.media} postId={original.id} post={originalAsPost} />
 
           {/* Action bar on the original post inside repost */}
           <PostActions post={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} />
@@ -520,6 +548,7 @@ export default function PostCard({
   const [, startTransition] = useTransition()
   const [showMenu, setShowMenu] = useState(false)
   const [deleted, setDeleted] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const router = useRouter()
   const { success, error: toastError, info } = useToast()
   const articleRef = useRef<HTMLElement>(null)
@@ -649,7 +678,7 @@ export default function PostCard({
           </div>
 
           {/* Body */}
-          {post.body && (
+          {post.body?.trim() && (
             <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, marginBottom: (post.media?.length || post.quoted_post) ? 12 : 10, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
               {post.body}
             </p>
@@ -678,12 +707,21 @@ export default function PostCard({
           )}
 
           {/* Media */}
-          <MediaRow media={post.media} postId={post.id} />
+          <MediaRow media={post.media} postId={post.id} post={post} />
 
           {/* Action bar */}
           <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} analyticsOpen={analyticsOpen} />
         </div>
       </article>
+
+      {viewerIndex !== null && post.media && post.media.length > 0 && (
+        <MediaViewer
+          media={[...post.media].sort((a, b) => a.position - b.position)}
+          initialIndex={viewerIndex}
+          post={post}
+          onClose={() => setViewerIndex(null)}
+        />
+      )}
 
       <style>{`@keyframes modalIn { from { opacity:0;transform:translateY(-10px) scale(0.98); } to { opacity:1;transform:none; } }`}</style>
     </>

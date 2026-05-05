@@ -112,19 +112,27 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     is_bookmarked: bookmarkedSet.has(p.id),
   }))
 
-  // Mutuals count
-  const [{ data: youFollow }, { data: followYou }] = await Promise.all([
+  // Recalculate all counts from actual rows — never trust denormalized counters
+  const [
+    { data: youFollowRows },
+    { data: followYouRows },
+    { count: actualPostsCount },
+  ] = await Promise.all([
     admin.from('follows').select('following_id').eq('follower_id', profile.id),
     admin.from('follows').select('follower_id').eq('following_id', profile.id),
+    admin.from('posts').select('id', { count: 'exact', head: true })
+      .eq('user_id', profile.id).is('deleted_at', null)
+      .is('parent_post_id', null).neq('post_type', 'repost'),
   ])
-  const youFollowSet = new Set((youFollow  || []).map((r: any) => r.following_id))
-  const followYouSet = new Set((followYou  || []).map((r: any) => r.follower_id))
-  const mutualsCount = [...youFollowSet].filter(id => followYouSet.has(id)).length
+
+  const followingSet = new Set((youFollowRows  || []).map((r: any) => r.following_id as string))
+  const followerSet  = new Set((followYouRows  || []).map((r: any) => r.follower_id  as string))
+  const mutualsCount = [...followingSet].filter(id => followerSet.has(id)).length
 
   const stats = {
-    following: formatNumber(profile.following_count ?? 0),
-    followers: formatNumber(profile.followers_count ?? 0),
-    posts:     formatNumber(profile.posts_count     ?? 0),
+    following: formatNumber(followingSet.size),
+    followers: formatNumber(followerSet.size),
+    posts:     formatNumber(actualPostsCount ?? 0),
     mutuals:   formatNumber(mutualsCount),
   }
 

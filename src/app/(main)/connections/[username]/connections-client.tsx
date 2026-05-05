@@ -1,9 +1,10 @@
 // src/app/(main)/connections/[username]/connections-client.tsx
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserCheck } from 'lucide-react'
+import { UserCheck, UserMinus, UserPlus, Loader2, BadgeCheck, Star } from 'lucide-react'
+import { toggleFollowAction } from '@/lib/actions'
 
 type Tab = 'following' | 'followers' | 'mutuals'
 
@@ -24,6 +25,9 @@ interface Props {
   following: UserRow[]
   followers: UserRow[]
   mutuals: UserRow[]
+  viewerId: string | null
+  viewerFollowingIds: string[]
+  viewerFollowerIds: string[]
 }
 
 const TABS: { key: Tab; label: string }[] = [
@@ -52,8 +56,101 @@ function Avatar({ user }: { user: UserRow }) {
   )
 }
 
-function UserCard({ user }: { user: UserRow }) {
+// ── Inline follow button ──────────────────────────────────────────────────────
+function FollowBtn({
+  targetUserId,
+  initialFollowing,
+  followsMe,
+  isOwnProfile,
+}: {
+  targetUserId: string
+  initialFollowing: boolean
+  followsMe: boolean
+  isOwnProfile: boolean
+}) {
+  const [following, setFollowing] = useState(initialFollowing)
+  const [hovered,   setHovered]   = useState(false)
+  const [isPending, startTransition] = useTransition()
+
+  // Don't show a button for own profile entries
+  if (isOwnProfile) return null
+
+  function handleClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    const next = !following
+    setFollowing(next)
+    startTransition(async () => {
+      const result = await toggleFollowAction(targetUserId)
+      if ('error' in result) setFollowing(!next)
+    })
+  }
+
+  let bg: string, border: string, color: string, label: string, icon: React.ReactNode
+
+  if (!following) {
+    bg     = 'var(--color-brand)'
+    border = 'transparent'
+    color  = 'white'
+    label  = followsMe ? 'Follow back' : 'Follow'
+    icon   = <UserPlus size={13} />
+  } else if (hovered) {
+    bg     = 'var(--color-error-muted, #2a0a0a)'
+    border = 'var(--color-error)'
+    color  = 'var(--color-error)'
+    label  = 'Unfollow'
+    icon   = <UserMinus size={13} />
+  } else {
+    bg     = 'transparent'
+    border = 'var(--color-border)'
+    color  = 'var(--color-text-secondary)'
+    label  = 'Following'
+    icon   = <UserCheck size={13} />
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      disabled={isPending}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+        padding: '0 14px', height: 34, borderRadius: 24,
+        border: `1.5px solid ${border}`,
+        background: bg, color,
+        fontSize: 13, fontWeight: 700,
+        cursor: isPending ? 'default' : 'pointer',
+        fontFamily: "'Syne', sans-serif",
+        transition: 'all 0.15s',
+        whiteSpace: 'nowrap', flexShrink: 0,
+        minWidth: 96, opacity: isPending ? 0.7 : 1,
+      }}
+    >
+      {isPending
+        ? <Loader2 size={13} style={{ animation: 'spin 0.65s linear infinite' }} />
+        : <>{icon}{label}</>
+      }
+    </button>
+  )
+}
+
+// ── User card ─────────────────────────────────────────────────────────────────
+function UserCard({
+  user,
+  viewerId,
+  viewerFollowingSet,
+  viewerFollowerSet,
+}: {
+  user: UserRow
+  viewerId: string | null
+  viewerFollowingSet: Set<string>
+  viewerFollowerSet: Set<string>
+}) {
   const router = useRouter()
+  const isOwnProfile = viewerId === user.id
+  const viewerFollowsUser = viewerFollowingSet.has(user.id)
+  const userFollowsViewer = viewerFollowerSet.has(user.id)
+
   return (
     <div
       onClick={() => router.push(`/user/${user.username}`)}
@@ -68,7 +165,9 @@ function UserCard({ user }: { user: UserRow }) {
       onMouseLeave={e => { e.currentTarget.style.background = '' }}
     >
       <Avatar user={user} />
+
       <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Name row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{
             fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15,
@@ -78,26 +177,34 @@ function UserCard({ user }: { user: UserRow }) {
             {user.display_name}
           </span>
           {user.verification_tier !== 'none' && (
-            <span style={{
-              width: 16, height: 16, borderRadius: '50%',
-              background: 'var(--color-brand)',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 9, color: 'white', flexShrink: 0,
-            }}>✓</span>
+            <BadgeCheck size={15} color="var(--color-brand)" style={{ flexShrink: 0 }} />
           )}
           {user.is_monetised && (
+            <Star size={12} fill="var(--color-gold)" stroke="none" style={{ flexShrink: 0 }} />
+          )}
+          {/* "Follows you" badge */}
+          {!isOwnProfile && userFollowsViewer && (
             <span style={{
-              fontSize: 9, background: 'var(--color-gold)', color: '#000',
-              padding: '1px 5px', borderRadius: 3, fontWeight: 700, flexShrink: 0,
-            }}>PRO</span>
+              fontSize: 11, padding: '1px 6px', borderRadius: 4,
+              background: 'var(--color-surface-3)',
+              color: 'var(--color-text-muted)',
+              fontFamily: "'DM Sans', sans-serif",
+              fontWeight: 500, flexShrink: 0,
+            }}>
+              Follows you
+            </span>
           )}
         </div>
+
+        {/* Handle + follower count */}
         <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 1 }}>
           @{user.username}
           {user.followers_count > 0 && (
             <span> · {user.followers_count.toLocaleString()} followers</span>
           )}
         </div>
+
+        {/* Bio */}
         {user.bio && (
           <div style={{
             fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 3,
@@ -107,10 +214,21 @@ function UserCard({ user }: { user: UserRow }) {
           </div>
         )}
       </div>
+
+      {/* Follow button */}
+      {viewerId && (
+        <FollowBtn
+          targetUserId={user.id}
+          initialFollowing={viewerFollowsUser}
+          followsMe={userFollowsViewer}
+          isOwnProfile={isOwnProfile}
+        />
+      )}
     </div>
   )
 }
 
+// ── Empty state ───────────────────────────────────────────────────────────────
 function Empty({ tab }: { tab: Tab }) {
   const msg: Record<Tab, string> = {
     following: 'Not following anyone yet',
@@ -132,9 +250,17 @@ function Empty({ tab }: { tab: Tab }) {
   )
 }
 
-export default function ConnectionsClient({ username, initialTab, following, followers, mutuals }: Props) {
+// ── Main component ────────────────────────────────────────────────────────────
+export default function ConnectionsClient({
+  username, initialTab,
+  following, followers, mutuals,
+  viewerId, viewerFollowingIds, viewerFollowerIds,
+}: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
+
+  const viewerFollowingSet = new Set(viewerFollowingIds)
+  const viewerFollowerSet  = new Set(viewerFollowerIds)
 
   function switchTab(tab: Tab) {
     setActiveTab(tab)
@@ -184,8 +310,18 @@ export default function ConnectionsClient({ username, initialTab, following, fol
       {/* List */}
       {current.length === 0
         ? <Empty tab={activeTab} />
-        : current.map(u => <UserCard key={u.id} user={u} />)
+        : current.map(u => (
+            <UserCard
+              key={u.id}
+              user={u}
+              viewerId={viewerId}
+              viewerFollowingSet={viewerFollowingSet}
+              viewerFollowerSet={viewerFollowerSet}
+            />
+          ))
       }
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }

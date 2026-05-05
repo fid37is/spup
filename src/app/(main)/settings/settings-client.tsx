@@ -4,26 +4,17 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle,
-  X, Check, User, Lock, Eye, EyeOff, Loader, Phone,
+  X, Check, Eye, EyeOff, Loader, Moon, Sun,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
-import {
-  updateProfileAction,
-  changeUsernameAction,
-  changePasswordAction,
-  deleteAccountAction,
-} from '@/lib/actions/profiles'
+import { updateProfileAction, deleteAccountAction } from '@/lib/actions/profiles'
+import { useTheme } from '@/components/layout/theme-provider'
 
-type Panel = null | 'username' | 'password' | 'language'
+type Panel = null | 'language' | 'theme'
 
 interface SettingsProfile {
   id: string
-  username: string
-  display_name: string
-  email?: string | null
-  phone_number?: string | null
   is_private: boolean
-  bvn_verified?: boolean
   language_preference?: string
   notif_push?: boolean
   notif_email?: boolean
@@ -37,46 +28,33 @@ const LANGS = [
   { code: 'ha',  label: 'Hausa'   },
 ]
 
-// ── Section label ─────────────────────────────────────────────────────────────
+// ── Shared primitives ─────────────────────────────────────────────────────────
+
 function SectionLabel({ label }: { label: string }) {
   return (
     <p style={{
-      padding: '24px 20px 8px',
-      margin: 0,
-      fontSize: 11,
-      fontWeight: 700,
+      padding: '24px 20px 8px', margin: 0,
+      fontSize: 11, fontWeight: 700,
       color: 'var(--color-text-faint)',
-      letterSpacing: '0.09em',
-      textTransform: 'uppercase',
+      letterSpacing: '0.09em', textTransform: 'uppercase',
     }}>
       {label}
     </p>
   )
 }
 
-// ── Icon box — uses surface-raised so it's always visible ────────────────────
 function IconBox({ icon: Icon, danger = false }: { icon: any; danger?: boolean }) {
   return (
     <div style={{
-      width: 34,
-      height: 34,
-      borderRadius: 9,
-      flexShrink: 0,
+      width: 34, height: 34, borderRadius: 9, flexShrink: 0,
       background: danger ? 'var(--color-error-muted)' : 'var(--color-surface-raised)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
-      <Icon
-        size={15}
-        color={danger ? 'var(--color-error)' : 'var(--color-text-secondary)'}
-        strokeWidth={1.8}
-      />
+      <Icon size={15} color={danger ? 'var(--color-error)' : 'var(--color-text-secondary)'} strokeWidth={1.8} />
     </div>
   )
 }
 
-// ── Single row ────────────────────────────────────────────────────────────────
 function Row({
   icon, label, desc, onClick, danger = false, accentDesc = false, last = false, right,
 }: {
@@ -89,25 +67,20 @@ function Row({
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
+        display: 'flex', alignItems: 'center', gap: 12,
         padding: '12px 20px',
         borderBottom: last ? 'none' : '1px solid var(--color-border)',
         cursor: onClick ? 'pointer' : 'default',
+        background: 'transparent', transition: 'background 0.1s',
         WebkitTapHighlightColor: 'transparent',
-        background: 'transparent',
-        transition: 'background 0.1s',
       }}
       onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-2)' }}
       onMouseLeave={e => { if (onClick) (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
     >
       <IconBox icon={icon} danger={danger} />
-
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontSize: 15,
-          fontWeight: 500,
+          fontSize: 15, fontWeight: 500,
           color: danger ? 'var(--color-error)' : 'var(--color-text-primary)',
           lineHeight: 1.3,
         }}>
@@ -115,63 +88,46 @@ function Row({
         </div>
         {desc && (
           <div style={{
-            fontSize: 13,
+            fontSize: 13, marginTop: 2, lineHeight: 1.3,
             color: accentDesc ? 'var(--color-brand)' : 'var(--color-text-muted)',
-            marginTop: 2,
-            lineHeight: 1.3,
           }}>
             {desc}
           </div>
         )}
       </div>
-
       {right ?? (onClick && <ChevronRight size={15} color="var(--color-text-faint)" />)}
     </div>
   )
 }
 
-// ── Toggle ────────────────────────────────────────────────────────────────────
 function Toggle({ checked, onChange, disabled }: {
   checked: boolean; onChange: (v: boolean) => void; disabled?: boolean
 }) {
   return (
     <button
       onClick={() => !disabled && onChange(!checked)}
-      role="switch"
-      aria-checked={checked}
+      role="switch" aria-checked={checked}
       style={{
-        width: 44,
-        height: 24,
-        borderRadius: 12,
+        width: 44, height: 24, borderRadius: 12,
         background: checked ? 'var(--color-brand)' : 'var(--color-surface-3)',
-        border: 'none',
-        cursor: disabled ? 'default' : 'pointer',
-        position: 'relative',
-        flexShrink: 0,
-        transition: 'background 0.2s',
-        opacity: disabled ? 0.5 : 1,
-        WebkitTapHighlightColor: 'transparent',
-        padding: 0,
+        border: 'none', cursor: disabled ? 'default' : 'pointer',
+        position: 'relative', flexShrink: 0,
+        transition: 'background 0.2s', opacity: disabled ? 0.5 : 1,
+        WebkitTapHighlightColor: 'transparent', padding: 0,
       }}
     >
       <span style={{
-        display: 'block',
-        position: 'absolute',
-        top: 3,
-        left: checked ? 23 : 3,
-        width: 18,
-        height: 18,
-        borderRadius: '50%',
-        background: 'white',
-        transition: 'left 0.18s',
+        display: 'block', position: 'absolute',
+        top: 3, left: checked ? 23 : 3,
+        width: 18, height: 18, borderRadius: '50%',
+        background: 'white', transition: 'left 0.18s',
         boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
       }} />
     </button>
   )
 }
 
-// ── Inline expanded panel ─────────────────────────────────────────────────────
-function Panel({ children }: { children: React.ReactNode }) {
+function InlinePanel({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
       padding: '16px 20px 20px',
@@ -183,22 +139,6 @@ function Panel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      fontSize: 11,
-      fontWeight: 700,
-      letterSpacing: '0.07em',
-      textTransform: 'uppercase',
-      color: 'var(--color-text-muted)',
-      marginBottom: 8,
-    }}>
-      {children}
-    </div>
-  )
-}
-
-// ── Card wrapper ─────────────────────────────────────────────────────────────
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
@@ -212,19 +152,11 @@ function Card({ children }: { children: React.ReactNode }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function SettingsClient({ profile }: { profile: SettingsProfile }) {
-  const router = useRouter()
-  const [panel,       setPanel]   = useState<Panel>(null)
-  const [isPending,   startT]     = useTransition()
-  const [flash,       setFlash]   = useState<{ text: string; ok: boolean } | null>(null)
 
-  const [username,    setUsername]    = useState(profile.username)
-  const [usernameErr, setUsernameErr] = useState('')
-  const [newPass,   setNewPass]   = useState('')
-  const [confPass,  setConfPass]  = useState('')
-  const [showNew,   setShowNew]   = useState(false)
-  const [showConf,  setShowConf]  = useState(false)
-  const [passErr,   setPassErr]   = useState('')
+export default function SettingsClient({ profile }: { profile: SettingsProfile }) {
+  const [panel,      setPanel]    = useState<Panel>(null)
+  const [isPending,  startT]      = useTransition()
+  const [flash,      setFlash]    = useState<{ text: string; ok: boolean } | null>(null)
   const [isPrivate,  setIsPrivate]  = useState(profile.is_private)
   const [notifPush,  setNotifPush]  = useState(profile.notif_push  ?? true)
   const [notifEmail, setNotifEmail] = useState(profile.notif_email ?? true)
@@ -233,37 +165,20 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   const [deleteInput, setDeleteInput] = useState('')
   const [deleting,    setDeleting]    = useState(false)
 
+  const { theme, setTheme } = useTheme()
+
   function showFlash(text: string, ok = true) {
     setFlash({ text, ok })
     setTimeout(() => setFlash(null), 3000)
   }
   function togglePanel(p: Panel) { setPanel(prev => prev === p ? null : p) }
 
-  function handleUsernameChange() {
-    setUsernameErr('')
-    startT(async () => {
-      const r = await changeUsernameAction(username)
-      if (r.error) { setUsernameErr(r.error); return }
-      showFlash('Username updated')
-      setPanel(null)
-    })
-  }
-
-  function handlePasswordChange() {
-    setPassErr('')
-    startT(async () => {
-      const r = await changePasswordAction(newPass, confPass)
-      if (r.error) { setPassErr(r.error); return }
-      showFlash('Password changed')
-      setNewPass(''); setConfPass(''); setPanel(null)
-    })
-  }
-
   function togglePrivacy(val: boolean) {
     setIsPrivate(val)
     startT(async () => {
       const r = await updateProfileAction({ is_private: val })
       if (r.error) { setIsPrivate(!val); showFlash(r.error, false) }
+      else showFlash(val ? 'Account set to private' : 'Account set to public')
     })
   }
 
@@ -293,15 +208,10 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     window.location.replace('/')
   }
 
-  const passScore = [
-    newPass.length >= 8,
-    /[A-Z]/.test(newPass),
-    /[0-9]/.test(newPass),
-    /[^A-Za-z0-9]/.test(newPass),
-  ].filter(Boolean).length
-
-  const passColor = ['var(--color-error)', 'var(--color-error)', '#F59E0B', 'var(--color-brand)'][passScore - 1] || 'var(--color-border)'
-  const passLabel = ['Weak', 'Fair', 'Good', 'Strong'][passScore - 1] || ''
+  const THEME_OPTIONS: { key: 'dark' | 'light'; label: string; Icon: any }[] = [
+    { key: 'dark',  label: 'Dark',  Icon: Moon },
+    { key: 'light', label: 'Light', Icon: Sun  },
+  ]
 
   return (
     <div style={{ paddingBottom: 80, background: 'var(--color-bg)', minHeight: '100vh' }}>
@@ -310,175 +220,19 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
       {flash && (
         <div style={{
           position: 'fixed', top: 68, left: '50%', transform: 'translateX(-50%)',
-          zIndex: 500,
-          padding: '10px 18px',
-          borderRadius: 10,
+          zIndex: 500, padding: '10px 18px', borderRadius: 10,
           background: flash.ok ? 'var(--color-brand)' : 'var(--color-error)',
-          color: 'white',
-          fontSize: 14, fontWeight: 600,
+          color: 'white', fontSize: 14, fontWeight: 600,
           fontFamily: "'Syne', sans-serif",
           display: 'flex', alignItems: 'center', gap: 8,
           boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
-          pointerEvents: 'none',
-          whiteSpace: 'nowrap',
+          pointerEvents: 'none', whiteSpace: 'nowrap',
           maxWidth: 'calc(100vw - 40px)',
         }}>
           {flash.ok ? <Check size={14} /> : <X size={14} />}
           {flash.text}
         </div>
       )}
-
-      {/* ── ACCOUNT ──────────────────────────────────────────────────────── */}
-      <SectionLabel label="Account" />
-      <Card>
-        <Row
-          icon={User}
-          label="Change username"
-          desc={`@${profile.username}`}
-          onClick={() => togglePanel('username')}
-        />
-        {panel === 'username' && (
-          <Panel>
-            <FieldLabel>New username</FieldLabel>
-            <div style={{ position: 'relative', marginBottom: 6 }}>
-              <span style={{
-                position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)',
-                color: 'var(--color-text-muted)', fontSize: 15, pointerEvents: 'none',
-              }}>@</span>
-              <input
-                value={username}
-                onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                maxLength={20}
-                autoCapitalize="none"
-                autoCorrect="off"
-                className="para-input"
-                style={{ paddingLeft: 28 }}
-              />
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 14, marginTop: 4 }}>
-              3–20 characters · Letters, numbers, underscores only
-            </p>
-            {usernameErr && (
-              <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 10 }}>{usernameErr}</p>
-            )}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={handleUsernameChange}
-                disabled={isPending || username.length < 3 || username === profile.username}
-                className="para-btn-primary"
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-              >
-                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
-                {isPending ? 'Checking…' : 'Save username'}
-              </button>
-              <button
-                onClick={() => { setPanel(null); setUsername(profile.username); setUsernameErr('') }}
-                className="para-btn-ghost"
-              >
-                Cancel
-              </button>
-            </div>
-          </Panel>
-        )}
-
-        {profile.email && (
-          <Row icon={Shield} label="Email address" desc={profile.email} />
-        )}
-
-        <Row
-          icon={Phone}
-          label="Phone & BVN verification"
-          desc={profile.bvn_verified ? 'Verified — withdrawals enabled' : 'Required to withdraw earnings'}
-          accentDesc={!!profile.bvn_verified}
-          onClick={() => router.push('/settings/verify-phone')}
-        />
-
-        <Row
-          icon={Lock}
-          label="Change password"
-          desc="Update your account password"
-          onClick={() => togglePanel('password')}
-          last={panel !== 'password'}
-        />
-        {panel === 'password' && (
-          <Panel>
-            <FieldLabel>New password</FieldLabel>
-            <div style={{ position: 'relative', marginBottom: 14 }}>
-              <input
-                value={newPass}
-                onChange={e => setNewPass(e.target.value)}
-                type={showNew ? 'text' : 'password'}
-                placeholder="Min 8 chars, 1 uppercase, 1 number"
-                autoComplete="new-password"
-                className="para-input"
-                style={{ paddingRight: 44 }}
-              />
-              <button onClick={() => setShowNew(v => !v)} style={{
-                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
-              }}>
-                {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-
-            {newPass.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', gap: 4, marginBottom: 5 }}>
-                  {[0,1,2,3].map(i => (
-                    <div key={i} style={{
-                      flex: 1, height: 3, borderRadius: 2,
-                      background: i < passScore ? passColor : 'var(--color-border)',
-                      transition: 'background 0.2s',
-                    }} />
-                  ))}
-                </div>
-                {passLabel && <span style={{ fontSize: 12, color: passColor }}>{passLabel}</span>}
-              </div>
-            )}
-
-            <FieldLabel>Confirm password</FieldLabel>
-            <div style={{ position: 'relative', marginBottom: 16 }}>
-              <input
-                value={confPass}
-                onChange={e => setConfPass(e.target.value)}
-                type={showConf ? 'text' : 'password'}
-                placeholder="Repeat new password"
-                autoComplete="new-password"
-                className="para-input"
-                style={{ paddingRight: 44 }}
-              />
-              <button onClick={() => setShowConf(v => !v)} style={{
-                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
-              }}>
-                {showConf ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-
-            {passErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 12 }}>{passErr}</p>}
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={handlePasswordChange}
-                disabled={isPending || newPass.length < 8 || confPass.length < 8}
-                className="para-btn-primary"
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-              >
-                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
-                {isPending ? 'Saving…' : 'Change password'}
-              </button>
-              <button
-                onClick={() => { setPanel(null); setNewPass(''); setConfPass(''); setPassErr('') }}
-                className="para-btn-ghost"
-              >
-                Cancel
-              </button>
-            </div>
-          </Panel>
-        )}
-      </Card>
 
       {/* ── PRIVACY ──────────────────────────────────────────────────────── */}
       <SectionLabel label="Privacy" />
@@ -513,6 +267,41 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
       {/* ── APPEARANCE ───────────────────────────────────────────────────── */}
       <SectionLabel label="Appearance" />
       <Card>
+        {/* Theme */}
+        <Row
+          icon={Moon}
+          label="Theme"
+          desc={THEME_OPTIONS.find(t => t.key === theme)?.label || 'System default'}
+          onClick={() => togglePanel('theme')}
+          last={panel !== 'theme' && panel !== 'language'}
+        />
+        {panel === 'theme' && (
+          <InlinePanel>
+            {THEME_OPTIONS.map((opt, i) => (
+              <button
+                key={opt.key}
+                onClick={() => { setTheme(opt.key); setPanel(null) }}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  width: '100%', padding: '13px 0', background: 'none', border: 'none',
+                  borderBottom: i < THEME_OPTIONS.length - 1 ? '1px solid var(--color-border)' : 'none',
+                  cursor: 'pointer',
+                  color: theme === opt.key ? 'var(--color-brand)' : 'var(--color-text-primary)',
+                  fontSize: 15, fontFamily: "'DM Sans', sans-serif",
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <opt.Icon size={15} />
+                  {opt.label}
+                </span>
+                {theme === opt.key && <Check size={15} color="var(--color-brand)" />}
+              </button>
+            ))}
+          </InlinePanel>
+        )}
+
+        {/* Language */}
         <Row
           icon={Globe}
           label="Language"
@@ -521,20 +310,18 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
           last={panel !== 'language'}
         />
         {panel === 'language' && (
-          <Panel>
+          <InlinePanel>
             {LANGS.map((l, i) => (
               <button
                 key={l.code}
                 onClick={() => handleLang(l.code, l.label)}
                 style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  width: '100%', padding: '13px 0',
-                  background: 'none', border: 'none',
+                  width: '100%', padding: '13px 0', background: 'none', border: 'none',
                   borderBottom: i < LANGS.length - 1 ? '1px solid var(--color-border)' : 'none',
                   cursor: 'pointer',
                   color: lang === l.code ? 'var(--color-brand)' : 'var(--color-text-primary)',
-                  fontSize: 15,
-                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: 15, fontFamily: "'DM Sans', sans-serif",
                   WebkitTapHighlightColor: 'transparent',
                 }}
               >
@@ -542,7 +329,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                 {lang === l.code && <Check size={15} color="var(--color-brand)" />}
               </button>
             ))}
-          </Panel>
+          </InlinePanel>
         )}
       </Card>
 
@@ -552,10 +339,9 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
         <Row
           icon={LogOut}
           label={isPending ? 'Signing out…' : 'Sign out'}
-          desc="Sign out of your Spup account"
+          desc="Sign out of your account"
           onClick={() => startT(async () => { await signOutAction() })}
-          danger
-          last
+          danger last
         />
       </Card>
 
@@ -567,8 +353,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
           label="Delete account"
           desc="Permanently delete your account and all data"
           onClick={() => setShowDelete(true)}
-          danger
-          last
+          danger last
         />
       </Card>
 
@@ -635,12 +420,9 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                 className="para-input"
                 style={{
                   marginBottom: 20,
-                  fontFamily: 'monospace',
-                  letterSpacing: '0.1em',
-                  fontSize: 16,
+                  fontFamily: 'monospace', letterSpacing: '0.1em', fontSize: 16,
                   borderColor: deleteInput.length > 0 && deleteInput !== 'DELETE'
-                    ? 'var(--color-error)'
-                    : undefined,
+                    ? 'var(--color-error)' : undefined,
                 }}
               />
 
@@ -657,8 +439,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                   disabled={deleteInput !== 'DELETE' || deleting}
                   style={{
                     flex: 1, padding: 13,
-                    background: 'var(--color-error)',
-                    border: 'none', borderRadius: 10,
+                    background: 'var(--color-error)', border: 'none', borderRadius: 10,
                     color: 'white',
                     cursor: deleteInput !== 'DELETE' || deleting ? 'not-allowed' : 'pointer',
                     opacity: deleteInput !== 'DELETE' || deleting ? 0.45 : 1,

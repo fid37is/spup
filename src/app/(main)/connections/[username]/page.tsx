@@ -57,6 +57,18 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
   const isOwn    = viewer?.id === profile.id
   const backHref = isOwn ? '/profile' : `/user/${username}`
 
+  // Fetch viewer's own follow state (who the logged-in user follows / is followed by)
+  // so we can show correct Follow / Follow back / Unfollow buttons
+  const [{ data: viewerFollowingRels }, { data: viewerFollowerRels }] = viewer
+    ? await Promise.all([
+        admin.from('follows').select('following_id').eq('follower_id', viewer.id),
+        admin.from('follows').select('follower_id').eq('following_id', viewer.id),
+      ])
+    : [{ data: [] }, { data: [] }]
+
+  const viewerFollowingIds = (viewerFollowingRels || []).map((r: any) => r.following_id as string)
+  const viewerFollowerIds  = (viewerFollowerRels  || []).map((r: any) => r.follower_id  as string)
+
   // Fetch follow relationships using profile.id
   const [{ data: followingRels }, { data: followerRels }] = await Promise.all([
     admin.from('follows').select('following_id').eq('follower_id', profile.id),
@@ -125,6 +137,9 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
         following={following}
         followers={followers}
         mutuals={mutuals}
+        viewerId={viewer?.id ?? null}
+        viewerFollowingIds={viewerFollowingIds}
+        viewerFollowerIds={viewerFollowerIds}
       />
     </div>
   )

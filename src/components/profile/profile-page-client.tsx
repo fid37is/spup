@@ -18,6 +18,11 @@ interface Props {
     is_monetised: boolean
     verification_tier: string
     created_at: string
+    date_of_birth?: string | null
+    birthday_visibility?: string | null
+    email?: string | null
+    phone_number?: string | null
+    bvn_verified?: boolean
   }
   stats: {
     following: string

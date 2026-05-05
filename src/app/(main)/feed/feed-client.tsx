@@ -5,7 +5,7 @@ import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
 import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, type FeedPost } from '@/lib/actions'
 import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import AdSlot from '@/components/feed/ad-card'
-import { Loader } from 'lucide-react'
+import { Loader, Repeat2, Rss, Users, Sparkles } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
 
@@ -30,23 +30,25 @@ function getFeedFn(tab: Tab) {
   return getForYouFeedAction
 }
 
-const EMPTY: Record<Tab, { title: string; body: string }> = {
-  'for-you':   { title: 'Nothing here yet',     body: 'Be the first to post today.' },
-  'following': { title: 'Follow some creators', body: 'Follow people to see their posts here.' },
-  'mutuals':   { title: 'No mutuals yet',       body: 'When someone follows you back, their posts appear here.' },
+const EMPTY: Record<Tab, { icon: React.ReactNode; title: string; body: string }> = {
+  'for-you':   { icon: <Sparkles size={32} />, title: 'Nothing here yet',     body: 'Be the first to post today.' },
+  'following': { icon: <Users size={32} />,    title: 'Follow some creators', body: 'Follow people to see their posts here.' },
+  'mutuals':   { icon: <Rss size={32} />,      title: 'No mutuals yet',       body: 'When someone follows you back, their posts appear here.' },
 }
 
 export default function FeedClient({ initialPosts, initialCursor, currentUserId }: FeedClientProps) {
-  const [activeTab, setActiveTab] = useState<Tab>('for-you')
-  const [posts, setPosts] = useState<FeedPost[]>(initialPosts)
-  const [cursor, setCursor] = useState<string | null>(initialCursor)
-  const [hasMore, setHasMore] = useState(initialPosts.length > 0 ? !!initialCursor : true)
-  const [isPending, startTransition] = useTransition()
+  const [activeTab, setActiveTab]       = useState<Tab>('for-you')
+  const [posts, setPosts]               = useState<FeedPost[]>(initialPosts)
+  const [cursor, setCursor]             = useState<string | null>(initialCursor)
+  const [hasMore, setHasMore]           = useState(initialPosts.length > 0 ? !!initialCursor : true)
+  const [isPending, startTransition]    = useTransition()
+  const [newPosts, setNewPosts]         = useState<FeedPost[]>([])
+  const feedTopRef  = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const tabRef = useRef<Tab>('for-you')
+  const tabRef      = useRef<Tab>('for-you')
   tabRef.current = activeTab
 
-  // Server sends empty shell — fetch initial posts on mount client-side
+  // Initial load if server sends empty
   useEffect(() => {
     if (initialPosts.length === 0) {
       startTransition(async () => {
@@ -63,6 +65,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
     if (tab === activeTab) return
     setActiveTab(tab)
     setPosts([])
+    setNewPosts([])
     setCursor(null)
     setHasMore(true)
     startTransition(async () => {
@@ -101,51 +104,72 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
   const postsRef = useRef<FeedPost[]>(initialPosts)
   postsRef.current = posts
 
+  // Realtime — update counts on existing posts + detect new posts
   useEffect(() => {
     const supabase = createBrowserClient()
     const channel = supabase
       .channel(`feed:posts:${activeTab}`)
+      // Update counts on existing posts
       .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'posts',
+        event: 'UPDATE', schema: 'public', table: 'posts',
       }, payload => {
         const u = payload.new as {
-          id: string
-          likes_count: number
-          dislikes_count: number
-          reposts_count: number
-          comments_count: number
+          id: string; likes_count: number; dislikes_count: number
+          reposts_count: number; comments_count: number; impressions_count: number
         }
         const visibleIds = new Set(postsRef.current.map(p => p.id))
         if (!visibleIds.has(u.id)) return
         setPosts(prev => prev.map(p =>
           p.id === u.id
-            ? {
-                ...p,
-                likes_count: u.likes_count,
-                dislikes_count: u.dislikes_count,
-                reposts_count: u.reposts_count,
-                comments_count: u.comments_count,
-              }
+            ? { ...p, likes_count: u.likes_count, dislikes_count: u.dislikes_count, reposts_count: u.reposts_count, comments_count: u.comments_count, impressions_count: u.impressions_count }
             : p
         ))
+      })
+      // Detect new posts inserted — show pill
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'posts',
+      }, async () => {
+        // Only show pill for for-you and following tabs
+        if (tabRef.current === 'mutuals') return
+        // Fetch the latest posts and find truly new ones
+        const { posts: latest } = await getFeedFn(tabRef.current)()
+        setPosts(prev => {
+          const existingIds = new Set(prev.map(p => p.id))
+          const fresh = latest.filter(p => !existingIds.has(p.id))
+          if (!fresh.length) return prev
+          setNewPosts(n => {
+            const allIds = new Set([...n.map(p => p.id), ...prev.map(p => p.id)])
+            return [...n, ...fresh.filter(p => !allIds.has(p.id))]
+          })
+          return prev // don't prepend yet — wait for pill click
+        })
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
   }, [activeTab])
 
+  function showNewPosts() {
+    setPosts(prev => {
+      const existingIds = new Set(prev.map(p => p.id))
+      const toAdd = newPosts.filter(p => !existingIds.has(p.id))
+      return [...toAdd, ...prev]
+    })
+    setNewPosts([])
+    feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   return (
     <div>
-      {/* Tab bar — on mobile sits below the MobileHeader (56px), on desktop sticks at top */}
+      <div ref={feedTopRef} />
+
+      {/* Tab bar */}
       <style>{`
         @media (max-width: 767px) { .feed-tab-bar { top: 56px !important; } }
       `}</style>
       <div className="feed-tab-bar" style={{
         position: 'sticky', top: 0, zIndex: 10,
-        backdropFilter: 'blur(20px)',
-        background: 'var(--nav-bg)',
+        backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
         borderBottom: '1px solid var(--color-border)',
       }}>
         <div style={{ display: 'flex' }}>
@@ -168,12 +192,35 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
         </div>
       </div>
 
-      {/* Skeleton loader */}
-      {isPending && posts.length === 0 && Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} style={{
-          padding: '16px 20px', borderBottom: '1px solid var(--color-border)',
-          display: 'flex', gap: 12,
+      {/* New posts pill */}
+      {newPosts.length > 0 && (
+        <div style={{
+          position: 'sticky', top: 57, zIndex: 9,
+          display: 'flex', justifyContent: 'center',
+          pointerEvents: 'none',
         }}>
+          <button
+            onClick={showNewPosts}
+            style={{
+              pointerEvents: 'auto',
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'var(--color-brand)', color: 'white',
+              border: 'none', borderRadius: 24,
+              padding: '8px 18px', marginTop: 10,
+              fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
+              cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+              animation: 'pillIn 0.2s cubic-bezier(0.34,1.56,0.64,1)',
+            }}
+          >
+            <Rss size={14} />
+            {newPosts.length} new post{newPosts.length > 1 ? 's' : ''}
+          </button>
+        </div>
+      )}
+
+      {/* Skeleton */}
+      {isPending && posts.length === 0 && Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)', display: 'flex', gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--color-surface-3)' }} />
           <div style={{ flex: 1 }}>
             <div style={{ height: 12, background: 'var(--color-surface-3)', borderRadius: 4, width: '40%', marginBottom: 10 }} />
@@ -183,12 +230,10 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
         </div>
       ))}
 
+      {/* Posts */}
       {posts.map((post, index) => (
         <div key={post.id}>
-          <PostCardWithAnalytics
-            post={post}
-            currentUserId={currentUserId}
-          />
+          <PostCardWithAnalytics post={post} currentUserId={currentUserId} />
           {(index + 1) % AD_EVERY === 0 && (
             <AdSlot postId={post.id} position={Math.floor(index / AD_EVERY)} />
           )}
@@ -198,11 +243,10 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
       {/* Empty state */}
       {!isPending && posts.length === 0 && (
         <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🇳🇬</div>
-          <h3 style={{
-            fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 20,
-            color: 'var(--color-text-primary)', marginBottom: 8,
-          }}>
+          <div style={{ color: 'var(--color-text-muted)', marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
+            {EMPTY[activeTab].icon}
+          </div>
+          <h3 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--color-text-primary)', marginBottom: 8 }}>
             {EMPTY[activeTab].title}
           </h3>
           <p style={{ fontSize: 15, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
@@ -216,18 +260,24 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
       {isPending && posts.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0' }}>
           <Loader size={20} color="var(--color-brand)" style={{ animation: 'spin 0.8s linear infinite' }} />
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
 
       {!hasMore && posts.length > 0 && (
         <div style={{ padding: '32px 20px', textAlign: 'center' }}>
-          <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>You&apos;re all caught up 🎉</p>
+          <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>You&apos;re all caught up</p>
         </div>
       )}
 
-      {/* Floating compose button */}
-      <FloatingComposeBtn onPosted={post => setPosts(prev => [post as FeedPost, ...prev])} />
+      <FloatingComposeBtn onPosted={post => {
+        setPosts(prev => [post as FeedPost, ...prev])
+        feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }} />
+
+      <style>{`
+        @keyframes spin   { to { transform: rotate(360deg) } }
+        @keyframes pillIn { from { opacity:0; transform:translateY(-8px) scale(0.95) } to { opacity:1; transform:none } }
+      `}</style>
     </div>
   )
 }

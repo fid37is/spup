@@ -64,7 +64,12 @@ export default async function ProfilePage() {
   return (
     <div>
       <ProfilePageClient
-        profile={profile}
+        profile={{
+          ...profile,
+          email:        (profile as any).email        ?? null,
+          phone_number: (profile as any).phone_number ?? null,
+          bvn_verified: (profile as any).bvn_verified ?? false,
+        }}
         stats={stats}
         initialPosts={initialPosts}
       />

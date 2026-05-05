@@ -116,16 +116,19 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
           background: 'var(--color-surface-raised)',
           border: '1px solid var(--color-border)',
           borderRadius: 18,
-          width: '100%', maxWidth: 560, margin: '0 16px',
+          width: '100%', maxWidth: 600, margin: '0 16px',
           animation: 'modalIn 0.2s ease',
           overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
+          maxHeight: 'calc(100vh - 80px)',
         }}>
 
-          {/* Header: X close + Reply button */}
+          {/* Header: X close only — Post button lives in the toolbar */}
           <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            display: 'flex', alignItems: 'center',
             padding: '12px 16px',
             borderBottom: '1px solid var(--color-border)',
+            flexShrink: 0,
           }}>
             <button
               onClick={onClose}
@@ -141,28 +144,10 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
             >
               <X size={18} />
             </button>
-
-            <button
-              onClick={handlePost}
-              disabled={!canPost}
-              style={{
-                background: canPost ? 'var(--color-brand)' : 'var(--color-surface-3)',
-                color: canPost ? 'white' : 'var(--color-text-muted)',
-                border: 'none', borderRadius: 20, padding: '8px 22px',
-                fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14,
-                cursor: canPost ? 'pointer' : 'not-allowed',
-                transition: 'background 0.15s, color 0.15s',
-              }}
-            >
-              {isPending
-                ? (parentPostId ? 'Replying…' : 'Posting…')
-                : (parentPostId ? 'Reply' : 'Post')
-              }
-            </button>
           </div>
 
-          {/* Body */}
-          <div style={{ padding: '16px 16px 0' }}>
+          {/* Body — scrollable */}
+          <div style={{ padding: '16px 16px 0', overflowY: 'auto', flex: 1 }}>
 
             {/* Reply-to preview with thread line */}
             {replyTo && (
@@ -254,6 +239,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
             padding: '10px 16px 14px',
             borderTop: '1px solid var(--color-border)',
             marginTop: 12,
+            flexShrink: 0,
           }}>
             <div style={{ display: 'flex', gap: 2 }}>
               {/* Image */}
@@ -289,27 +275,48 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
               <ToolbarBtn icon={<MapPin size={18} />} label="Location (coming soon)" onClick={() => {}} disabled />
             </div>
 
-            {/* Char counter */}
-            {body.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <svg width={28} height={28} style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx={14} cy={14} r={radius} fill="none" stroke="var(--color-border)" strokeWidth={2.5} />
-                  <circle cx={14} cy={14} r={radius} fill="none"
-                    stroke={isOverLimit ? 'var(--color-error)' : isWarning ? 'var(--color-gold)' : 'var(--color-brand)'}
-                    strokeWidth={2.5} strokeDasharray={circumference} strokeDashoffset={strokeOffset}
-                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.1s, stroke 0.2s' }}
-                  />
-                </svg>
-                {isWarning && (
-                  <span style={{
-                    fontSize: 13, fontWeight: 700, minWidth: 24,
-                    color: isOverLimit ? 'var(--color-error)' : 'var(--color-gold)',
-                  }}>
-                    {charsLeft}
-                  </span>
-                )}
-              </div>
-            )}
+            {/* Char counter + Post button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {body.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <svg width={28} height={28} style={{ transform: 'rotate(-90deg)' }}>
+                    <circle cx={14} cy={14} r={radius} fill="none" stroke="var(--color-border)" strokeWidth={2.5} />
+                    <circle cx={14} cy={14} r={radius} fill="none"
+                      stroke={isOverLimit ? 'var(--color-error)' : isWarning ? 'var(--color-gold)' : 'var(--color-brand)'}
+                      strokeWidth={2.5} strokeDasharray={circumference} strokeDashoffset={strokeOffset}
+                      strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.1s, stroke 0.2s' }}
+                    />
+                  </svg>
+                  {isWarning && (
+                    <span style={{
+                      fontSize: 13, fontWeight: 700, minWidth: 24,
+                      color: isOverLimit ? 'var(--color-error)' : 'var(--color-gold)',
+                    }}>
+                      {charsLeft}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={handlePost}
+                disabled={!canPost}
+                style={{
+                  background: canPost ? 'var(--color-brand)' : 'var(--color-surface-3)',
+                  color: canPost ? 'white' : 'var(--color-text-muted)',
+                  border: 'none', borderRadius: 20, padding: '8px 22px',
+                  fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14,
+                  cursor: canPost ? 'pointer' : 'not-allowed',
+                  transition: 'background 0.15s, color 0.15s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {isPending
+                  ? (parentPostId ? 'Replying…' : 'Posting…')
+                  : (parentPostId ? 'Reply' : 'Post')
+                }
+              </button>
+            </div>
           </div>
 
         </div>

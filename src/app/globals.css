@@ -234,3 +234,8 @@ body > * { position: relative; z-index: 1; }
 /* ── Mobile / Capacitor safe areas ───────────────────────────── */
 .safe-top    { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Right sidebar trend rows */
+.trend-row:hover {
+  background: var(--color-surface-2) !important;
+}

@@ -76,7 +76,13 @@ export function useMediaUpload({ maxFiles = 4, type = 'post' }: UseMediaUploadOp
           continue
         }
 
-        const uploaded = { ...data.media, localPreview }
+        // API response has no `id` (DB insert happens later in createPostAction).
+        // Use a stable client-side id so m.id is never undefined in MediaGrid.
+        const uploaded: UploadedMedia = {
+          ...data.media,
+          id: `uploaded-${placeholder.id}`,
+          localPreview,
+        }
         results.push(uploaded)
 
         // Replace placeholder with real record

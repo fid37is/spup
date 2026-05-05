@@ -132,14 +132,29 @@ export async function toggleDislikeAction(postId: string) {
 export async function toggleRepostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
-  const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', parent_post_id: postId }).maybeSingle()
+
+  // Check for existing repost using quoted_post_id (the canonical repost field)
+  const { data: existing } = await supabase
+    .from('posts').select('id')
+    .match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId })
+    .maybeSingle()
+
   if (existing) {
     await supabase.from('posts').delete().match({ id: existing.id })
     await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
     revalidatePath('/feed')
     return { reposted: false }
   }
-  await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', parent_post_id: postId })
+
+  // Insert repost with quoted_post_id so RepostCard can hydrate the original
+  const { error } = await supabase.from('posts').insert({
+    user_id:        profile.id,
+    post_type:      'repost',
+    quoted_post_id: postId,
+    body:           null,
+  })
+  if (error) return { error: error.message }
+
   await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
   revalidatePath('/feed')
