@@ -132,14 +132,29 @@ export async function toggleDislikeAction(postId: string) {
 export async function toggleRepostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
-  const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', parent_post_id: postId }).maybeSingle()
+
+  // Check for existing repost using quoted_post_id (the canonical repost field)
+  const { data: existing } = await supabase
+    .from('posts').select('id')
+    .match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId })
+    .maybeSingle()
+
   if (existing) {
     await supabase.from('posts').delete().match({ id: existing.id })
     await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
     revalidatePath('/feed')
     return { reposted: false }
   }
-  await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', parent_post_id: postId })
+
+  // Insert repost with quoted_post_id so RepostCard can hydrate the original
+  const { error } = await supabase.from('posts').insert({
+    user_id:        profile.id,
+    post_type:      'repost',
+    quoted_post_id: postId,
+    body:           null,
+  })
+  if (error) return { error: error.message }
+
   await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
   revalidatePath('/feed')
@@ -160,10 +175,46 @@ export async function toggleBookmarkAction(postId: string) {
   return { bookmarked: true }
 }
 
+// ── Impression tracking ──────────────────────────────────────────────────────
+// Fires when a post scrolls into the viewport.
+// Uses post_views table with UNIQUE(post_id, user_id) so each user is counted
+// only once per post — the DB trigger then increments posts.impressions_count.
 export async function recordImpressionAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
-  if (!profile) return // must be authenticated to record impressions
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'impressions_count', p_id: postId, p_amount: 1 })
+  if (!profile) return
+  // ignoreDuplicates = true means ON CONFLICT DO NOTHING — safe to call repeatedly
+  await supabase
+    .from('post_views')
+    .upsert({ post_id: postId, user_id: profile.id }, { onConflict: 'post_id,user_id', ignoreDuplicates: true })
+}
+
+// ── Link click tracking ───────────────────────────────────────────────────────
+export async function recordLinkClickAction(postId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'link_clicks_count', p_id: postId, p_amount: 1 })
+}
+
+// ── Detail expand tracking ────────────────────────────────────────────────────
+export async function recordDetailExpandAction(postId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'detail_expands_count', p_id: postId, p_amount: 1 })
+}
+
+// ── Video view tracking ───────────────────────────────────────────────────────
+// called when video reaches 3s of watch time
+export async function recordVideoViewAction(postId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'video_views_count', p_id: postId, p_amount: 1 })
+}
+
+// called when video reaches >= 95% completion
+export async function recordVideoCompletionAction(postId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'video_completions_count', p_id: postId, p_amount: 1 })
 }
 
 async function notifyPostAuthor(
@@ -174,4 +225,27 @@ async function notifyPostAuthor(
   const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).single()
   if (!post || post.user_id === actorId) return
   await supabase.from('notifications').insert({ recipient_id: post.user_id, actor_id: actorId, type, entity_id: postId, entity_type: 'post' })
+}
+export async function getPostAnalyticsAction(postId: string) {
+  const supabase = await createClient()
+  const { data: post, error } = await supabase
+    .from('posts')
+    .select(`
+      id, body, created_at,
+      likes_count, dislikes_count, comments_count,
+      reposts_count, bookmarks_count, impressions_count,
+      author:users!posts_user_id_fkey(id, auth_id, display_name, username, avatar_url)
+    `)
+    .eq('id', postId)
+    .is('deleted_at', null)
+    .single()
+
+  if (error || !post) return { error: 'Post not found' }
+
+  // Only the post author can view analytics
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Not authenticated' }
+  if ((post.author as any)?.auth_id !== user.id) return { error: 'Not authorized' }
+
+  return { data: post }
 }

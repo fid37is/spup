@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getProfileByAuthId, getOnboardingProgress, getUnreadNotificationCount } from '@/lib/queries'
 import { getWallet } from '@/lib/queries'
@@ -85,7 +86,9 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         </main>
 
         <div className="sidebar-right">
-          <RightSidebar profile={profile} walletBalance={wallet?.balance_kobo || 0} />
+          <Suspense fallback={<aside style={{ width: 300, flexShrink: 0 }} />}>
+            <RightSidebar profile={profile} />
+          </Suspense>
         </div>
       </div>
 

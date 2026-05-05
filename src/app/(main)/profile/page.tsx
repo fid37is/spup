@@ -1,5 +1,5 @@
 // src/app/(main)/profile/page.tsx
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { redirect }     from 'next/navigation'
 import { getProfileByAuthId, getUserPosts } from '@/lib/queries'
 import { formatNumber } from '@/lib/utils'
@@ -42,16 +42,34 @@ export default async function ProfilePage() {
     is_bookmarked: bookmarkedSet.has(p.id),
   }))
 
+  // Count mutuals: people you follow who also follow you back.
+  // Supabase JS v2 does not support subqueries in .in() — fetch both sets
+  // as plain arrays first, then intersect in JS.
+  const admin = createAdminClient()
+  const [{ data: youFollow }, { data: followYou }] = await Promise.all([
+    admin.from('follows').select('following_id').eq('follower_id', profile.id),
+    admin.from('follows').select('follower_id').eq('following_id', profile.id),
+  ])
+  const youFollowSet  = new Set((youFollow  || []).map((r: any) => r.following_id))
+  const followYouSet  = new Set((followYou  || []).map((r: any) => r.follower_id))
+  const mutualsCount  = [...youFollowSet].filter(id => followYouSet.has(id)).length
+
   const stats = {
     following: formatNumber(profile.following_count ?? 0),
     followers: formatNumber(profile.followers_count ?? 0),
     posts:     formatNumber(profile.posts_count     ?? 0),
+    mutuals:   formatNumber(mutualsCount ?? 0),
   }
 
   return (
     <div>
       <ProfilePageClient
-        profile={profile}
+        profile={{
+          ...profile,
+          email:        (profile as any).email        ?? null,
+          phone_number: (profile as any).phone_number ?? null,
+          bvn_verified: (profile as any).bvn_verified ?? false,
+        }}
         stats={stats}
         initialPosts={initialPosts}
       />

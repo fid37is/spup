@@ -10,17 +10,26 @@ export async function proxy(request: NextRequest) {
 
   // ── Admin subdomain routing ────────────────────────────────────────────────
   // admin.spup.live/ or admin.localhost:3000/ → internally serves /admin/*
+  // Auth routes (/login, /signup etc.) pass through unchanged — the admin
+  // layout redirects unauthenticated users to /login, which must stay as-is
   if (host.startsWith('admin.')) {
+    const AUTH_PASS = ['/login', '/signup', '/forgot-password', '/verify-otp', '/verify-email', '/api/']
+    const isAuthRoute = AUTH_PASS.some(r => pathname.startsWith(r))
+    const isStatic = /\.(js|json|png|jpg|jpeg|svg|webp|ico|css|txt|xml)$/.test(pathname)
+
+    if (isAuthRoute || isStatic || pathname.startsWith('/_next')) {
+      return NextResponse.next()
+    }
+
     const rewriteUrl = request.nextUrl.clone()
     rewriteUrl.pathname = pathname === '/' ? '/admin' : `/admin${pathname}`
     const response = NextResponse.rewrite(rewriteUrl)
-    // Share the auth session cookie across subdomains by setting cookie domain
-    // to the root domain (e.g. .localhost or .spup.live)
+    // Share the auth session cookie across subdomains
     const rootDomain = host.replace('admin.', '')
     request.cookies.getAll().forEach(cookie => {
       if (cookie.name.includes('supabase') || cookie.name.includes('sb-')) {
         response.cookies.set(cookie.name, cookie.value, {
-          domain: `.${rootDomain.split(':')[0]}`, // strip port
+          domain: `.${rootDomain.split(':')[0]}`,
           path: '/',
           sameSite: 'lax',
           httpOnly: true,

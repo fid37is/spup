@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
+import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import ReplyComposer from './reply-composer'
 import ReplyToReply from './reply-to-reply'
 import { formatNumber } from '@/lib/utils'
@@ -123,7 +124,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Main post */}
-      <PostCard post={post} currentUserId={viewerUserId} />
+      <PostCardWithAnalytics post={post} currentUserId={viewerUserId} />
 
       {/* Timestamp + views */}
       <div style={{

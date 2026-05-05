@@ -1,7 +1,8 @@
+// src/app/(main)/post/[id]/reply-to-reply.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
-import PostCard from '@/components/feed/post-card'
+import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import PostModal from '@/components/feed/post-modal'
 import { useRouter } from 'next/navigation'
 
@@ -38,7 +39,7 @@ export default function ReplyToReply({ reply, viewer, currentUserId }: ReplyToRe
 
   return (
     <>
-      <PostCard
+      <PostCardWithAnalytics
         post={reply}
         currentUserId={currentUserId}
         onReplyClick={handleReplyClick}

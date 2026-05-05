@@ -34,6 +34,7 @@ const updateProfileSchema = z.object({
   is_private:          z.boolean().optional(),
   notif_push:          z.boolean().optional(),
   notif_email:         z.boolean().optional(),
+  birthday_visibility: z.enum(['everyone', 'followers', 'only_me']).optional(),
 })
 
 export type UpdateProfileData = z.infer<typeof updateProfileSchema>

@@ -216,6 +216,18 @@ export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
     return { error: error.message }
   }
 
+  // Check role — admins/moderators go to /admin, everyone else to redirectTo
+  const admin = createAdminClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    const { data: profile } = await admin
+      .from('users').select('role').eq('auth_id', user.id).single()
+    if (profile && ['admin', 'moderator'].includes(profile.role)) {
+      revalidatePath('/', 'layout')
+      redirect('/admin')
+    }
+  }
+
   revalidatePath('/', 'layout')
   redirect(redirectTo)
 }
@@ -269,6 +281,7 @@ export async function handleOAuthCallbackAction() {
     await upsertOnboarding(existing.id)
     return { success: true, isNewUser: false }
   }
+  
 
   // New OAuth user — create profile + onboarding using admin client
   const meta = user.user_metadata

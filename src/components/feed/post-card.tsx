@@ -1,3 +1,4 @@
+// src/components/feed/post-card.tsx
 'use client'
 
 import { useState, useTransition, useEffect, useRef } from 'react'
@@ -14,10 +15,14 @@ import {
   deletePostAction,
   createPostAction,
   recordImpressionAction,
+  recordLinkClickAction,
+  recordVideoViewAction,
+  recordVideoCompletionAction,
 } from '@/lib/actions'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import type { FeedPost } from '@/lib/actions/feed'
 import { useToast } from '@/components/layout/toast'
+import MediaViewer from '@/components/feed/media-viewer'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -60,33 +65,85 @@ function Avatar({
 }
 
 // ── MediaRow ──────────────────────────────────────────────────────────────────
-function MediaRow({ media }: { media: FeedPost['media'] }) {
+function TrackedVideo({ src, postId }: { src: string; postId: string }) {
+  const viewFired = useRef(false)
+  const completionFired = useRef(false)
+
+  function handleTimeUpdate(e: React.SyntheticEvent<HTMLVideoElement>) {
+    const v = e.currentTarget
+    if (!viewFired.current && v.currentTime >= 3) {
+      viewFired.current = true
+      void recordVideoViewAction(postId)
+    }
+    if (!completionFired.current && v.duration > 0 && v.currentTime / v.duration >= 0.95) {
+      completionFired.current = true
+      void recordVideoCompletionAction(postId)
+    }
+  }
+
+  return (
+    <video
+      src={src} controls playsInline
+      onTimeUpdate={handleTimeUpdate}
+      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+    />
+  )
+}
+
+function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: string; post: FeedPost }) {
+  const [viewerIdx, setViewerIdx] = useState<number | null>(null)
   if (!media || media.length === 0) return null
   const sorted = [...media].sort((a, b) => a.position - b.position)
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: sorted.length === 1 ? '1fr' : 'repeat(2,1fr)',
-      gap: 3, borderRadius: 14, overflow: 'hidden',
-      marginBottom: 10, maxHeight: 420,
-    }}>
-      {sorted.slice(0, 4).map((m, i) => (
-        <div
-          key={m.id || i}
-          style={{
-            background: 'var(--color-surface-2)',
-            aspectRatio: sorted.length === 1 ? '16/9' : '1/1',
-            gridColumn: sorted.length === 3 && i === 0 ? '1/-1' : undefined,
-            overflow: 'hidden',
-          }}
-        >
-          {m.media_type === 'image'
-            ? <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <video src={m.url} controls playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          }
-        </div>
-      ))}
-    </div>
+    <>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: sorted.length === 1 ? '1fr' : 'repeat(2,1fr)',
+        gap: 3, borderRadius: 14, overflow: 'hidden',
+        marginBottom: 10, maxHeight: 420,
+        cursor: 'pointer',
+      }}>
+        {sorted.slice(0, 4).map((m, i) => (
+          <div
+            key={m.id || i}
+            onClick={e => { e.stopPropagation(); setViewerIdx(i) }}
+            style={{
+              background: 'var(--color-surface-2)',
+              aspectRatio: sorted.length === 1 ? '16/9' : '1/1',
+              gridColumn: sorted.length === 3 && i === 0 ? '1/-1' : undefined,
+              overflow: 'hidden', position: 'relative',
+              transition: 'opacity 0.12s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+          >
+            {m.media_type === 'image'
+              ? <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <TrackedVideo src={m.url} postId={postId} />
+            }
+            {/* Overflow count badge for 4+ items */}
+            {sorted.length > 4 && i === 3 && (
+              <div style={{
+                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 22, fontWeight: 800, color: 'white',
+              }}>
+                +{sorted.length - 4}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {viewerIdx !== null && (
+        <MediaViewer
+          media={sorted}
+          initialIndex={viewerIdx}
+          post={post}
+          onClose={() => setViewerIdx(null)}
+        />
+      )}
+    </>
   )
 }
 
@@ -149,28 +206,29 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
 }
 
 // ── ActionBtn ─────────────────────────────────────────────────────────────────
-function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false, hidden = false }: {
+function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false }: {
   icon: React.ReactNode; count: number | null; active: boolean; activeColor: string
-  onClick: (e: React.MouseEvent) => void; label: string; showZero?: boolean; hidden?: boolean
+  onClick: (e: React.MouseEvent) => void; label: string; showZero?: boolean
 }) {
-  if (hidden) return null
   return (
     <button
-      onClick={onClick} aria-label={label}
+      onClick={e => { e.stopPropagation(); onClick(e) }}
+      aria-label={label}
       style={{
-        display: 'flex', alignItems: 'center', gap: 4,
+        flex: 1,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
         background: 'none', border: 'none', cursor: 'pointer',
         color: active ? activeColor : 'var(--color-text-muted)',
-        padding: '6px 6px', borderRadius: 8, fontSize: 13,
+        padding: '8px 4px', borderRadius: 8, fontSize: 13,
         fontFamily: "'DM Sans',sans-serif", transition: 'color 0.12s, background 0.12s',
         WebkitTapHighlightColor: 'transparent',
-        minWidth: 36, minHeight: 44, justifyContent: 'center',
+        minHeight: 44, touchAction: 'manipulation',
       }}
       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-3)' }}
       onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
     >
       {icon}
-      <span style={{ fontSize: 12, minWidth: 16 }}>
+      <span style={{ fontSize: 12, minWidth: 14, textAlign: 'left' }}>
         {count !== null ? (count > 0 ? formatNumber(count) : showZero ? '0' : '') : ''}
       </span>
     </button>
@@ -178,7 +236,7 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
 }
 
 // ── PostActions — shared action bar used in both PostCard and RepostCard ──────
-function PostActions({
+export function PostActions({
   post,
   currentUserId,
   onReplyClick,
@@ -297,11 +355,12 @@ function PostActions({
   function handleAnalytics(e: React.MouseEvent) {
     e.stopPropagation()
     void recordImpressionAction(post.id)
+    if (onAnalyticsClick) onAnalyticsClick()
   }
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, width: '100%', maxWidth: 480 }}>
+      <div style={{ display: 'flex', alignItems: 'center', width: '100%', marginTop: 8 }}>
         {/* Reply */}
         <ActionBtn
           icon={<MessageCircle size={18} />}
@@ -316,7 +375,7 @@ function PostActions({
         />
 
         {/* Repost */}
-        <div ref={repostRef} style={{ position: 'relative' }}>
+        <div ref={repostRef} style={{ position: 'relative', flex: 1, display: 'flex', justifyContent: 'center' }}>
           <ActionBtn
             icon={<Repeat2 size={18} />} count={repostCount}
             active={reposted} activeColor="var(--color-brand)"
@@ -352,15 +411,13 @@ function PostActions({
           onClick={handleDislike} label="Dislike"
         />
 
-        {/* Analytics — only visible to post author */}
-        {currentUserId && post.author?.id === currentUserId && (
-          <ActionBtn
-            icon={<BarChart2 size={18} />}
-            count={post.impressions_count > 0 ? post.impressions_count : null}
-            active={!!analyticsOpen} activeColor="var(--color-brand)"
-            onClick={handleAnalytics} label="Analytics"
-          />
-        )}
+        {/* Analytics — visible on all posts, full data only for author */}
+        <ActionBtn
+          icon={<BarChart2 size={18} />}
+          count={post.impressions_count > 0 ? post.impressions_count : null}
+          active={!!analyticsOpen} activeColor="var(--color-brand)"
+          onClick={handleAnalytics} label="Analytics"
+        />
 
         {/* Bookmark — hidden for now, preserved for later */}
         <div style={{ display: 'none' }}>
@@ -464,7 +521,7 @@ function RepostCard({ post, currentUserId, onReplyClick, onAnalyticsClick }: { p
               {original.body}
             </p>
           )}
-          <MediaRow media={original.media} />
+          <MediaRow media={original.media} postId={original.id} post={originalAsPost} />
 
           {/* Action bar on the original post inside repost */}
           <PostActions post={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} />
@@ -491,17 +548,47 @@ export default function PostCard({
   const [, startTransition] = useTransition()
   const [showMenu, setShowMenu] = useState(false)
   const [deleted, setDeleted] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const router = useRouter()
   const { success, error: toastError, info } = useToast()
+  const articleRef = useRef<HTMLElement>(null)
+  const impressionFired = useRef(false)
 
   const isOwnPost = !!currentUserId && post.author?.id === currentUserId
   const isRepost = post.post_type === 'repost'
+
+  // Fire impression once when post is 50% visible for >= 1 second
+  useEffect(() => {
+    if (isRepost || impressionFired.current || isOwnPost) return
+    const el = articleRef.current
+    if (!el) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          timer = setTimeout(() => {
+            if (!impressionFired.current) {
+              impressionFired.current = true
+              void recordImpressionAction(post.id)
+            }
+          }, 1000)
+        } else {
+          if (timer) clearTimeout(timer)
+        }
+      },
+      { threshold: 0.5 }
+    )
+    observer.observe(el)
+    return () => { observer.disconnect(); if (timer) clearTimeout(timer) }
+  }, [post.id, isRepost, isOwnPost])
 
   if (deleted) return null
   if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} />
 
   function navigate(e: React.MouseEvent) {
-    if ((e.target as HTMLElement).closest('button,a,textarea,input,video')) return
+    // Prevent navigation when any interactive element is clicked
+    const target = e.target as HTMLElement
+    if (target.closest('button,a,textarea,input,video,[data-no-nav]')) return
     router.push(`/post/${post.id}`)
   }
 
@@ -524,6 +611,7 @@ export default function PostCard({
   return (
     <>
       <article
+        ref={articleRef}
         onClick={navigate}
         style={{
           padding: '14px 16px', borderBottom: '1px solid var(--color-border)',
@@ -569,21 +657,20 @@ export default function PostCard({
                 <>
                   <div onClick={e => { e.stopPropagation(); setShowMenu(false) }} style={{ position: 'fixed', inset: 0, zIndex: 10 }} />
                   <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 20, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 4, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
-                    {isOwnPost ? (
+                    {isOwnPost && (
                       <button
                         onClick={handleDelete}
                         style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-error)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
                       >
                         <Trash2 size={15} /> Delete post
                       </button>
-                    ) : (
-                      <button
-                        onClick={e => { e.stopPropagation(); setShowMenu(false); info('Report submitted. Thank you.') }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-secondary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
-                      >
-                        <Flag size={15} /> Report post
-                      </button>
                     )}
+                    <button
+                      onClick={e => { e.stopPropagation(); setShowMenu(false); info('Report submitted. Thank you.') }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-secondary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
+                    >
+                      <Flag size={15} /> Report post
+                    </button>
                   </div>
                 </>
               )}
@@ -591,7 +678,7 @@ export default function PostCard({
           </div>
 
           {/* Body */}
-          {post.body && (
+          {post.body?.trim() && (
             <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, marginBottom: (post.media?.length || post.quoted_post) ? 12 : 10, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
               {post.body}
             </p>
@@ -620,12 +707,21 @@ export default function PostCard({
           )}
 
           {/* Media */}
-          <MediaRow media={post.media} />
+          <MediaRow media={post.media} postId={post.id} post={post} />
 
           {/* Action bar */}
           <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} analyticsOpen={analyticsOpen} />
         </div>
       </article>
+
+      {viewerIndex !== null && post.media && post.media.length > 0 && (
+        <MediaViewer
+          media={[...post.media].sort((a, b) => a.position - b.position)}
+          initialIndex={viewerIndex}
+          post={post}
+          onClose={() => setViewerIndex(null)}
+        />
+      )}
 
       <style>{`@keyframes modalIn { from { opacity:0;transform:translateY(-10px) scale(0.98); } to { opacity:1;transform:none; } }`}</style>
     </>

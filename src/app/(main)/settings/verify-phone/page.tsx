@@ -112,8 +112,8 @@ export default function VerifyPhonePage() {
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '28px 20px', fontFamily: "'DM Sans', sans-serif" }}>
 
       {/* Back */}
-      <Link href="/settings" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#6A6A60', textDecoration: 'none', marginBottom: 28 }}>
-        <ArrowLeft size={16} /> Back to settings
+      <Link href="/profile" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#6A6A60', textDecoration: 'none', marginBottom: 28 }}>
+        <ArrowLeft size={16} /> Back to profile
       </Link>
 
       {/* ── Success ───────────────────────────────────────────────────────── */}
@@ -130,10 +130,10 @@ export default function VerifyPhonePage() {
             You can now withdraw earnings and use 2FA.
           </p>
           <button
-            onClick={() => router.push('/settings')}
+            onClick={() => router.push('/profile')}
             style={{ background: '#1A9E5F', color: 'white', border: 'none', borderRadius: 10, padding: '13px 32px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
           >
-            Back to settings
+            Back to profile
           </button>
         </div>
       )}

@@ -10,18 +10,20 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 // ─── Profile by username ──────────────────────────────────────────────────────
 
 export async function getProfileByUsername(username: string) {
-  const supabase = await createClient()
-  const { data } = await supabase
+  // Use admin client — bypasses RLS so private accounts and
+  // follow state checks work correctly on public profile pages
+  const admin = createAdminClient()
+  const { data } = await admin
     .from('users')
     .select(`
       id, username, display_name, bio, avatar_url, banner_url,
       website_url, location, followers_count, following_count,
       posts_count, verification_tier, is_monetised, is_private,
-      created_at, status
+      bvn_verified, created_at, status
     `)
     .eq('username', username.toLowerCase())
     .is('deleted_at', null)
-    .single()
+    .maybeSingle()
 
   return data
 }
