@@ -5,7 +5,7 @@ import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   MessageCircle, Repeat2, ThumbsUp, ThumbsDown,
-  Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag, BarChart2,
+  Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag, BarChart2, Pin, PinOff,
 } from 'lucide-react'
 import {
   toggleLikeAction,
@@ -18,6 +18,8 @@ import {
   recordLinkClickAction,
   recordVideoViewAction,
   recordVideoCompletionAction,
+  togglePinPostAction,
+  checkHasPinnedPostAction,
 } from '@/lib/actions'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import type { FeedPost } from '@/lib/actions/feed'
@@ -546,8 +548,11 @@ export default function PostCard({
   analyticsOpen?: boolean
 }) {
   const [, startTransition] = useTransition()
-  const [showMenu, setShowMenu] = useState(false)
-  const [deleted, setDeleted] = useState(false)
+  const [, startPinT]      = useTransition()
+  const [showMenu,       setShowMenu]       = useState(false)
+  const [deleted,        setDeleted]        = useState(false)
+  const [isPinned,       setIsPinned]       = useState(post.is_pinned ?? false)
+  const [showPinConfirm, setShowPinConfirm] = useState(false)
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const router = useRouter()
   const { success, error: toastError, info } = useToast()
@@ -606,6 +611,40 @@ export default function PostCard({
     })
   }
 
+  function handlePin(e: React.MouseEvent) {
+    e.stopPropagation()
+    setShowMenu(false)
+
+    if (isPinned) {
+      void (async () => {
+        const r = await togglePinPostAction(post.id)
+        if ('error' in r) { toastError((r as any).error || 'Could not unpin.'); return }
+        setIsPinned(false)
+        success('Post unpinned')
+      })()
+      return
+    }
+
+    void (async () => {
+      const { hasPinnedPost } = await checkHasPinnedPostAction()
+      if (hasPinnedPost) { setShowPinConfirm(true); return }
+      const r = await togglePinPostAction(post.id)
+      if ('error' in r) { toastError((r as any).error || 'Could not pin post.'); return }
+      setIsPinned(true)
+      success('Post pinned to your profile')
+    })()
+  }
+
+  function confirmReplace() {
+    setShowPinConfirm(false)
+    void (async () => {
+      const r = await togglePinPostAction(post.id)
+      if ('error' in r) { toastError((r as any).error || 'Could not pin post.'); return }
+      setIsPinned(true)
+      success('Post pinned to your profile')
+    })()
+  }
+
   const author = post.author
 
   return (
@@ -625,6 +664,13 @@ export default function PostCard({
         <Avatar name={author?.display_name || 'S'} avatarUrl={author?.avatar_url} username={author?.username} clickable />
 
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Pinned badge */}
+          {isPinned && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, paddingLeft: 2 }}>
+              <Pin size={12} color="var(--color-text-muted)" />
+              <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 500 }}>Pinned</span>
+            </div>
+          )}
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
@@ -656,14 +702,23 @@ export default function PostCard({
               {showMenu && (
                 <>
                   <div onClick={e => { e.stopPropagation(); setShowMenu(false) }} style={{ position: 'fixed', inset: 0, zIndex: 10 }} />
-                  <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 20, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 4, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
+                  <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 20, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 4, minWidth: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
                     {isOwnPost && (
-                      <button
-                        onClick={handleDelete}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-error)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
-                      >
-                        <Trash2 size={15} /> Delete post
-                      </button>
+                      <>
+                        <button
+                          onClick={handlePin}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
+                        >
+                          {isPinned ? <PinOff size={15} /> : <Pin size={15} />}
+                          {isPinned ? 'Unpin from profile' : 'Pin to your profile'}
+                        </button>
+                        <button
+                          onClick={handleDelete}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-error)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
+                        >
+                          <Trash2 size={15} /> Delete post
+                        </button>
+                      </>
                     )}
                     <button
                       onClick={e => { e.stopPropagation(); setShowMenu(false); info('Report submitted. Thank you.') }}
@@ -721,6 +776,59 @@ export default function PostCard({
           post={post}
           onClose={() => setViewerIndex(null)}
         />
+      )}
+
+      {/* Pin replacement confirmation */}
+      {showPinConfirm && (
+        <>
+          <div
+            onClick={() => setShowPinConfirm(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'var(--overlay-bg)' }}
+          />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%',
+            transform: 'translate(-50%,-50%)',
+            zIndex: 201, width: 'min(360px, 92vw)',
+            background: 'var(--color-surface-raised)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 18, padding: 24,
+            boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+          }}>
+            <h3 style={{
+              fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 18,
+              color: 'var(--color-text-primary)', marginBottom: 10,
+            }}>
+              Replace pinned post?
+            </h3>
+            <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
+              You already have a pinned post. Pinning this will unpin the existing one.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setShowPinConfirm(false)}
+                style={{
+                  flex: 1, padding: '11px 0', borderRadius: 20,
+                  border: '1px solid var(--color-border)', background: 'none',
+                  color: 'var(--color-text-secondary)', fontSize: 14,
+                  fontFamily: "'Syne',sans-serif", fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmReplace}
+                style={{
+                  flex: 1, padding: '11px 0', borderRadius: 20,
+                  border: 'none', background: 'var(--color-brand)',
+                  color: 'white', fontSize: 14,
+                  fontFamily: "'Syne',sans-serif", fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Pin this post
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       <style>{`@keyframes modalIn { from { opacity:0;transform:translateY(-10px) scale(0.98); } to { opacity:1;transform:none; } }`}</style>
