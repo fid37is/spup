@@ -1,6 +1,7 @@
 // src/app/(main)/connections/[username]/connections-client.tsx
 'use client'
 
+import VerifiedBadge from '@/components/ui/verified-badge'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { UserCheck, UserMinus, UserPlus, Loader2, BadgeCheck, Star } from 'lucide-react'
@@ -176,9 +177,7 @@ function UserCard({
           }}>
             {user.display_name}
           </span>
-          {user.verification_tier !== 'none' && (
-            <BadgeCheck size={15} color="var(--color-brand)" style={{ flexShrink: 0 }} />
-          )}
+          {user.verification_tier !== 'none' && <VerifiedBadge tier={user.verification_tier} size={15} />}
           {user.is_monetised && (
             <Star size={12} fill="var(--color-gold)" stroke="none" style={{ flexShrink: 0 }} />
           )}

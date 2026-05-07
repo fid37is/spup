@@ -1,14 +1,17 @@
+// src/components/feed/media-viewer.tsx
 'use client'
 
+import VerifiedBadge from '@/components/ui/verified-badge'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  X, ChevronLeft, ChevronRight, BadgeCheck,
+  X, ChevronLeft, ChevronRight, MessageCircle,
+  Repeat2, ThumbsUp,
 } from 'lucide-react'
 import type { FeedPost } from '@/lib/actions/feed'
 import { getPostRepliesAction } from '@/lib/actions/feed'
 import { createPostAction } from '@/lib/actions'
-import { formatRelativeTime } from '@/lib/utils'
+import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import { useToast } from '@/components/layout/toast'
 import { PostActions } from '@/components/feed/post-card'
 
@@ -71,11 +74,7 @@ function ReplyCard({ reply }: { reply: FeedPost }) {
           <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-text-primary)' }}>
             {author.display_name}
           </span>
-          {author.verification_tier && author.verification_tier !== 'none' && (
-            <span style={{ display: 'inline-flex', width: 14, height: 14, borderRadius: '50%', background: 'var(--color-brand)', alignItems: 'center', justifyContent: 'center' }}>
-              <BadgeCheck size={9} color="white" />
-            </span>
-          )}
+          {author.verification_tier && <VerifiedBadge tier={author.verification_tier} size={14} />}
           <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
             @{author.username} · {formatRelativeTime(reply.created_at)}
           </span>
@@ -92,7 +91,17 @@ function ReplyCard({ reply }: { reply: FeedPost }) {
             style={{ marginTop: 6, borderRadius: 8, maxHeight: 100, width: '100%', objectFit: 'cover' }}
           />
         )}
-        <PostActions post={reply} />
+        <div style={{ display: 'flex', gap: 14, marginTop: 6 }}>
+          {[
+            { icon: <MessageCircle size={13} />, val: reply.comments_count },
+            { icon: <Repeat2 size={13} />, val: reply.reposts_count },
+            { icon: <ThumbsUp size={13} />, val: reply.likes_count },
+          ].map(({ icon, val }, i) => (
+            <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: 'var(--color-text-muted)' }}>
+              {icon} {formatNumber(val)}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -150,7 +159,7 @@ function SidebarPanel({ post, replies, loading, onClose, onReplyPosted }: {
                       {author.display_name}
                     </span>
                     {author.verification_tier && author.verification_tier !== 'none' && (
-                      <BadgeCheck size={14} color="var(--color-brand)" />
+                      <VerifiedBadge tier={author.verification_tier} size={14} />
                     )}
                   </div>
                   <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>@{author.username}</span>
@@ -270,9 +279,9 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose }: 
   }, [post.id])
 
   const handleKey = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape')                onClose()
-    if (e.key === 'ArrowLeft'  && hasPrev) setIdx(i => i - 1)
-    if (e.key === 'ArrowRight' && hasNext) setIdx(i => i + 1)
+    if (e.key === 'Escape')                   onClose()
+    if (e.key === 'ArrowLeft'  && hasPrev)    setIdx(i => i - 1)
+    if (e.key === 'ArrowRight' && hasNext)    setIdx(i => i + 1)
   }, [hasPrev, hasNext, onClose])
 
   useEffect(() => {
