@@ -1,7 +1,8 @@
 // src/components/layout/right-sidebar.tsx
 import Link from 'next/link'
+import VerifiedBadge from '@/components/ui/verified-badge'
 import {
-  Search, BadgeCheck, Star, ArrowUpRight,
+  Search, Star, ArrowUpRight,
   CheckCircle2, XCircle, Shield, Wallet, MoreHorizontal, TrendingUp,
 } from 'lucide-react'
 import { formatNaira, formatNumber } from '@/lib/utils'
@@ -41,18 +42,7 @@ function Avatar({ user, size = 40 }: {
   )
 }
 
-function VerifiedBadge({ tier }: { tier: string }) {
-  if (!tier || tier === 'none') return null
-  return (
-    <span title={tier === 'organisation' ? 'Verified Organisation' : 'Verified'} style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
-      background: tier === 'organisation' ? '#D4A017' : 'var(--color-brand)',
-    }}>
-      <BadgeCheck size={10} color="white" />
-    </span>
-  )
-}
+
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
