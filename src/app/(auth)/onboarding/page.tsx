@@ -8,19 +8,13 @@ import {
   saveAvatarAction, saveBioAction,
   saveInterestsAction, completeOnboardingAction,
 } from '@/lib/actions'
+import { getSuggestedAccountsAction } from '@/lib/actions/follows'
+import { toggleFollowAction } from '@/lib/actions/follows'
 import { Alert } from '@/components/auth/form-field'
 import { NIGERIAN_INTERESTS } from '@/types'
 import { Check, CheckCircle, Upload, Loader, XCircle, ChevronLeft } from 'lucide-react'
 
 const STEPS = ['Username', 'Photo', 'Bio', 'Interests', 'Follow']
-
-const SUGGESTED = [
-  { username: 'tinuade_tech', name: 'Tinuade Adewale', bio: 'Lagos tech founder & startup news',             avatar: 'TA', color: '#1A9E5F', followers: '12.4K' },
-  { username: 'naija_comedy', name: 'Comedy Spup',     bio: 'Best Naija comedy skits daily 😂',              avatar: 'NC', color: '#7A3A1A', followers: '89K'   },
-  { username: 'abuja_foodie', name: 'Abuja Foodie',    bio: 'Finding the best buka and restaurants',         avatar: 'AF', color: '#1A4A7A', followers: '23K'   },
-  { username: 'spup_sports',  name: 'Spup Sports',     bio: 'Super Eagles, NPFL, EPL — all things football', avatar: 'SS', color: '#4A1A7A', followers: '156K'  },
-  { username: 'naira_news',   name: 'Naira & Economy', bio: 'CBN, forex, markets — your money news',        avatar: 'NN', color: '#7A6A1A', followers: '44K'   },
-]
 
 const BASE: React.CSSProperties = {
   width: '100%', background: '#131318', border: '1px solid #1E1E26',
@@ -78,6 +72,11 @@ export default function OnboardingPage() {
 
   // Step 4 — follow
   const [followed, setFollowed] = useState<Set<string>>(new Set())
+  const [suggested, setSuggested] = useState<{
+    id: string; username: string; display_name: string; avatar_url: string | null;
+    bio: string | null; followers_count: number; verification_tier: string; is_monetised: boolean
+  }[]>([])
+  const [loadingSuggested, setLoadingSuggested] = useState(false)
 
   // ── Navigation helpers ───────────────────────────────────────────────────────
   function goToStep(target: number) {
@@ -195,16 +194,24 @@ export default function OnboardingPage() {
       const r = await saveInterestsAction({ interests })
       if (r.error) { setError(r.error); return }
       advanceTo(4)
+      // Fetch interest-based suggestions when entering follow step
+      setLoadingSuggested(true)
+      getSuggestedAccountsAction(interests).then(accounts => {
+        setSuggested(accounts)
+        setLoadingSuggested(false)
+      })
     })
   }
 
   // ── Finish ───────────────────────────────────────────────────────────────────
-  function toggleFollow(uname: string) {
+  function toggleFollow(userId: string, username: string) {
     setFollowed(prev => {
       const next = new Set(prev)
-      next.has(uname) ? next.delete(uname) : next.add(uname)
+      next.has(username) ? next.delete(username) : next.add(username)
       return next
     })
+    // Fire follow action (don't await — optimistic)
+    void toggleFollowAction(userId)
   }
 
   function finish() {
@@ -474,38 +481,58 @@ export default function OnboardingPage() {
             <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 6 }}>
               Follow some accounts
             </h2>
-            <p style={{ fontSize: 14, color: '#6A6A60' }}>Start with popular Nigerian voices on Spup</p>
+            <p style={{ fontSize: 14, color: '#6A6A60' }}>
+              Based on your interests, here are accounts you might like
+            </p>
           </div>
           <div style={{ marginBottom: 24 }}>
-            {SUGGESTED.map(acc => (
-              <div key={acc.username} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid #1A1A20' }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: '50%', background: acc.color, flexShrink: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, color: 'white',
-                }}>
-                  {acc.avatar}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif" }}>{acc.name}</div>
-                  <div style={{ fontSize: 12, color: '#44444A' }}>@{acc.username} · {acc.followers} followers</div>
-                  <div style={{ fontSize: 12, color: '#6A6A60', marginTop: 2 }}>{acc.bio}</div>
-                </div>
-                <button
-                  onClick={() => toggleFollow(acc.username)}
-                  style={{
-                    padding: '7px 16px', borderRadius: 20, flexShrink: 0,
-                    border: `1.5px solid ${followed.has(acc.username) ? '#2A2A2A' : '#1A9E5F'}`,
-                    background: followed.has(acc.username) ? 'transparent' : '#1A9E5F',
-                    color: followed.has(acc.username) ? '#6A6A60' : 'white',
-                    fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                    fontFamily: "'Syne', sans-serif", transition: 'all 0.15s',
-                  }}
-                >
-                  {followed.has(acc.username) ? 'Following' : 'Follow'}
-                </button>
+            {loadingSuggested ? (
+              <div style={{ textAlign: 'center', padding: '32px 0', color: '#6A6A60', fontSize: 14 }}>
+                <Loader size={20} style={{ animation: 'spin .8s linear infinite', marginBottom: 8 }} />
+                <p style={{ margin: 0 }}>Finding accounts based on your interests…</p>
               </div>
-            ))}
+            ) : suggested.length === 0 ? (
+              <p style={{ textAlign: 'center', color: '#6A6A60', fontSize: 14, padding: '24px 0' }}>
+                No suggestions available yet. You can follow people from the Explore page.
+              </p>
+            ) : suggested.map(acc => {
+              const colors = ['#1A7A4A','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A','#1A6A6A']
+              const bg = acc.avatar_url ? 'transparent' : colors[acc.username.charCodeAt(0) % colors.length]
+              const isFollowed = followed.has(acc.username)
+              return (
+                <div key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid #1A1A20' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: bg, flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, color: 'white' }}>
+                    {acc.avatar_url
+                      ? <img src={acc.avatar_url} alt={acc.display_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : acc.display_name.slice(0, 2).toUpperCase()
+                    }
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif", display: 'flex', alignItems: 'center', gap: 5 }}>
+                      {acc.display_name}
+                      {acc.verification_tier !== 'none' && (
+                        <span style={{ fontSize: 9, background: '#1A9E5F', color: 'white', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>✓</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#44444A' }}>@{acc.username} · {acc.followers_count.toLocaleString()} followers</div>
+                    {acc.bio && <div style={{ fontSize: 12, color: '#6A6A60', marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{acc.bio}</div>}
+                  </div>
+                  <button
+                    onClick={() => toggleFollow(acc.id, acc.username)}
+                    style={{
+                      padding: '7px 16px', borderRadius: 20, flexShrink: 0,
+                      border: `1.5px solid ${isFollowed ? '#2A2A2A' : '#1A9E5F'}`,
+                      background: isFollowed ? 'transparent' : '#1A9E5F',
+                      color: isFollowed ? '#6A6A60' : 'white',
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      fontFamily: "'Syne', sans-serif", transition: 'all 0.15s',
+                    }}
+                  >
+                    {isFollowed ? 'Following' : 'Follow'}
+                  </button>
+                </div>
+              )
+            })}
           </div>
           <button onClick={finish} disabled={pendingFinish} style={{ ...BTN, marginBottom: 12, opacity: pendingFinish ? 0.6 : 1 }}>
             {pendingFinish ? 'Setting up your feed…' : 'Go to Spup →'}
