@@ -19,10 +19,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
 
   title: {
-    default: 'Spup — Speak Up. Be Heard.',
+    default: 'Spup - Speak Up. Be Heard.',
     template: '%s | Spup',
   },
-  description: 'Where Nigerian conversations happen — and where the people having them get paid. Join Spup: Nigeria\'s social platform with 70% ad revenue sharing.',
+  description: 'Where Nigerian conversations happen - and where the people having them get paid. Join Spup: Nigeria\'s social platform with 70% ad revenue sharing.',
 
   // ── Canonical & alternate languages ────────────────────────────────────
   alternates: {
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'Spup',
-    title: 'Spup — Speak Up. Be Heard.',
+    title: 'Spup - Speak Up. Be Heard.',
     description: 'Nigeria\'s social platform where creators earn 70% of ad revenue. Join the conversation.',
     url: BASE_URL,
     locale: 'en_NG',
@@ -56,7 +56,7 @@ export const metadata: Metadata = {
         url: '/og/default.png',
         width: 1200,
         height: 630,
-        alt: 'Spup — Nigeria\'s social platform',
+        alt: 'Spup - Nigeria\'s social platform',
         type: 'image/png',
       },
     ],
@@ -65,7 +65,7 @@ export const metadata: Metadata = {
   // ── Twitter / X ─────────────────────────────────────────────────────────
   twitter: {
     card: 'summary_large_image',
-    title: 'Spup — Speak Up. Be Heard.',
+    title: 'Spup - Speak Up. Be Heard.',
     description: 'Nigeria\'s social platform where creators earn 70% of ad revenue.',
     images: ['/og/default.png'],
   },
@@ -137,10 +137,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta property="og:image:height" content="630" />
         <meta property="fb:app_id" content={process.env.NEXT_PUBLIC_FB_APP_ID ?? ''} />
 
-        {/* Structured data — website + sitelinks searchbox */}
+        {/* Structured data - website + sitelinks searchbox */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+
+        {/* Google AdSense */}
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2230264905247109"
+          crossOrigin="anonymous"
         />
 
         {/* Theme: only override data-theme in authenticated app routes */}
