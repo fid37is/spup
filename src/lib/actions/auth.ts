@@ -224,7 +224,7 @@ export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
       .from('users').select('role').eq('auth_id', user.id).single()
     if (profile && ['admin', 'moderator'].includes(profile.role)) {
       revalidatePath('/', 'layout')
-      redirect('/admin')
+      redirect('/dashboard')
     }
   }
 

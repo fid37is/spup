@@ -172,3 +172,74 @@ export async function getAdminStatsAction() {
 
   return { totalUsers, totalPosts, pendingReports, activeAds, monthlyRevenue }
 }
+
+// ─── Promotions ─────────────────────────────────────────────────────────────
+
+export async function adminCancelPromotionAction(promotionId: string, reason: string) {
+  const { error, admin, profile } = await requireAdmin()
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  await admin.from('post_promotions').update({ status: 'cancelled' }).eq('id', promotionId)
+
+  await auditLog(profile.id, 'cancel_promotion', 'post_promotion', promotionId, { reason })
+  revalidatePath('/admin/promotions')
+  return { success: true }
+}
+
+// ─── Verification queue ──────────────────────────────────────────────────────
+
+export async function adminReviewVerificationAction(
+  requestId: string,
+  decision: 'approved' | 'rejected',
+  notes?: string
+) {
+  const { error, admin, profile } = await requireAdmin()
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  const { data: reqRow } = await admin
+    .from('verification_requests')
+    .select('id, user_id, requested_tier')
+    .eq('id', requestId)
+    .single()
+
+  if (!reqRow) return { error: 'Request not found' }
+
+  await admin
+    .from('verification_requests')
+    .update({
+      status: decision,
+      reviewed_by: profile.id,
+      review_notes: notes || null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', requestId)
+
+  if (decision === 'approved') {
+    await admin
+      .from('users')
+      .update({ verification_tier: reqRow.requested_tier })
+      .eq('id', reqRow.user_id)
+  }
+
+  await auditLog(profile.id, `verification_${decision}`, 'user', reqRow.user_id, { requested_tier: reqRow.requested_tier, notes })
+  revalidatePath('/admin/verification')
+  return { success: true }
+}
+
+// ─── Public: submit a verification request (for future settings-page UI) ────
+
+export async function submitVerificationRequestAction(requestedTier: 'standard' | 'creator' | 'organisation', note?: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Not authenticated' }
+
+  const { data: profile } = await supabase.from('users').select('id').eq('auth_id', user.id).single()
+  if (!profile) return { error: 'Profile not found' }
+
+  const { error: insertError } = await supabase
+    .from('verification_requests')
+    .insert({ user_id: profile.id, requested_tier: requestedTier, note })
+
+  if (insertError) return { error: 'You already have a pending request, or something went wrong' }
+  return { success: true }
+}

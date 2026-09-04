@@ -9,7 +9,7 @@ export async function proxy(request: NextRequest) {
   const host = request.headers.get('host') ?? ''
 
   // ── Admin subdomain routing ────────────────────────────────────────────────
-  // admin.spup.live/ or admin.localhost:3000/ → internally serves /admin/*
+  // admin.spup.live/ or admin.localhost:3000/ → internally serves /dashboard/*
   // Auth routes (/login, /signup etc.) pass through unchanged — the admin
   // layout redirects unauthenticated users to /login, which must stay as-is
   if (host.startsWith('admin.')) {
@@ -22,7 +22,7 @@ export async function proxy(request: NextRequest) {
     }
 
     const rewriteUrl = request.nextUrl.clone()
-    rewriteUrl.pathname = pathname === '/' ? '/admin' : `/admin${pathname}`
+    rewriteUrl.pathname = pathname === '/' ? '/dashboard' : `/dashboard${pathname}`
     const response = NextResponse.rewrite(rewriteUrl)
     // Share the auth session cookie across subdomains
     const rootDomain = host.replace('admin.', '')
@@ -40,8 +40,8 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
-  // Block /admin/* on the main domain — returns 404, not discoverable
-  if (pathname.startsWith('/admin')) {
+  // Block /dashboard/* on the main domain — returns 404, not discoverable
+  if (pathname.startsWith('/dashboard')) {
     return new NextResponse(null, { status: 404 })
   }
 

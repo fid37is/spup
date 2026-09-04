@@ -5,20 +5,55 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, FileText, Megaphone,
-  Flag, ShieldAlert, Settings, LogOut, Activity,
+  Flag, ShieldAlert, LogOut, Activity, Radio,
+  Wallet, BadgeCheck, UserPlus,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { useTransition } from 'react'
 
-const NAV = [
-  { href: '/admin',            icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/admin/users',      icon: Users,           label: 'Users' },
-  { href: '/admin/posts',      icon: FileText,        label: 'Posts' },
-  { href: '/admin/ads',        icon: Megaphone,       label: 'Ads' },
-  { href: '/admin/reports',    icon: Flag,            label: 'Reports' },
-  { href: '/admin/moderation', icon: ShieldAlert,     label: 'Moderation' },
-  { href: '/admin/activity',   icon: Activity,        label: 'Activity log' },
-  { href: '/admin/waitlist',   icon: Users,           label: 'Waitlist' },
+const NAV_GROUPS = [
+  {
+    label: 'Overview',
+    items: [
+      { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard' },
+      { href: '/dashboard/activity-feed', icon: Radio,           label: 'Live activity' },
+    ],
+  },
+  {
+    label: 'People',
+    items: [
+      { href: '/dashboard/users',        icon: Users,      label: 'Users' },
+      { href: '/dashboard/verification', icon: BadgeCheck, label: 'Verification' },
+      { href: '/dashboard/waitlist',     icon: UserPlus,   label: 'Waitlist' },
+    ],
+  },
+  {
+    label: 'Content',
+    items: [
+      { href: '/dashboard/posts',       icon: FileText,  label: 'Posts' },
+      { href: '/dashboard/ads',         icon: Megaphone, label: 'Ads' },
+      { href: '/dashboard/promotions',  icon: Megaphone, label: 'Promotions' },
+    ],
+  },
+  {
+    label: 'Trust & safety',
+    items: [
+      { href: '/dashboard/reports',     icon: Flag,        label: 'Reports' },
+      { href: '/dashboard/moderation',  icon: ShieldAlert, label: 'Moderation' },
+    ],
+  },
+  {
+    label: 'Finance',
+    items: [
+      { href: '/dashboard/finance', icon: Wallet, label: 'Finance' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { href: '/dashboard/activity', icon: Activity, label: 'Audit log' },
+    ],
+  },
 ]
 
 export default function AdminNav({ profile }: { profile: { role: string; display_name: string; username: string } }) {
@@ -27,7 +62,7 @@ export default function AdminNav({ profile }: { profile: { role: string; display
 
   return (
     <aside style={{
-      width: 220, flexShrink: 0, position: 'sticky', top: 0, height: '100dvh',
+      width: 232, flexShrink: 0, position: 'sticky', top: 0, height: '100dvh',
       borderRight: '1px solid #1E1E26', padding: '0 12px',
       display: 'flex', flexDirection: 'column', overflowY: 'auto',
     }}>
@@ -49,25 +84,32 @@ export default function AdminNav({ profile }: { profile: { role: string; display
       </div>
 
       <nav style={{ flex: 1 }}>
-        {NAV.map(({ href, icon: Icon, label }) => {
-          const isActive = href === '/admin' ? pathname === '/admin' : pathname.startsWith(href)
-          return (
-            <Link key={href} href={href} style={{ textDecoration: 'none', display: 'block' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 12,
-                padding: '10px 12px', borderRadius: 10, marginBottom: 2,
-                background: isActive ? 'rgba(26,158,95,0.1)' : 'transparent',
-                color: isActive ? '#1A9E5F' : '#6A6A60',
-                transition: 'background 0.12s, color 0.12s',
-              }}>
-                <Icon size={18} strokeWidth={isActive ? 2.5 : 1.8} />
-                <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: isActive ? 700 : 500, fontSize: 14 }}>
-                  {label}
-                </span>
-              </div>
-            </Link>
-          )
-        })}
+        {NAV_GROUPS.map(group => (
+          <div key={group.label} style={{ marginBottom: 18 }}>
+            <div style={{ padding: '0 12px 6px', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#33333A' }}>
+              {group.label.toUpperCase()}
+            </div>
+            {group.items.map(({ href, icon: Icon, label }) => {
+              const isActive = href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
+              return (
+                <Link key={href} href={href} style={{ textDecoration: 'none', display: 'block' }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '9px 12px', borderRadius: 10, marginBottom: 2,
+                    background: isActive ? 'rgba(26,158,95,0.1)' : 'transparent',
+                    color: isActive ? '#1A9E5F' : '#6A6A60',
+                    transition: 'background 0.12s, color 0.12s',
+                  }}>
+                    <Icon size={17} strokeWidth={isActive ? 2.5 : 1.8} />
+                    <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: isActive ? 700 : 500, fontSize: 13.5 }}>
+                      {label}
+                    </span>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Profile + sign out */}
