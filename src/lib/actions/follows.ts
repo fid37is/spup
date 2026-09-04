@@ -24,6 +24,10 @@ export async function toggleFollowAction(targetUserId: string) {
   if (!profile) return { error: 'Not authenticated' }
   if (profile.id === targetUserId) return { error: 'You cannot follow yourself' }
 
+  // Get target username for path revalidation
+  const { data: targetUser } = await supabase.from('users').select('username').eq('id', targetUserId).single()
+  const targetUsername = targetUser?.username ?? targetUserId
+
   const { data: existing } = await supabase
     .from('follows')
     .select('id')
@@ -34,11 +38,13 @@ export async function toggleFollowAction(targetUserId: string) {
     await supabase.from('follows').delete().match({ follower_id: profile.id, following_id: targetUserId })
     void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'following_count', p_id: profile.id, p_amount: -1 })
     void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'followers_count', p_id: targetUserId, p_amount: -1 })
+    revalidatePath('/profile')
+    revalidatePath(`/user/${targetUsername}`)
     return { following: false }
   }
 
   const { error } = await supabase.from('follows').insert({ follower_id: profile.id, following_id: targetUserId })
-  if (error?.code === '23505') return { following: true }  // duplicate — already following
+  if (error?.code === '23505') return { following: true }
   if (error?.code === '42501') return { error: 'Permission denied. Please log out and back in.' }
   if (error) return { error: `Could not follow: ${error.message}` }
 
@@ -48,6 +54,8 @@ export async function toggleFollowAction(targetUserId: string) {
     recipient_id: targetUserId, actor_id: profile.id,
     type: 'new_follower', entity_id: profile.id, entity_type: 'user',
   })
+  revalidatePath('/profile')
+  revalidatePath(`/user/${targetUsername}`)
   return { following: true }
 }
 
@@ -189,4 +197,40 @@ export async function getSuggestedAccountsAction(interestIds: string[] = []): Pr
 
   const { data } = await q
   return (data || []) as any[]
+}
+
+// ─── Toggle post notifications for a user ────────────────────────────────────
+// Inserts or deletes a row in user_notifications_settings.
+// Returns the new state.
+export async function togglePostNotificationsAction(targetUserId: string): Promise<
+  { enabled: boolean } | { error: string }
+> {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+
+  const { data: existing } = await supabase
+    .from('user_notification_preferences')
+    .select('id')
+    .match({ user_id: profile.id, target_user_id: targetUserId, type: 'post' })
+    .maybeSingle()
+
+  if (existing) {
+    await supabase.from('user_notification_preferences').delete().eq('id', existing.id)
+    return { enabled: false }
+  }
+  await supabase.from('user_notification_preferences').insert({
+    user_id: profile.id, target_user_id: targetUserId, type: 'post',
+  })
+  return { enabled: true }
+}
+
+export async function getPostNotificationsStatusAction(targetUserId: string): Promise<boolean> {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return false
+  const { data } = await supabase
+    .from('user_notification_preferences')
+    .select('id')
+    .match({ user_id: profile.id, target_user_id: targetUserId, type: 'post' })
+    .maybeSingle()
+  return !!data
 }
