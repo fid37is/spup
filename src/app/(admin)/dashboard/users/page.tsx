@@ -1,186 +1,271 @@
-// src/app/(admin)/admin/page.tsx
+// src/app/(admin)/dashboard/users/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
-import { formatNaira, formatNumber } from '@/lib/utils'
-import { Users, FileText, Flag, DollarSign, TrendingUp, UserCheck, Clock, Megaphone } from 'lucide-react'
-
-async function getPlatformStats() {
-  const admin = createAdminClient()
-  const now = new Date()
-  const startOfDay = new Date(now.setHours(0, 0, 0, 0)).toISOString()
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-
-  const [
-    { count: totalUsers },
-    { count: newUsersToday },
-    { count: totalPosts },
-    { count: postsToday },
-    { count: pendingReports },
-    { count: activeAds },
-    { count: waitlistCount },
-    { data: earningsData },
-    { data: recentUsers },
-    { data: recentReports },
-  ] = await Promise.all([
-    admin.from('users').select('id', { count: 'exact', head: true }).is('deleted_at', null),
-    admin.from('users').select('id', { count: 'exact', head: true }).gte('created_at', startOfDay),
-    admin.from('posts').select('id', { count: 'exact', head: true }).is('deleted_at', null),
-    admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', startOfDay),
-    admin.from('reports').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    admin.from('ads').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-    admin.from('waitlist').select('id', { count: 'exact', head: true }),
-    admin.from('transactions').select('amount_kobo').eq('status', 'completed').gte('created_at', startOfMonth),
-    admin.from('users').select('id, display_name, username, created_at, status, role').order('created_at', { ascending: false }).limit(6),
-    admin.from('reports').select('id, entity_type, reason, status, created_at, reporter:users!reports_reporter_id_fkey(username)').eq('status', 'pending').order('created_at', { ascending: false }).limit(5),
-  ])
-
-  const monthlyPlatformRevenue = (earningsData || []).reduce((sum: number, t: { amount_kobo: number }) => sum + t.amount_kobo, 0) * 0.3
-
-  return {
-    totalUsers: totalUsers || 0,
-    newUsersToday: newUsersToday || 0,
-    totalPosts: totalPosts || 0,
-    postsToday: postsToday || 0,
-    pendingReports: pendingReports || 0,
-    activeAds: activeAds || 0,
-    waitlistCount: waitlistCount || 0,
-    monthlyPlatformRevenue,
-    recentUsers: recentUsers || [],
-    recentReports: recentReports || [],
-  }
-}
-
-function StatCard({ icon: Icon, label, value, sub, color = '#1A9E5F', danger = false }: {
-  icon: React.ElementType; label: string; value: string; sub?: string; color?: string; danger?: boolean
-}) {
-  return (
-    <div style={{
-      background: '#0D0D12', border: `1px solid ${danger ? 'rgba(229,57,53,0.2)' : '#1E1E26'}`,
-      borderRadius: 14, padding: 20,
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-        <div style={{ fontSize: 12, color: '#6A6A60', fontWeight: 500, letterSpacing: '0.04em' }}>{label}</div>
-        <div style={{
-          width: 34, height: 34, borderRadius: 9,
-          background: danger ? 'rgba(229,57,53,0.1)' : `${color}18`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <Icon size={16} color={danger ? '#E53935' : color} />
-        </div>
-      </div>
-      <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 28, color: '#F0F0EC', letterSpacing: '-0.02em' }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 12, color: danger ? '#E53935' : '#44444A', marginTop: 4 }}>{sub}</div>}
-    </div>
-  )
-}
+import { formatNumber } from '@/lib/utils'
+import { Users, Search } from 'lucide-react'
+import AdminUserActions from './user-actions'
 
 const STATUS_COLORS: Record<string, string> = {
-  active: '#1A9E5F', suspended: '#D4A017', banned: '#E53935', pending_verification: '#378ADD',
+  active:               '#1A9E5F',
+  suspended:            '#D4A017',
+  banned:               '#E53935',
+  pending_verification: '#378ADD',
 }
 
-export default async function AdminDashboard() {
-  const stats = await getPlatformStats()
+const ROLE_COLORS: Record<string, string> = {
+  admin:     '#D4A017',
+  moderator: '#378ADD',
+  user:      '#44444A',
+}
+
+interface PageProps {
+  searchParams: { q?: string; status?: string; page?: string }
+}
+
+async function getUsers(query: string, status: string, page: number) {
+  const admin  = createAdminClient()
+  const limit  = 20
+  const offset = (page - 1) * limit
+
+  let req = admin
+    .from('users')
+    .select(
+      'id, username, display_name, status, role, verification_tier, followers_count, posts_count, bvn_verified, is_monetised, created_at',
+      { count: 'exact' }
+    )
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (query)  req = req.or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
+  if (status) req = req.eq('status', status)
+
+  const { data, count } = await req
+  return { users: data || [], total: count || 0 }
+}
+
+export default async function AdminUsersPage({ searchParams }: PageProps) {
+  const query  = searchParams.q      || ''
+  const status = searchParams.status || ''
+  const page   = Number(searchParams.page) || 1
+
+  const { users, total } = await getUsers(query, status, page)
+  const totalPages = Math.ceil(total / 20)
 
   return (
     <div style={{ padding: '28px 32px' }}>
+
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
+      <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 26, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 4 }}>
-          Dashboard
+          Users
         </h1>
         <p style={{ fontSize: 14, color: '#44444A' }}>
-          {new Date().toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          {formatNumber(total)} total{status ? ` · filtered by ${status}` : ''}
         </p>
       </div>
 
-      {/* Stats grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 32 }}>
-        <StatCard icon={Users} label="Total users" value={formatNumber(stats.totalUsers)} sub={`+${stats.newUsersToday} today`} />
-        <StatCard icon={FileText} label="Total posts" value={formatNumber(stats.totalPosts)} sub={`+${stats.postsToday} today`} />
-        <StatCard icon={Clock} label="Waitlist" value={formatNumber(stats.waitlistCount)} sub="Awaiting invite" color="#D4A017" />
-        <StatCard icon={Flag} label="Pending reports" value={String(stats.pendingReports)} sub="Needs review" danger={stats.pendingReports > 10} />
-        <StatCard icon={Megaphone} label="Active ads" value={String(stats.activeAds)} sub="Running campaigns" color="#378ADD" />
-        <StatCard icon={DollarSign} label="Platform revenue" value={formatNaira(stats.monthlyPlatformRevenue)} sub="This month (30%)" color="#D4A017" />
-      </div>
+      {/* Filters */}
+      <form method="GET" style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
+          <Search size={14} color="#44444A" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            name="q"
+            defaultValue={query}
+            placeholder="Search by name or username…"
+            style={{
+              width: '100%', background: '#0D0D12', border: '1px solid #1E1E26',
+              borderRadius: 9, padding: '9px 12px 9px 34px', fontSize: 13,
+              color: '#F0F0EC', outline: 'none', boxSizing: 'border-box',
+            }}
+          />
+        </div>
+        <select
+          name="status"
+          defaultValue={status}
+          style={{
+            background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 9,
+            padding: '9px 12px', fontSize: 13, color: status ? '#F0F0EC' : '#44444A',
+            outline: 'none', cursor: 'pointer',
+          }}
+        >
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+          <option value="banned">Banned</option>
+          <option value="pending_verification">Pending verification</option>
+        </select>
+        <button
+          type="submit"
+          style={{
+            background: '#1A9E5F', border: 'none', borderRadius: 9,
+            padding: '9px 18px', fontSize: 13, fontWeight: 700,
+            color: '#fff', cursor: 'pointer',
+          }}
+        >
+          Filter
+        </button>
+        {(query || status) && (
+          <a
+            href="/dashboard/users"
+            style={{
+              background: '#1E1E26', borderRadius: 9, padding: '9px 14px',
+              fontSize: 13, color: '#A0A09A', textDecoration: 'none',
+              display: 'flex', alignItems: 'center',
+            }}
+          >
+            Clear
+          </a>
+        )}
+      </form>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        {/* Recent signups */}
-        <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 16, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1A1A20', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: '#F0F0EC' }}>Recent signups</h2>
-            <a href="/admin/users" style={{ fontSize: 13, color: '#1A9E5F', textDecoration: 'none', fontWeight: 600 }}>View all</a>
+      {/* Table */}
+      <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 16, overflow: 'hidden' }}>
+
+        {/* Head */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '2fr 1fr 80px 80px 90px 90px 44px',
+          padding: '10px 20px',
+          borderBottom: '1px solid #1A1A20',
+          fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: '#44444A',
+        }}>
+          <span>USER</span>
+          <span>STATUS / ROLE</span>
+          <span style={{ textAlign: 'right' }}>POSTS</span>
+          <span style={{ textAlign: 'right' }}>FOLLOWERS</span>
+          <span style={{ textAlign: 'center' }}>BVN</span>
+          <span style={{ textAlign: 'center' }}>MONETISED</span>
+          <span />
+        </div>
+
+        {users.length === 0 && (
+          <div style={{ padding: '48px 20px', textAlign: 'center' }}>
+            <Users size={28} color="#2A2A32" style={{ marginBottom: 10 }} />
+            <p style={{ fontSize: 14, color: '#44444A' }}>No users found</p>
           </div>
-          {stats.recentUsers.map((u: any, i: number) => (
-            <div key={u.id} style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 20px', borderBottom: i < stats.recentUsers.length - 1 ? '1px solid #141418' : 'none',
-            }}>
+        )}
+
+        {users.map((u: any, i: number) => (
+          <div
+            key={u.id}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '2fr 1fr 80px 80px 90px 90px 44px',
+              alignItems: 'center',
+              padding: '14px 20px',
+              borderBottom: i < users.length - 1 ? '1px solid #141418' : 'none',
+            }}
+          >
+            {/* User */}
+            <a
+              href={`/dashboard/users/${u.id}`}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, textDecoration: 'none' }}
+            >
               <div style={{
-                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
                 background: '#1A7A4A', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', fontFamily: "'Syne', sans-serif",
                 fontWeight: 800, fontSize: 13, color: 'white',
               }}>
-                {u.display_name?.slice(0, 2).toUpperCase()}
+                {u.display_name?.slice(0, 2).toUpperCase() || '??'}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif" }}>{u.display_name}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 600, color: '#F0F0EC',
+                  fontFamily: "'Syne', sans-serif",
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {u.display_name}
+                </div>
                 <div style={{ fontSize: 11, color: '#44444A' }}>@{u.username}</div>
               </div>
-              <div style={{
+            </a>
+
+            {/* Status / Role */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{
                 fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
                 color: STATUS_COLORS[u.status] || '#555',
-                background: `${STATUS_COLORS[u.status] || '#555'}15`,
+                background: `${STATUS_COLORS[u.status] || '#555'}18`,
+                padding: '2px 7px', borderRadius: 4, alignSelf: 'flex-start',
+              }}>
+                {u.status?.replace(/_/g, ' ').toUpperCase()}
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 600, color: ROLE_COLORS[u.role] || '#44444A' }}>
+                {u.role}
+              </span>
+            </div>
+
+            {/* Posts */}
+            <div style={{ fontSize: 13, color: '#A0A09A', textAlign: 'right' }}>
+              {formatNumber(u.posts_count || 0)}
+            </div>
+
+            {/* Followers */}
+            <div style={{ fontSize: 13, color: '#A0A09A', textAlign: 'right' }}>
+              {formatNumber(u.followers_count || 0)}
+            </div>
+
+            {/* BVN */}
+            <div style={{ textAlign: 'center' }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700,
+                color: u.bvn_verified ? '#1A9E5F' : '#44444A',
+                background: u.bvn_verified ? '#1A9E5F18' : '#1E1E26',
                 padding: '2px 7px', borderRadius: 4,
               }}>
-                {u.status?.toUpperCase()}
-              </div>
+                {u.bvn_verified ? 'VERIFIED' : 'NO'}
+              </span>
             </div>
-          ))}
-        </div>
 
-        {/* Pending reports */}
-        <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 16, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1A1A20', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: '#F0F0EC' }}>
-              Pending reports
-              {stats.pendingReports > 0 && (
-                <span style={{ marginLeft: 8, background: '#E53935', color: 'white', fontSize: 11, fontWeight: 800, borderRadius: 10, padding: '1px 7px' }}>
-                  {stats.pendingReports}
-                </span>
-              )}
-            </h2>
-            <a href="/admin/reports" style={{ fontSize: 13, color: '#1A9E5F', textDecoration: 'none', fontWeight: 600 }}>View all</a>
-          </div>
-          {stats.recentReports.length === 0 ? (
-            <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-              <p style={{ fontSize: 14, color: '#44444A' }}>No pending reports</p>
-            </div>
-          ) : stats.recentReports.map((r: any, i: number) => (
-            <div key={r.id} style={{
-              padding: '12px 20px', borderBottom: i < stats.recentReports.length - 1 ? '1px solid #141418' : 'none',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <div>
-                <div style={{ fontSize: 13, color: '#D0D0C8', fontWeight: 500 }}>
-                  {r.reason?.replace(/_/g, ' ')}
-                  <span style={{ marginLeft: 6, fontSize: 11, color: '#44444A' }}>({r.entity_type})</span>
-                </div>
-                <div style={{ fontSize: 11, color: '#44444A', marginTop: 2 }}>
-                  by @{r.reporter?.username} · {new Date(r.created_at).toLocaleDateString('en-NG')}
-                </div>
-              </div>
-              <a href={`/admin/reports/${r.id}`} style={{
-                fontSize: 12, color: '#F0F0EC', background: '#1E1E26',
-                padding: '5px 12px', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
+            {/* Monetised */}
+            <div style={{ textAlign: 'center' }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700,
+                color: u.is_monetised ? '#D4A017' : '#44444A',
+                background: u.is_monetised ? '#D4A01718' : '#1E1E26',
+                padding: '2px 7px', borderRadius: 4,
               }}>
-                Review
-              </a>
+                {u.is_monetised ? 'YES' : 'NO'}
+              </span>
             </div>
-          ))}
-        </div>
+
+            {/* Actions — reuses existing AdminUserActions dropdown */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <AdminUserActions
+                userId={u.id}
+                currentStatus={u.status}
+                currentRole={u.role}
+              />
+            </div>
+          </div>
+        ))}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+          <span style={{ fontSize: 13, color: '#44444A' }}>Page {page} of {totalPages}</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {page > 1 && (
+              <a
+                href={`/dashboard/users?q=${query}&status=${status}&page=${page - 1}`}
+                style={{ background: '#1E1E26', borderRadius: 9, padding: '8px 16px', fontSize: 13, color: '#F0F0EC', textDecoration: 'none' }}
+              >
+                ← Prev
+              </a>
+            )}
+            {page < totalPages && (
+              <a
+                href={`/dashboard/users?q=${query}&status=${status}&page=${page + 1}`}
+                style={{ background: '#1E1E26', borderRadius: 9, padding: '8px 16px', fontSize: 13, color: '#F0F0EC', textDecoration: 'none' }}
+              >
+                Next →
+              </a>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,8 @@
-// src/app/(admin)/admin/finance/page.tsx
+// src/app/(admin)/finance/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatNaira, formatRelativeTime } from '@/lib/utils'
 import { Wallet, TrendingUp, ArrowDownCircle, Megaphone } from 'lucide-react'
+import Link from 'next/link'
 import { StatCard } from '@/components/admin/stat-card'
 import { StatusBadge } from '@/components/admin/status-badge'
 import { DataTable, Column } from '@/components/admin/data-table'
@@ -91,7 +92,11 @@ export default async function AdminFinancePage({ searchParams }: { searchParams:
   const columns: Column<TxnRow>[] = [
     {
       key: 'user', header: 'User',
-      render: r => <span style={{ fontSize: 13, color: '#F0F0EC' }}>@{r.wallet?.user?.username || 'unknown'}</span>,
+      render: r => (
+        <Link href={`/finance/${r.id}`} style={{ fontSize: 13, color: '#F0F0EC', textDecoration: 'none' }}>
+          @{r.wallet?.user?.username || 'unknown'}
+        </Link>
+      ),
     },
     {
       key: 'type', header: 'Type',
@@ -145,7 +150,7 @@ export default async function AdminFinancePage({ searchParams }: { searchParams:
       </div>
 
       <DataTable columns={columns} rows={rows} keyField="id" emptyMessage="No transactions found" />
-      <AdminPagination page={page} totalPages={totalPages} basePath="/admin/finance" extraParams={activeType !== 'all' ? `type=${activeType}` : ''} />
+      <AdminPagination page={page} totalPages={totalPages} basePath="/finance" extraParams={activeType !== 'all' ? `type=${activeType}` : ''} />
     </div>
   )
 }

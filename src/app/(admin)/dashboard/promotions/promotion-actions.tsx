@@ -1,4 +1,4 @@
-// src/app/(admin)/admin/promotions/promotion-actions.tsx
+// src/app/(admin)/dashboard/promotions/promotion-actions.tsx
 'use client'
 
 import { useState, useTransition } from 'react'

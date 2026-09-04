@@ -11,47 +11,51 @@ import {
 import { signOutAction } from '@/lib/actions'
 import { useTransition } from 'react'
 
+// NOTE: these hrefs are intentionally NOT prefixed with /dashboard.
+// proxy.ts rewrites every request on the admin.* subdomain to /dashboard/*
+// internally, so the visible URL (and these links) should stay clean —
+// e.g. admin.spup.live/users, not admin.spup.live/dashboard/users.
 const NAV_GROUPS = [
   {
     label: 'Overview',
     items: [
-      { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard' },
-      { href: '/dashboard/activity-feed', icon: Radio,           label: 'Live activity' },
+      { href: '/',              icon: LayoutDashboard, label: 'Dashboard' },
+      { href: '/activity-feed', icon: Radio,           label: 'Live activity' },
     ],
   },
   {
     label: 'People',
     items: [
-      { href: '/dashboard/users',        icon: Users,      label: 'Users' },
-      { href: '/dashboard/verification', icon: BadgeCheck, label: 'Verification' },
-      { href: '/dashboard/waitlist',     icon: UserPlus,   label: 'Waitlist' },
+      { href: '/users',        icon: Users,      label: 'Users' },
+      { href: '/verification', icon: BadgeCheck, label: 'Verification' },
+      { href: '/waitlist',     icon: UserPlus,   label: 'Waitlist' },
     ],
   },
   {
     label: 'Content',
     items: [
-      { href: '/dashboard/posts',       icon: FileText,  label: 'Posts' },
-      { href: '/dashboard/ads',         icon: Megaphone, label: 'Ads' },
-      { href: '/dashboard/promotions',  icon: Megaphone, label: 'Promotions' },
+      { href: '/posts',       icon: FileText,  label: 'Posts' },
+      { href: '/ads',         icon: Megaphone, label: 'Ads' },
+      { href: '/promotions',  icon: Megaphone, label: 'Promotions' },
     ],
   },
   {
     label: 'Trust & safety',
     items: [
-      { href: '/dashboard/reports',     icon: Flag,        label: 'Reports' },
-      { href: '/dashboard/moderation',  icon: ShieldAlert, label: 'Moderation' },
+      { href: '/reports',     icon: Flag,        label: 'Reports' },
+      { href: '/moderation',  icon: ShieldAlert, label: 'Moderation' },
     ],
   },
   {
     label: 'Finance',
     items: [
-      { href: '/dashboard/finance', icon: Wallet, label: 'Finance' },
+      { href: '/finance', icon: Wallet, label: 'Finance' },
     ],
   },
   {
     label: 'System',
     items: [
-      { href: '/dashboard/activity', icon: Activity, label: 'Audit log' },
+      { href: '/activity', icon: Activity, label: 'Audit log' },
     ],
   },
 ]
@@ -90,7 +94,7 @@ export default function AdminNav({ profile }: { profile: { role: string; display
               {group.label.toUpperCase()}
             </div>
             {group.items.map(({ href, icon: Icon, label }) => {
-              const isActive = href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
+              const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
               return (
                 <Link key={href} href={href} style={{ textDecoration: 'none', display: 'block' }}>
                   <div style={{

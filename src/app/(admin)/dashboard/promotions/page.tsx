@@ -1,7 +1,8 @@
-// src/app/(admin)/admin/promotions/page.tsx
+// src/app/(admin)/promotions/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatNaira, formatNumber, formatRelativeTime } from '@/lib/utils'
 import { Megaphone, TrendingUp, Wallet, Eye } from 'lucide-react'
+import Link from 'next/link'
 import { StatCard } from '@/components/admin/stat-card'
 import { StatusBadge } from '@/components/admin/status-badge'
 import { DataTable, Column } from '@/components/admin/data-table'
@@ -88,14 +89,14 @@ export default async function AdminPromotionsPage({ searchParams }: { searchPara
     {
       key: 'post', header: 'Post', width: '32%',
       render: r => (
-        <div>
+        <Link href={`/promotions/${r.id}`} style={{ textDecoration: 'none' }}>
           <div style={{ fontSize: 13, color: '#F0F0EC', marginBottom: 2, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {r.post?.body || '(no text)'}
           </div>
           <div style={{ fontSize: 12, color: '#44444A' }}>
             @{r.user?.username || 'unknown'}
           </div>
-        </div>
+        </Link>
       ),
     },
     { key: 'tier', header: 'Tier', render: r => <span style={{ fontSize: 13, color: '#8A8A85', textTransform: 'capitalize' }}>{r.tier}</span> },

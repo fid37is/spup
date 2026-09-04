@@ -47,6 +47,7 @@ export default function ProfileHeader({
   const [cropFile,   setCropFile]   = useState<File | null>(null)
   const [cropTarget, setCropTarget] = useState<UploadTarget | null>(null)
   const [uploadErr,  setUploadErr]  = useState('')
+  const [showAvatarLightbox, setShowAvatarLightbox] = useState(false)
 
   const avatarRef = useRef<HTMLInputElement>(null)
   const bannerRef = useRef<HTMLInputElement>(null)
@@ -122,6 +123,29 @@ export default function ProfileHeader({
         />
       )}
 
+      {/* Avatar lightbox — full-size view, opens on click when not editing */}
+      {showAvatarLightbox && avatarSrc && (
+        <div
+          onClick={() => setShowAvatarLightbox(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            background: 'rgba(0,0,0,0.88)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'zoom-out', padding: 24,
+          }}
+        >
+          <img
+            src={avatarSrc}
+            alt={profile.display_name}
+            style={{
+              width: 'min(420px, 90vw)', height: 'min(420px, 90vw)',
+              borderRadius: '50%', objectFit: 'cover',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+            }}
+          />
+        </div>
+      )}
+
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
       <div
         onClick={() => editing && !uploading && bannerRef.current?.click()}
@@ -165,13 +189,16 @@ export default function ProfileHeader({
         }}>
           {/* Avatar */}
           <div
-            onClick={() => editing && !uploading && avatarRef.current?.click()}
+            onClick={() => {
+              if (editing) { if (!uploading) avatarRef.current?.click() }
+              else if (avatarSrc) { setShowAvatarLightbox(true) }
+            }}
             style={{
               width: 84, height: 84, borderRadius: '50%',
               border: '4px solid var(--color-bg)',
               overflow: 'hidden', position: 'relative',
               marginTop: -42, flexShrink: 0,
-              cursor: editing ? 'pointer' : 'default',
+              cursor: editing || avatarSrc ? 'pointer' : 'default',
             }}
           >
             {avatarSrc ? (
