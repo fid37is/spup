@@ -313,7 +313,8 @@ export async function getPostRepliesAction(postId: string, cursor?: string) {
     ? await hydrateEngagement(supabase, profile.id, page)
     : page.map(p => ({ ...p, is_liked: false, is_disliked: false, is_reposted: false, is_bookmarked: false }))
 
-  return { posts: hydrated, nextCursor }
+  // return { posts: hydrated, nextCursor }
+  return { posts: hydrated as FeedPost[], nextCursor }
 }
 
 // ─── Bookmarked posts ─────────────────────────────────────────────────────────
