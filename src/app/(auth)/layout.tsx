@@ -23,7 +23,14 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         background: 'var(--color-bg)',
       }}>
         <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src="/logo.png" alt="Spup" style={{ width: 30, height: 30, borderRadius: 7 }} />
+          <img
+            src="/logo.png"
+            alt="Spup"
+            style={{
+              width: 40, height: 40, borderRadius: 7,
+              filter: 'invert(1) hue-rotate(100deg) brightness(1.15) saturate(1.2)',
+            }}
+          />
           <span style={{
             fontFamily: "'Syne', sans-serif",
             fontWeight: 800,

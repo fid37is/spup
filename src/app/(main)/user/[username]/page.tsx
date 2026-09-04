@@ -5,7 +5,7 @@ import { getProfileByUsername, getUserPosts } from '@/lib/queries'
 import { formatNumber } from '@/lib/utils'
 import { Lock } from 'lucide-react'
 import Link from 'next/link'
-import FollowButton from './follow-button'
+import ProfileActionBar from './profile-action-bar'
 import ProfileHeader from '@/components/profile/profile-header'
 import ProfileTabs from '@/components/profile/profile-tabs'
 import type { FeedPost } from '@/lib/actions/feed'
@@ -96,11 +96,11 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   if (viewerProfileId && postIds.length) {
     const [{ data: likes }, { data: reposts }, { data: bookmarks }] = await Promise.all([
       supabase.from('likes').select('post_id').eq('user_id', viewerProfileId).in('post_id', postIds),
-      supabase.from('posts').select('parent_post_id').eq('user_id', viewerProfileId).eq('post_type', 'repost').in('parent_post_id', postIds),
+      supabase.from('posts').select('quoted_post_id').eq('user_id', viewerProfileId).eq('post_type', 'repost').in('quoted_post_id', postIds),
       supabase.from('bookmarks').select('post_id').eq('user_id', viewerProfileId).in('post_id', postIds),
     ])
     likedSet      = new Set((likes     || []).map((r: any) => r.post_id))
-    repostedSet   = new Set((reposts   || []).map((r: any) => r.parent_post_id))
+    repostedSet   = new Set((reposts   || []).map((r: any) => r.quoted_post_id))
     bookmarkedSet = new Set((bookmarks || []).map((r: any) => r.post_id))
   }
 
@@ -112,27 +112,22 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     is_bookmarked: bookmarkedSet.has(p.id),
   }))
 
-  // Recalculate all counts from actual rows — never trust denormalized counters
-  const [
-    { data: youFollowRows },
-    { data: followYouRows },
-    { count: actualPostsCount },
-  ] = await Promise.all([
+  // Mutuals count
+  const [{ data: youFollow }, { data: followYou }] = await Promise.all([
     admin.from('follows').select('following_id').eq('follower_id', profile.id),
     admin.from('follows').select('follower_id').eq('following_id', profile.id),
-    admin.from('posts').select('id', { count: 'exact', head: true })
-      .eq('user_id', profile.id).is('deleted_at', null)
-      .is('parent_post_id', null).neq('post_type', 'repost'),
   ])
+  const youFollowSet = new Set((youFollow  || []).map((r: any) => r.following_id))
+  const followYouSet = new Set((followYou  || []).map((r: any) => r.follower_id))
+  const mutualsCount = [...youFollowSet].filter(id => followYouSet.has(id)).length
 
-  const followingSet = new Set((youFollowRows  || []).map((r: any) => r.following_id as string))
-  const followerSet  = new Set((followYouRows  || []).map((r: any) => r.follower_id  as string))
-  const mutualsCount = [...followingSet].filter(id => followerSet.has(id)).length
+  const followingCount = youFollowSet.size
+  const followersCount = followYouSet.size
 
   const stats = {
-    following: formatNumber(followingSet.size),
-    followers: formatNumber(followerSet.size),
-    posts:     formatNumber(actualPostsCount ?? 0),
+    following: formatNumber(followingCount),
+    followers: formatNumber(followersCount),
+    posts:     formatNumber(profile.posts_count ?? 0),
     mutuals:   formatNumber(mutualsCount),
   }
 
@@ -151,12 +146,35 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     memberOf: { '@type': 'Organization', name: 'Spup', url: BASE_URL },
   }
 
+  // Fetch mute/block/notification status for viewer
+  let initialMuted = false, initialBlocked = false, initialNotifsEnabled = false
+  if (viewerProfileId) {
+    const [muteRow, blockRow, notifRow] = await Promise.all([
+      admin.from('mutes').select('id').match({ muter_id: viewerProfileId, muted_id: profile.id }).maybeSingle(),
+      admin.from('blocks').select('id').match({ blocker_id: viewerProfileId, blocked_id: profile.id }).maybeSingle(),
+      admin.from('user_notification_preferences').select('id').match({ user_id: viewerProfileId, target_user_id: profile.id, type: 'post' }).maybeSingle(),
+    ])
+    initialMuted          = !!muteRow.data
+    initialBlocked        = !!blockRow.data
+    initialNotifsEnabled  = !!notifRow.data
+  }
+
+  // Chat is allowed if: profile has chat open to everyone, OR viewer follows them
+  const chatAllowed = !!(viewerProfileId && (
+    (profile as any).chat_visibility === 'everyone' || isFollowing
+  ))
+
   const actionSlot = authUser && viewerProfileId ? (
-    <FollowButton
+    <ProfileActionBar
       targetUserId={profile.id}
+      username={profile.username}
       initialFollowing={isFollowing}
       followsMe={followsMe}
       isPrivate={profile.is_private}
+      chatAllowed={chatAllowed}
+      initialNotifsEnabled={initialNotifsEnabled}
+      initialMuted={initialMuted}
+      initialBlocked={initialBlocked}
     />
   ) : (
     <Link href="/login" style={{

@@ -27,12 +27,12 @@ export async function createPostAction(data: CreatePostSchema) {
   const postType = parent_post_id ? 'reply' : quoted_post_id ? 'quote' : 'original'
   const { data: post, error } = await supabase
     .from('posts')
-    .insert({ user_id: profile.id, body: body?.trim() || null, post_type: postType, parent_post_id: parent_post_id || null, quoted_post_id: quoted_post_id || null })
+    .insert({ user_id: profile.id, body: body?.trim() || '', post_type: postType, parent_post_id: parent_post_id || null, quoted_post_id: quoted_post_id || null })
     .select('id').single()
   if (error) return { error: 'Failed to post. Please try again.' }
   // Insert post_media rows now that we have a real post_id
   if (media?.length) {
-    await supabase.from('post_media').insert(
+    const { error: mediaError } = await supabase.from('post_media').insert(
       media.map((m, i) => ({
         post_id: post.id,
         media_type: m.media_type,
@@ -45,6 +45,11 @@ export async function createPostAction(data: CreatePostSchema) {
         position: i,
       }))
     )
+    if (mediaError) {
+      // Roll back the post so we don't leave an orphaned empty post
+      await supabase.from('posts').delete().eq('id', post.id)
+      return { error: 'Failed to attach media. Please try again.' }
+    }
   }
   void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'posts_count', p_id: profile.id, p_amount: 1 })
   if (parent_post_id) {
@@ -132,29 +137,14 @@ export async function toggleDislikeAction(postId: string) {
 export async function toggleRepostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
-
-  // Check for existing repost using quoted_post_id (the canonical repost field)
-  const { data: existing } = await supabase
-    .from('posts').select('id')
-    .match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId })
-    .maybeSingle()
-
+  const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).maybeSingle()
   if (existing) {
     await supabase.from('posts').delete().match({ id: existing.id })
     await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
     revalidatePath('/feed')
     return { reposted: false }
   }
-
-  // Insert repost with quoted_post_id so RepostCard can hydrate the original
-  const { error } = await supabase.from('posts').insert({
-    user_id:        profile.id,
-    post_type:      'repost',
-    quoted_post_id: postId,
-    body:           null,
-  })
-  if (error) return { error: error.message }
-
+  await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId })
   await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
   revalidatePath('/feed')
@@ -248,4 +238,52 @@ export async function getPostAnalyticsAction(postId: string) {
   if ((post.author as any)?.auth_id !== user.id) return { error: 'Not authorized' }
 
   return { data: post }
+}
+export async function togglePinPostAction(postId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+
+  // Check if this post is already pinned
+  const { data: post } = await supabase
+    .from('posts')
+    .select('id, is_pinned, user_id')
+    .eq('id', postId)
+    .single()
+
+  if (!post) return { error: 'Post not found' }
+  if (post.user_id !== profile.id) return { error: 'Not your post' }
+
+  if (post.is_pinned) {
+    // Unpin
+    await supabase.from('posts').update({ is_pinned: false }).eq('id', postId)
+    revalidatePath('/profile')
+    revalidatePath(`/user/${profile.id}`)
+    return { pinned: false }
+  } else {
+    // Unpin any existing pinned post first (only one allowed)
+    await supabase
+      .from('posts')
+      .update({ is_pinned: false })
+      .eq('user_id', profile.id)
+      .eq('is_pinned', true)
+
+    // Pin this post
+    await supabase.from('posts').update({ is_pinned: true }).eq('id', postId)
+    revalidatePath('/profile')
+    revalidatePath(`/user/${profile.id}`)
+    return { pinned: true }
+  }
+}
+
+export async function checkHasPinnedPostAction(): Promise<{ hasPinnedPost: boolean }> {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { hasPinnedPost: false }
+  const { data } = await supabase
+    .from('posts')
+    .select('id')
+    .eq('user_id', profile.id)
+    .eq('is_pinned', true)
+    .is('deleted_at', null)
+    .maybeSingle()
+  return { hasPinnedPost: !!data }
 }

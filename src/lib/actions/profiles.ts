@@ -30,11 +30,13 @@ const updateProfileSchema = z.object({
   bio:                 z.string().max(160).optional(),
   location:            z.string().max(60).optional(),
   website_url:         z.string().url().optional().or(z.literal('')),
+  occupation:          z.string().max(60).optional(),
+  date_of_birth:       z.string().optional().refine(v => !v || !isNaN(Date.parse(v)), 'Invalid date'),
+  birthday_visibility: z.enum(['everyone', 'followers', 'only_me']).optional(),
   language_preference: z.enum(['en', 'yo', 'ig', 'ha', 'pcm']).optional(),
   is_private:          z.boolean().optional(),
   notif_push:          z.boolean().optional(),
   notif_email:         z.boolean().optional(),
-  birthday_visibility: z.enum(['everyone', 'followers', 'only_me']).optional(),
 })
 
 export type UpdateProfileData = z.infer<typeof updateProfileSchema>
