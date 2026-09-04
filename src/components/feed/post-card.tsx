@@ -5,8 +5,9 @@ import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   MessageCircle, Repeat2, ThumbsUp, ThumbsDown,
-  Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag, BarChart2, Pin, PinOff,
+  Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag, BarChart2, Pin, PinOff, Megaphone,
 } from 'lucide-react'
+import PromoteModal from './promote-modal'
 import {
   toggleLikeAction,
   toggleDislikeAction,
@@ -550,6 +551,7 @@ export default function PostCard({
   const [, startTransition] = useTransition()
   const [, startPinT]      = useTransition()
   const [showMenu,       setShowMenu]       = useState(false)
+  const [showPromoteModal, setShowPromoteModal] = useState(false)
   const [deleted,        setDeleted]        = useState(false)
   const [isPinned,       setIsPinned]       = useState(post.is_pinned ?? false)
   const [showPinConfirm, setShowPinConfirm] = useState(false)
@@ -706,6 +708,12 @@ export default function PostCard({
                     {isOwnPost && (
                       <>
                         <button
+                          onClick={e => { e.stopPropagation(); setShowMenu(false); setShowPromoteModal(true) }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: '#1A9E5F', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
+                        >
+                          <Megaphone size={15} /> Promote post
+                        </button>
+                        <button
                           onClick={handlePin}
                           style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
                         >
@@ -766,6 +774,10 @@ export default function PostCard({
 
           {/* Action bar */}
           <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} analyticsOpen={analyticsOpen} />
+
+          {showPromoteModal && (
+            <PromoteModal postId={post.id} onClose={() => setShowPromoteModal(false)} />
+          )}
         </div>
       </article>
 

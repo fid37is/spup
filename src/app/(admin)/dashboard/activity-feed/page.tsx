@@ -69,7 +69,7 @@ export default async function AdminActivityFeedPage({ searchParams }: { searchPa
       <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Live activity</h1>
-          <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>Real-time platform activity - signups, posts, payments, and reports</p>
+          <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>Real-time platform activity — signups, posts, payments, and reports</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#44444A' }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#1A9E5F' }} />
