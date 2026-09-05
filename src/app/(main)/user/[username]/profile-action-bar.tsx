@@ -23,11 +23,10 @@ interface ProfileActionBarProps {
   initialFollowing: boolean
   followsMe: boolean
   isPrivate: boolean
-  chatAllowed: boolean
+  chatAllowed: boolean        // profile.chat_visibility === 'everyone' or is following
   initialNotifsEnabled: boolean
   initialMuted: boolean
   initialBlocked: boolean
-  isSelf?: boolean  // viewing own profile — show share only
 }
 
 export default function ProfileActionBar({
@@ -35,7 +34,6 @@ export default function ProfileActionBar({
   initialFollowing, followsMe, isPrivate,
   chatAllowed, initialNotifsEnabled,
   initialMuted, initialBlocked,
-  isSelf = false,
 }: ProfileActionBarProps) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
@@ -138,43 +136,6 @@ export default function ProfileActionBar({
     textAlign: 'left', transition: 'background 0.1s',
   }
 
-  // ── Own profile: share/copy only, no social actions ──────────────────────
-  if (isSelf) {
-    return (
-      <div ref={menuRef} style={{ position: 'relative' }}>
-        <button
-          onClick={() => setShowMenu(v => !v)}
-          style={BTN}
-          onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-        >
-          <MoreHorizontal size={18} />
-        </button>
-        {showMenu && (
-          <div style={{
-            position: 'absolute', right: 0, top: 48, zIndex: 50,
-            background: 'var(--color-surface-raised)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 14, padding: 4, minWidth: 220,
-            boxShadow: '0 8px 28px rgba(0,0,0,0.4)',
-          }}>
-            <button onClick={handleShare} style={MENU_BTN}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-              <Share2 size={16} /> Share @{username}
-            </button>
-            <button onClick={handleCopyLink} style={MENU_BTN}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-              <Link2 size={16} /> Copy link to profile
-            </button>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // ── Blocked state ─────────────────────────────────────────────────────────
   if (blocked) {
     return (
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -183,7 +144,7 @@ export default function ProfileActionBar({
             <MoreHorizontal size={18} />
           </button>
           {showMenu && (
-            <div style={{ position: 'absolute', right: 0, top: 48, zIndex: 50, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 4, minWidth: 200, boxShadow: '0 8px 28px rgba(0,0,0,0.4)' }}>
+            <div style={{ position: 'absolute', left: 0, top: 48, zIndex: 50, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 4, minWidth: 200, maxWidth: 'min(220px, calc(100vw - 32px))', boxShadow: '0 8px 28px rgba(0,0,0,0.4)' }}>
               <button onClick={handleBlock} style={{ ...MENU_BTN, color: 'var(--color-brand)' }}>
                 <Ban size={16} /> Unblock @{username}
               </button>
@@ -195,9 +156,8 @@ export default function ProfileActionBar({
     )
   }
 
-  // ── Normal other-user action bar ──────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap' }}>
 
       {/* ··· More options */}
       <div ref={menuRef} style={{ position: 'relative' }}>
@@ -212,10 +172,11 @@ export default function ProfileActionBar({
 
         {showMenu && (
           <div style={{
-            position: 'absolute', right: 0, top: 48, zIndex: 50,
+            position: 'absolute', left: 0, top: 48, zIndex: 50,
             background: 'var(--color-surface-raised)',
             border: '1px solid var(--color-border)',
             borderRadius: 14, padding: 4, minWidth: 220,
+            maxWidth: 'min(240px, calc(100vw - 32px))',
             boxShadow: '0 8px 28px rgba(0,0,0,0.4)',
           }}>
             <button onClick={handleShare} style={MENU_BTN}

@@ -212,7 +212,7 @@ export default function MobileHeader({ profile, unreadCount, title }: MobileHead
     <>
       {/* ── Top bar ── */}
       <div style={{
-        position: 'sticky', top: 0, zIndex: 50,
+        position: 'relative', zIndex: 50,
         background: 'var(--nav-bg)', backdropFilter: 'blur(20px)',
         borderBottom: '1px solid var(--color-border)',
         display: 'flex', alignItems: 'center',
