@@ -95,47 +95,78 @@ function TrackedVideo({ src, postId }: { src: string; postId: string }) {
 
 function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: string; post: FeedPost }) {
   const [viewerIdx, setViewerIdx] = useState<number | null>(null)
+  const scrollerRef = useRef<HTMLDivElement>(null)
+
   if (!media || media.length === 0) return null
   const sorted = [...media].sort((a, b) => a.position - b.position)
+
+  function openViewer(i: number, e: React.MouseEvent) {
+    e.stopPropagation()
+    setViewerIdx(i)
+  }
+
+  // Single item — show at its natural aspect ratio, letterboxed rather than
+  // cropped, so portrait/landscape photos both display without distortion.
+  if (sorted.length === 1) {
+    const m = sorted[0]
+    return (
+      <>
+        <div
+          onClick={e => openViewer(0, e)}
+          style={{
+            borderRadius: 14, overflow: 'hidden', marginBottom: 10,
+            maxHeight: 520, background: 'var(--color-surface-2)',
+            cursor: 'pointer', display: 'flex', justifyContent: 'center',
+          }}
+        >
+          {m.media_type === 'image'
+            ? <img src={m.url} alt="" style={{ width: '100%', maxHeight: 520, objectFit: 'contain' }} />
+            : <div style={{ width: '100%', aspectRatio: '16/9' }}><TrackedVideo src={m.url} postId={postId} /></div>
+          }
+        </div>
+        {viewerIdx !== null && (
+          <MediaViewer media={sorted} initialIndex={viewerIdx} post={post} onClose={() => setViewerIdx(null)} />
+        )}
+      </>
+    )
+  }
+
+  // Multiple items — matches the reference: tight square-ish tiles, 3px gap,
+  // one continuous rounded block. Exactly 2 items fill the row edge-to-edge,
+  // same as X's static grid. 3+ items scroll horizontally (X can't show more
+  // than 2-4 in a static grid at all — this is the one deliberate departure,
+  // since the ask was specifically to make extra photos reachable by swipe).
   return (
     <>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: sorted.length === 1 ? '1fr' : 'repeat(2,1fr)',
-        gap: 3, borderRadius: 14, overflow: 'hidden',
-        marginBottom: 10, maxHeight: 420,
-        cursor: 'pointer',
-      }}>
-        {sorted.slice(0, 4).map((m, i) => (
+      <div
+        ref={scrollerRef}
+        className="media-scroller"
+        style={{
+          display: 'flex', gap: 3, borderRadius: 14, overflow: sorted.length > 2 ? 'auto' : 'hidden',
+          marginBottom: 10,
+          scrollSnapType: sorted.length > 2 ? 'x mandatory' : undefined,
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        {sorted.map((m, i) => (
           <div
             key={m.id || i}
-            onClick={e => { e.stopPropagation(); setViewerIdx(i) }}
+            onClick={e => openViewer(i, e)}
             style={{
-              background: 'var(--color-surface-2)',
-              aspectRatio: sorted.length === 1 ? '16/9' : '1/1',
-              gridColumn: sorted.length === 3 && i === 0 ? '1/-1' : undefined,
-              overflow: 'hidden', position: 'relative',
-              transition: 'opacity 0.12s',
+              flex: sorted.length > 2 ? '0 0 48%' : '1 1 50%',
+              scrollSnapAlign: sorted.length > 2 ? 'start' : undefined,
+              aspectRatio: '1/1', overflow: 'hidden',
+              background: 'var(--color-surface-2)', position: 'relative',
+              cursor: 'pointer',
             }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
-            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
           >
             {m.media_type === 'image'
               ? <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <TrackedVideo src={m.url} postId={postId} />
             }
-            {/* Overflow count badge for 4+ items */}
-            {sorted.length > 4 && i === 3 && (
-              <div style={{
-                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 22, fontWeight: 800, color: 'white',
-              }}>
-                +{sorted.length - 4}
-              </div>
-            )}
           </div>
         ))}
+        <style>{`.media-scroller::-webkit-scrollbar { display: none; }`}</style>
       </div>
 
       {viewerIdx !== null && (

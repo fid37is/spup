@@ -164,9 +164,6 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
       <div ref={feedTopRef} />
 
       {/* Tab bar */}
-      <style>{`
-        @media (max-width: 767px) { .feed-tab-bar { top: 56px !important; } }
-      `}</style>
       <div className="feed-tab-bar" style={{
         position: 'sticky', top: 0, zIndex: 10,
         backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',

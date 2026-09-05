@@ -142,7 +142,7 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
       setMedia([])
       setError('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      if (onPosted && 'postId' in result) onPosted({ id: result.postId })
+      if (onPosted && 'postId' in result) onPosted('post' in result && result.post ? result.post : { id: result.postId })
     })
   }
 

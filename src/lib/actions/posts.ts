@@ -8,6 +8,17 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
+import { getPostById } from '@/lib/queries/posts'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+// Fire-and-forget counter bump that still logs failures instead of swallowing
+// them silently — see the identical helper in follows.ts for context.
+function bumpCounter(supabase: SupabaseClient, table: string, column: string, id: string, amount: number) {
+  void supabase.rpc('increment_counter', { p_table: table, p_column: column, p_id: id, p_amount: amount })
+    .then(({ error }) => {
+      if (error) console.error(`increment_counter failed (${table}.${column}, id=${id}):`, error.message)
+    })
+}
 
 async function getCallerProfile() {
   const supabase = await createClient()
@@ -51,14 +62,32 @@ export async function createPostAction(data: CreatePostSchema) {
       return { error: 'Failed to attach media. Please try again.' }
     }
   }
-  void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'posts_count', p_id: profile.id, p_amount: 1 })
+  bumpCounter(supabase, 'users', 'posts_count', profile.id, 1)
   if (parent_post_id) {
-    void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'comments_count', p_id: parent_post_id, p_amount: 1 })
+    bumpCounter(supabase, 'posts', 'comments_count', parent_post_id, 1)
     void notifyPostAuthor(supabase, parent_post_id, profile.id, 'post_comment')
     revalidatePath(`/post/${parent_post_id}`)
   }
   revalidatePath('/feed')
-  return { success: true, postId: post.id }
+
+  // Return the fully-hydrated post (author, media, counts, created_at) so the
+  // client can prepend it to the feed immediately with real data — returning
+  // just the id left callers building a bare `{ id }` stub that rendered as
+  // "Invalid Date" with no media until the next full page refresh.
+  const hydrated = await getPostById(post.id)
+  if (!hydrated) return { success: true, postId: post.id }
+
+  return {
+    success: true,
+    postId: post.id,
+    post: {
+      ...hydrated,
+      is_liked: false,
+      is_disliked: false,
+      is_reposted: false,
+      is_bookmarked: false,
+    },
+  }
 }
 
 export async function deletePostAction(postId: string) {
@@ -66,7 +95,7 @@ export async function deletePostAction(postId: string) {
   if (!profile) return { error: 'Not authenticated' }
   const { error } = await supabase.from('posts').update({ deleted_at: new Date().toISOString() }).match({ id: postId, user_id: profile.id })
   if (error) return { error: 'Could not delete post.' }
-  void supabase.rpc('increment_counter', { p_table: 'users', p_column: 'posts_count', p_id: profile.id, p_amount: -1 })
+  bumpCounter(supabase, 'users', 'posts_count', profile.id, -1)
   revalidatePath('/feed')
   revalidatePath('/profile')
   return { success: true }
@@ -157,11 +186,11 @@ export async function toggleBookmarkAction(postId: string) {
   const { data: existing } = await supabase.from('bookmarks').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
   if (existing) {
     await supabase.from('bookmarks').delete().match({ user_id: profile.id, post_id: postId })
-    void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'bookmarks_count', p_id: postId, p_amount: -1 })
+    bumpCounter(supabase, 'posts', 'bookmarks_count', postId, -1)
     return { bookmarked: false }
   }
   await supabase.from('bookmarks').insert({ user_id: profile.id, post_id: postId })
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'bookmarks_count', p_id: postId, p_amount: 1 })
+  bumpCounter(supabase, 'posts', 'bookmarks_count', postId, 1)
   return { bookmarked: true }
 }
 
