@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Eye, ThumbsUp, ThumbsDown, MessageCircle, Repeat2, Link2, Play, TrendingUp, Video, Lock } from 'lucide-react'
+import { X, Eye, ThumbsUp, MessageCircle, Repeat2, Link2, Play, TrendingUp, Video, Lock } from 'lucide-react'
 import { formatNumber } from '@/lib/utils'
 import type { FeedPost } from '@/lib/actions/feed'
 
@@ -80,7 +80,6 @@ export default function PostAnalyticsDrawer({
   const hasLink  = post.body ? /https?:\/\/\S+/.test(post.body) : false
 
   const totalEngagements =
-    post.likes_count + (post.dislikes_count || 0) +
     post.comments_count + post.reposts_count + (post.bookmarks_count || 0)
 
   const engRate = post.impressions_count > 0
@@ -126,7 +125,6 @@ export default function PostAnalyticsDrawer({
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               <StatCard icon={<Eye size={15} />}         label="Impressions" value={post.impressions_count}   color="#378ADD" />
               <StatCard icon={<ThumbsUp size={15} />}    label="Likes"       value={post.likes_count}         color="var(--color-brand)" />
-              <StatCard icon={<ThumbsDown size={15} />}  label="Dislikes"    value={post.dislikes_count || 0} color="var(--color-error)" />
               <StatCard icon={<MessageCircle size={15} />} label="Replies"   value={post.comments_count}      color="#A855F7" />
               <StatCard icon={<Repeat2 size={15} />}     label="Reposts"     value={post.reposts_count}       color="#10B981" />
             </div>
@@ -163,7 +161,6 @@ export default function PostAnalyticsDrawer({
             <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', fontFamily: "'DM Sans',sans-serif", textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>Engagement</p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
               <StatCard icon={<ThumbsUp size={15} />}   label="Likes"    value={post.likes_count}         color="var(--color-brand)" />
-              <StatCard icon={<ThumbsDown size={15} />} label="Dislikes" value={post.dislikes_count || 0} color="var(--color-error)" />
               {hasLink
                 ? <StatCard icon={<Link2 size={15} />} label="Link clicks" value={post.link_clicks_count || 0} color="#F59E0B" />
                 : <StatCard icon={<TrendingUp size={15} />} label="Total eng." value={totalEngagements} color="#378ADD" />
@@ -188,7 +185,6 @@ export default function PostAnalyticsDrawer({
                 <Bar label="Likes"    value={post.likes_count}         total={totalEngagements} color="var(--color-brand)" />
                 <Bar label="Replies"  value={post.comments_count}      total={totalEngagements} color="#A855F7" />
                 <Bar label="Reposts"  value={post.reposts_count}       total={totalEngagements} color="#10B981" />
-                <Bar label="Dislikes" value={post.dislikes_count || 0} total={totalEngagements} color="var(--color-error)" />
               </div>
             )}
 

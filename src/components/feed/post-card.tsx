@@ -4,7 +4,7 @@
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  MessageCircle, Repeat2, ThumbsUp, ThumbsDown,
+  MessageCircle, Repeat2, ThumbsUp,
   Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag, BarChart2, Pin, PinOff, Megaphone,
 } from 'lucide-react'
 import PromoteModal from './promote-modal'
@@ -209,29 +209,66 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
 }
 
 // ── ActionBtn ─────────────────────────────────────────────────────────────────
-function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false }: {
+function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false, burst = false }: {
   icon: React.ReactNode; count: number | null; active: boolean; activeColor: string
-  onClick: (e: React.MouseEvent) => void; label: string; showZero?: boolean
+  onClick: (e: React.MouseEvent) => void; label: string; showZero?: boolean; burst?: boolean
 }) {
+  const [animating, setAnimating] = useState(false)
+  const wasActive = useRef(active)
+
+  useEffect(() => {
+    if (burst && active && !wasActive.current) {
+      setAnimating(true)
+      const t = setTimeout(() => setAnimating(false), 550)
+      return () => clearTimeout(t)
+    }
+    wasActive.current = active
+  }, [active, burst])
+
+  const particles = animating ? Array.from({ length: 6 }) : []
+
   return (
     <button
       onClick={e => { e.stopPropagation(); onClick(e) }}
       aria-label={label}
       style={{
-        flex: 1,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
         background: 'none', border: 'none', cursor: 'pointer',
         color: active ? activeColor : 'var(--color-text-muted)',
-        padding: '8px 4px', borderRadius: 8, fontSize: 13,
+        padding: '8px 10px', borderRadius: 20, fontSize: 13,
         fontFamily: "'DM Sans',sans-serif", transition: 'color 0.12s, background 0.12s',
         WebkitTapHighlightColor: 'transparent',
-        minHeight: 44, touchAction: 'manipulation',
+        minHeight: 40, touchAction: 'manipulation',
       }}
       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-3)' }}
       onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
     >
-      {icon}
-      <span style={{ fontSize: 12, minWidth: 14, textAlign: 'left' }}>
+      <span style={{
+        position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        animation: animating ? 'actionPop 0.5s ease' : 'none',
+      }}>
+        {icon}
+        {particles.map((_, i) => {
+          const angle = (i / particles.length) * 2 * Math.PI
+          const dist = 14
+          const tx = Math.cos(angle) * dist
+          const ty = Math.sin(angle) * dist
+          return (
+            <span
+              key={i}
+              style={{
+                position: 'absolute', top: '50%', left: '50%',
+                width: 4, height: 4, borderRadius: '50%',
+                background: activeColor,
+                ['--tx' as any]: `${tx}px`,
+                ['--ty' as any]: `${ty}px`,
+                animation: 'particleBurst 0.5s ease-out forwards',
+              }}
+            />
+          )
+        })}
+      </span>
+      <span style={{ fontSize: 12, minWidth: 14, textAlign: 'left', color: 'var(--color-text-muted)' }}>
         {count !== null ? (count > 0 ? formatNumber(count) : showZero ? '0' : '') : ''}
       </span>
     </button>
@@ -255,8 +292,6 @@ export function PostActions({
   const [, startTransition] = useTransition()
   const [liked, setLiked] = useState(post.is_liked)
   const [likeCount, setLikeCount] = useState(post.likes_count)
-  const [disliked, setDisliked] = useState(post.is_disliked)
-  const [dislikeCount, setDislikeCount] = useState(post.dislikes_count || 0)
   const [reposted, setReposted] = useState(post.is_reposted)
   const [repostCount, setRepostCount] = useState(post.reposts_count)
   const [bookmarked, setBookmarked] = useState(post.is_bookmarked)
@@ -281,30 +316,11 @@ export function PostActions({
     const nextLiked = !liked
     setLiked(nextLiked)
     setLikeCount(c => nextLiked ? c + 1 : Math.max(0, c - 1))
-    if (disliked) { setDisliked(false); setDislikeCount(c => Math.max(0, c - 1)) }
     startTransition(async () => {
       const r = await toggleLikeAction(post.id)
       if ('error' in r) {
         setLiked(!nextLiked)
         setLikeCount(c => nextLiked ? Math.max(0, c - 1) : c + 1)
-        if (disliked) { setDisliked(true); setDislikeCount(c => c + 1) }
-        toastError('Could not update. Try again.')
-      }
-    })
-  }
-
-  function handleDislike(e: React.MouseEvent) {
-    e.stopPropagation()
-    const nextDisliked = !disliked
-    setDisliked(nextDisliked)
-    setDislikeCount(c => nextDisliked ? c + 1 : Math.max(0, c - 1))
-    if (liked) { setLiked(false); setLikeCount(c => Math.max(0, c - 1)) }
-    startTransition(async () => {
-      const r = await toggleDislikeAction(post.id)
-      if ('error' in r) {
-        setDisliked(!nextDisliked)
-        setDislikeCount(c => nextDisliked ? Math.max(0, c - 1) : c + 1)
-        if (liked) { setLiked(true); setLikeCount(c => c + 1) }
         toastError('Could not update. Try again.')
       }
     })
@@ -364,20 +380,20 @@ export function PostActions({
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', width: '100%', marginTop: 8 }}>
-        {/* Reply */}
-        <ActionBtn
-          icon={<MessageCircle size={18} />}
-          count={post.comments_count}
-          active={false} activeColor="#378ADD"
-          onClick={e => {
-            e.stopPropagation()
-            if (onReplyClick) onReplyClick()
-            else router.push(`/post/${post.id}`)
-          }}
-          label="Reply"
-        />
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <ActionBtn
+            icon={<MessageCircle size={18} />}
+            count={post.comments_count}
+            active={false} activeColor="#378ADD"
+            onClick={e => {
+              e.stopPropagation()
+              if (onReplyClick) onReplyClick()
+              else router.push(`/post/${post.id}`)
+            }}
+            label="Reply"
+          />
+        </div>
 
-        {/* Repost */}
         <div ref={repostRef} style={{ position: 'relative', flex: 1, display: 'flex', justifyContent: 'center' }}>
           <ActionBtn
             icon={<Repeat2 size={18} />} count={repostCount}
@@ -388,7 +404,7 @@ export function PostActions({
           {showRepostMenu && (
             <div
               onClick={e => e.stopPropagation()}
-              style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, zIndex: 30, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 6, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
+              style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 4, zIndex: 30, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 6, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
             >
               <button onClick={handleRepost} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: reposted ? 'var(--color-brand)' : 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
                 <Repeat2 size={16} /> {reposted ? 'Undo repost' : 'Repost'}
@@ -400,27 +416,22 @@ export function PostActions({
           )}
         </div>
 
-        {/* Like */}
-        <ActionBtn
-          icon={<ThumbsUp size={18} fill={liked ? 'var(--color-brand)' : 'none'} />}
-          count={likeCount} active={liked} activeColor="var(--color-brand)"
-          onClick={handleLike} label="Like"
-        />
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <ActionBtn
+            icon={<ThumbsUp size={18} fill={liked ? 'var(--color-brand)' : 'none'} />}
+            count={likeCount} active={liked} activeColor="var(--color-brand)"
+            onClick={handleLike} label="Like" burst
+          />
+        </div>
 
-        {/* Dislike */}
-        <ActionBtn
-          icon={<ThumbsDown size={18} fill={disliked ? 'var(--color-error)' : 'none'} />}
-          count={dislikeCount} active={disliked} activeColor="var(--color-error)"
-          onClick={handleDislike} label="Dislike"
-        />
-
-        {/* Analytics — visible on all posts, full data only for author */}
-        <ActionBtn
-          icon={<BarChart2 size={18} />}
-          count={post.impressions_count > 0 ? post.impressions_count : null}
-          active={!!analyticsOpen} activeColor="var(--color-brand)"
-          onClick={handleAnalytics} label="Analytics"
-        />
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <ActionBtn
+            icon={<BarChart2 size={18} />}
+            count={post.impressions_count > 0 ? post.impressions_count : null}
+            active={!!analyticsOpen} activeColor="var(--color-brand)"
+            onClick={handleAnalytics} label="Analytics"
+          />
+        </div>
 
         {/* Bookmark — hidden for now, preserved for later */}
         <div style={{ display: 'none' }}>
@@ -431,12 +442,13 @@ export function PostActions({
           />
         </div>
 
-        {/* Share */}
-        <ActionBtn
-          icon={<Share2 size={18} />} count={null}
-          active={false} activeColor="var(--color-brand)"
-          onClick={handleShare} label="Share"
-        />
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <ActionBtn
+            icon={<Share2 size={18} />} count={null}
+            active={false} activeColor="var(--color-brand)"
+            onClick={handleShare} label="Share"
+          />
+        </div>
       </div>
 
       {showQuoteModal && <QuoteModal post={post} onClose={() => setShowQuoteModal(false)} />}

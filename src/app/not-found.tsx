@@ -1,6 +1,4 @@
 // src/app/not-found.tsx
-import Link from 'next/link'
-
 export default function NotFound() {
   return (
     <div style={{
@@ -23,16 +21,18 @@ export default function NotFound() {
       <p style={{ fontSize: 14, color: '#6A6A60', marginTop: 8, maxWidth: 340 }}>
         The link might be broken, or the page may have been moved or deleted.
       </p>
-      <Link
+      {/* Plain <a> — forces a full navigation so the session cookie is re-read */}
+      <a
         href="/feed"
         style={{
           marginTop: 24, padding: '11px 24px', borderRadius: 24,
           background: '#1A9E5F', color: '#fff', textDecoration: 'none',
           fontWeight: 600, fontSize: 14, fontFamily: "'DM Sans', sans-serif",
+          display: 'inline-block',
         }}
       >
         Back to feed
-      </Link>
+      </a>
     </div>
   )
 }
