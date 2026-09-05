@@ -8,31 +8,30 @@ export default function OfflinePage() {
   const [checking, setChecking] = useState(false)
   const [online, setOnline]     = useState(false)
 
-  // Auto-detect when connection returns
   useEffect(() => {
     function handleOnline() { setOnline(true) }
     window.addEventListener('online', handleOnline)
     return () => window.removeEventListener('online', handleOnline)
   }, [])
 
-  // When back online, navigate to previous page or home
   useEffect(() => {
-    if (online) {
-      const previous = document.referrer
-      const destination = previous && !previous.includes('/offline') ? previous : '/feed'
-      window.location.replace(destination)
-    }
+    if (online) goBack()
   }, [online])
+
+  function goBack() {
+    // document.referrer is often empty — fall back to /feed
+    const ref = document.referrer
+    const destination = ref && !ref.includes('/offline') ? ref : '/feed'
+    window.location.href = destination
+  }
 
   async function handleRetry() {
     setChecking(true)
     try {
-      // Probe a lightweight cacheable endpoint to confirm real connectivity
-      const res = await fetch('/api/health', { method: 'HEAD', cache: 'no-store' })
+      // GET is more universally supported than HEAD across proxies/service workers
+      const res = await fetch('/api/health', { cache: 'no-store' })
       if (res.ok) {
-        const previous = document.referrer
-        const destination = previous && !previous.includes('/offline') ? previous : '/feed'
-        window.location.replace(destination)
+        goBack()
         return
       }
     } catch {
@@ -48,7 +47,6 @@ export default function OfflinePage() {
       alignItems: 'center', justifyContent: 'center',
       fontFamily: "'DM Sans', sans-serif", padding: 24, textAlign: 'center',
     }}>
-      {/* Icon */}
       <div style={{
         width: 80, height: 80, borderRadius: '50%',
         background: '#161616', border: '1px solid #2A2A2A',
@@ -94,7 +92,6 @@ export default function OfflinePage() {
         {checking ? 'Checking…' : 'Try again'}
       </button>
 
-      {/* Auto-reconnect hint */}
       <p style={{ marginTop: 20, fontSize: 13, color: '#3A3A3A' }}>
         <Wifi size={12} style={{ verticalAlign: 'middle', marginRight: 5 }} />
         Reconnects automatically when back online

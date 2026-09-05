@@ -1,4 +1,4 @@
-// src/app/(admin)/admin/users/[id]/page.tsx
+// src/app/(admin)/users/[id]/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { formatNaira, formatNumber, formatRelativeTime } from '@/lib/utils'
@@ -45,7 +45,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
     <div style={{ padding: '28px 32px' }}>
       {/* Breadcrumb */}
       <div style={{ marginBottom: 20 }}>
-        <a href="/admin/users" style={{ fontSize: 13, color: '#44444A', textDecoration: 'none' }}>← Back to users</a>
+        <a href="/users" style={{ fontSize: 13, color: '#44444A', textDecoration: 'none' }}>← Back to users</a>
       </div>
 
       {/* Profile header */}

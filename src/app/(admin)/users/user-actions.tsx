@@ -59,7 +59,7 @@ export default function AdminUserActions({ userId, currentStatus, currentRole }:
               <MenuItem label="Revoke moderator" color="#D4A017" onClick={() => doAction('revoke_moderator')} />
             )}
             <div style={{ height: 1, background: '#1E1E26', margin: '4px 0' }} />
-            <MenuItem label="View full profile" color="#8A8A85" onClick={() => { window.location.href = `/admin/users/${userId}` }} />
+            <MenuItem label="View full profile" color="#8A8A85" onClick={() => { window.location.href = `/users/${userId}` }} />
           </div>
         </>
       )}

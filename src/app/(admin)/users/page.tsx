@@ -1,4 +1,4 @@
-// src/app/(admin)/dashboard/users/page.tsx
+// src/app/(admin)/users/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatNumber } from '@/lib/utils'
 import { Users, Search } from 'lucide-react'
@@ -106,7 +106,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
         </button>
         {(query || status) && (
           <a
-            href="/dashboard/users"
+            href="/users"
             style={{
               background: '#1E1E26', borderRadius: 9, padding: '9px 14px',
               fontSize: 13, color: '#A0A09A', textDecoration: 'none',
@@ -158,7 +158,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
           >
             {/* User */}
             <a
-              href={`/dashboard/users/${u.id}`}
+              href={`/users/${u.id}`}
               style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, textDecoration: 'none' }}
             >
               <div style={{
@@ -249,7 +249,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
           <div style={{ display: 'flex', gap: 8 }}>
             {page > 1 && (
               <a
-                href={`/dashboard/users?q=${query}&status=${status}&page=${page - 1}`}
+                href={`/users?q=${query}&status=${status}&page=${page - 1}`}
                 style={{ background: '#1E1E26', borderRadius: 9, padding: '8px 16px', fontSize: 13, color: '#F0F0EC', textDecoration: 'none' }}
               >
                 ← Prev
@@ -257,7 +257,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
             )}
             {page < totalPages && (
               <a
-                href={`/dashboard/users?q=${query}&status=${status}&page=${page + 1}`}
+                href={`/users?q=${query}&status=${status}&page=${page + 1}`}
                 style={{ background: '#1E1E26', borderRadius: 9, padding: '8px 16px', fontSize: 13, color: '#F0F0EC', textDecoration: 'none' }}
               >
                 Next →

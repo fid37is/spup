@@ -3,7 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 const isProd = process.env.NODE_ENV === 'production'
-const cookieDomain = isProd ? '.spup.live' : '.localhost'
+const cookieDomain = isProd ? '.spup.live' : 'localhost'
 
 export async function createClient() {
   const cookieStore = await cookies()
