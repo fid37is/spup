@@ -16,7 +16,7 @@ function MonetisationChecklist({
 }) {
   const items = [
     { label: '500+ followers',    ...criteria.followers,    display: `${formatNumber(criteria.followers.value as number)} / 500` },
-    { label: '90-day account',    ...criteria.account_age,  display: `${criteria.account_age.value} / 90 days` },
+    { label: '90-day account',    ...criteria.account_age,  display: `${Math.min(criteria.account_age.value as number, 90)} / 90 days` },
     { label: '100+ posts',        ...criteria.posts,        display: `${formatNumber(criteria.posts.value as number)} / 100` },
     { label: 'Account in good standing', ...criteria.good_standing, display: criteria.good_standing.met ? 'Good standing' : 'Has violations' },
     { label: 'BVN verified',      ...criteria.bvn_verified, display: criteria.bvn_verified.met ? 'Verified' : 'Not verified' },

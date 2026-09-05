@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useTransition, useCallback } from 'react'
-import { ImageIcon, VideoIcon, X, Loader2 } from 'lucide-react'
+import { ImageIcon, X, Loader2 } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 
 const MAX_CHARS = 500
@@ -33,8 +33,7 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
-  const videoInputRef = useRef<HTMLInputElement>(null)
+  const mediaInputRef = useRef<HTMLInputElement>(null)
 
   const charsLeft = MAX_CHARS - body.length
   const isOverLimit = charsLeft < 0
@@ -101,13 +100,15 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
     }
   }, [])
 
-  function handleFiles(files: FileList | null, type: 'image' | 'video') {
+  function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
     const validMedia = media.filter(m => !m.error)
     const slots = MAX_MEDIA - validMedia.length
     if (slots <= 0) return
-
-    Array.from(files).slice(0, slots).forEach(file => uploadFile(file, type))
+    Array.from(files).slice(0, slots).forEach(file => {
+      const type: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image'
+      uploadFile(file, type)
+    })
   }
 
   function removeMedia(tempId: string) {
@@ -142,15 +143,12 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
       setMedia([])
       setError('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      if (onPosted && 'postId' in result) onPosted('post' in result && result.post ? result.post : { id: result.postId })
+      if (onPosted && 'postId' in result) onPosted({ id: result.postId })
     })
   }
 
   const activeMedia = media.filter(m => !m.error)
   const canAddMore = activeMedia.length < MAX_MEDIA
-  const hasVideo = media.some(m => m.media_type === 'video')
-  const hasImage = media.some(m => m.media_type === 'image')
-
   const radius = 10
   const circumference = 2 * Math.PI * radius
   const strokeOffset = circumference - Math.min(body.length / MAX_CHARS, 1) * circumference
@@ -294,37 +292,21 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: 2 }}>
-            {/* Image upload */}
+            {/* Combined photo + video upload */}
             <input
-              ref={imageInputRef}
+              ref={mediaInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/mov,video/avi"
               multiple
               style={{ display: 'none' }}
-              onChange={e => { handleFiles(e.target.files, 'image'); e.target.value = '' }}
+              onChange={e => { handleFiles(e.target.files); e.target.value = '' }}
             />
             <ToolbarBtn
               icon={<ImageIcon size={18} />}
-              label="Add image"
-              disabled={!canAddMore || hasVideo}
-              onClick={() => imageInputRef.current?.click()}
-              title={hasVideo ? "Can't mix images and video" : canAddMore ? "Add image" : "Max 4 media"}
-            />
-
-            {/* Video upload */}
-            <input
-              ref={videoInputRef}
-              type="file"
-              accept="video/mp4,video/webm,video/mov,video/avi"
-              style={{ display: 'none' }}
-              onChange={e => { handleFiles(e.target.files, 'video'); e.target.value = '' }}
-            />
-            <ToolbarBtn
-              icon={<VideoIcon size={18} />}
-              label="Add video"
-              disabled={!canAddMore || hasImage || media.length > 0}
-              onClick={() => videoInputRef.current?.click()}
-              title={hasImage ? "Can't mix video and images" : media.length > 0 ? "Only 1 video allowed" : "Add video"}
+              label="Add photo or video"
+              disabled={!canAddMore}
+              onClick={() => mediaInputRef.current?.click()}
+              title={canAddMore ? 'Add photos or videos' : 'Maximum 4 media items'}
             />
           </div>
 
