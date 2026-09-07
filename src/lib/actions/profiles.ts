@@ -128,7 +128,7 @@ export async function changeUsernameAction(newUsername: string) {
 // Supabase updateUser works for the currently authenticated session —
 // no need to re-supply the old password (user is already logged in).
 
-export async function changePasswordAction(newPassword: string, confirmPassword: string) {
+export async function changePasswordAction(oldPassword: string, newPassword: string, confirmPassword: string) {
   if (newPassword !== confirmPassword) return { error: 'Passwords do not match.' }
 
   const passwordSchema = z.string()
@@ -142,6 +142,16 @@ export async function changePasswordAction(newPassword: string, confirmPassword:
 
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
+
+  // Verify old password by re-authenticating with the user's email
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user?.email) return { error: 'Not authenticated' }
+
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: oldPassword,
+  })
+  if (signInError) return { error: 'Current password is incorrect.' }
 
   const { error } = await supabase.auth.updateUser({ password: parsed.data })
   if (error) return { error: error.message }

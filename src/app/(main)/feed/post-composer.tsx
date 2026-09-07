@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useTransition, useCallback } from 'react'
-import { ImageIcon, X, Loader2 } from 'lucide-react'
+import { useState, useRef, useTransition, useCallback, useImperativeHandle, forwardRef, useEffect } from 'react'
+import { ImageIcon, X, Loader2, Globe, BarChart2, Clock, MapPin } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 
 const MAX_CHARS = 500
@@ -25,9 +25,23 @@ interface MediaItem {
 interface PostComposerProps {
   onPosted?: (post: unknown) => void
   authorName?: string
+  authorAvatarUrl?: string | null
+  // 'fullscreen' hides this component's own footer Post button/char-ring —
+  // used on mobile, where the header (owned by the parent) renders Post
+  // instead, matching X's layout. 'modal' (default) keeps everything here,
+  // used for the desktop centered dialog.
+  variant?: 'modal' | 'fullscreen'
+  onStateChange?: (state: { canPost: boolean; isPending: boolean; hasUploading: boolean }) => void
 }
 
-export default function PostComposer({ onPosted, authorName = 'P' }: PostComposerProps) {
+export interface PostComposerHandle {
+  submit: () => void
+}
+
+const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function PostComposer(
+  { onPosted, authorName = 'P', authorAvatarUrl, variant = 'modal', onStateChange },
+  ref
+) {
   const [body, setBody] = useState('')
   const [media, setMedia] = useState<MediaItem[]>([])
   const [isPending, startTransition] = useTransition()
@@ -41,6 +55,14 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
   const hasUploading = media.some(m => m.uploading)
   const canPost = (body.trim().length > 0 || media.filter(m => !m.uploading && !m.error).length > 0)
     && !isOverLimit && !isPending && !hasUploading
+
+  useEffect(() => {
+    onStateChange?.({ canPost, isPending, hasUploading })
+  }, [canPost, isPending, hasUploading, onStateChange])
+
+  useImperativeHandle(ref, () => ({
+    submit: () => handlePost(),
+  }))
 
   function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setBody(e.target.value)
@@ -105,6 +127,7 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
     const validMedia = media.filter(m => !m.error)
     const slots = MAX_MEDIA - validMedia.length
     if (slots <= 0) return
+
     Array.from(files).slice(0, slots).forEach(file => {
       const type: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image'
       uploadFile(file, type)
@@ -143,12 +166,13 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
       setMedia([])
       setError('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      if (onPosted && 'postId' in result) onPosted({ id: result.postId })
+      if (onPosted && 'postId' in result) onPosted('post' in result && result.post ? result.post : { id: result.postId })
     })
   }
 
   const activeMedia = media.filter(m => !m.error)
   const canAddMore = activeMedia.length < MAX_MEDIA
+
   const radius = 10
   const circumference = 2 * Math.PI * radius
   const strokeOffset = circumference - Math.min(body.length / MAX_CHARS, 1) * circumference
@@ -162,11 +186,15 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
       {/* Avatar */}
       <div style={{
         width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
-        background: 'linear-gradient(135deg, var(--color-brand-dim), var(--color-brand))',
+        background: authorAvatarUrl ? undefined : 'linear-gradient(135deg, var(--color-brand-dim), var(--color-brand))',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 15, color: 'white',
+        overflow: 'hidden',
       }}>
-        {authorName.slice(0, 2).toUpperCase()}
+        {authorAvatarUrl
+          ? <img src={authorAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : authorName.slice(0, 2).toUpperCase()
+        }
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -287,12 +315,18 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
           </div>
         )}
 
+        {/* Audience — display-only for now, reply-permission settings aren't built yet */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 13, color: 'var(--color-brand)', fontWeight: 600 }}>
+          <Globe size={14} />
+          Everyone can reply
+        </div>
+
         <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
 
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: 2 }}>
-            {/* Combined photo + video upload */}
+            {/* Media upload — one button, accepts photos and videos together */}
             <input
               ref={mediaInputRef}
               type="file"
@@ -306,13 +340,62 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
               label="Add photo or video"
               disabled={!canAddMore}
               onClick={() => mediaInputRef.current?.click()}
-              title={canAddMore ? 'Add photos or videos' : 'Maximum 4 media items'}
+              title={canAddMore ? 'Add photos or videos' : 'Max 4 media'}
             />
+            <ToolbarBtn icon={<span style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid currentColor', borderRadius: 4, padding: '1px 3px', lineHeight: 1 }}>GIF</span>} label="Add GIF" disabled title="Coming soon" onClick={() => {}} />
+            <ToolbarBtn icon={<BarChart2 size={18} />} label="Add poll" disabled title="Coming soon" onClick={() => {}} />
+            <ToolbarBtn icon={<Clock size={18} />} label="Schedule post" disabled title="Coming soon" onClick={() => {}} />
+            <ToolbarBtn icon={<MapPin size={18} />} label="Add location" disabled title="Coming soon" onClick={() => {}} />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Char counter */}
-            {body.length > 0 && (
+          {variant === 'modal' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* Char counter */}
+              {body.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <svg width={26} height={26} style={{ transform: 'rotate(-90deg)' }}>
+                    <circle cx={13} cy={13} r={radius} fill="none" stroke="var(--color-border)" strokeWidth={2.5} />
+                    <circle cx={13} cy={13} r={radius} fill="none"
+                      stroke={isOverLimit ? 'var(--color-error)' : isWarning ? 'var(--color-gold)' : 'var(--color-brand)'}
+                      strokeWidth={2.5}
+                      strokeDasharray={circumference}
+                      strokeDashoffset={strokeOffset}
+                      strokeLinecap="round"
+                      style={{ transition: 'stroke-dashoffset 0.1s, stroke 0.2s' }}
+                    />
+                  </svg>
+                  {isWarning && (
+                    <span style={{ fontSize: 12, color: isOverLimit ? 'var(--color-error)' : 'var(--color-gold)', fontWeight: 700 }}>
+                      {charsLeft}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div style={{ width: 1, height: 20, background: 'var(--color-border)' }} />
+
+              {/* Post button */}
+              <button
+                onClick={handlePost}
+                disabled={!canPost}
+                style={{
+                  background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)',
+                  color: canPost ? 'white' : 'var(--color-text-muted)',
+                  border: 'none', borderRadius: 20, padding: '8px 20px',
+                  fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
+                  cursor: canPost ? 'pointer' : 'not-allowed',
+                  transition: 'background 0.15s, color 0.15s',
+                  minHeight: 36,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
+                {isPending ? 'Posting…' : hasUploading ? 'Uploading…' : 'Post'}
+              </button>
+            </div>
+          ) : (
+            // fullscreen — header owns the Post button; just show the char ring here when it matters
+            body.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <svg width={26} height={26} style={{ transform: 'rotate(-90deg)' }}>
                   <circle cx={13} cy={13} r={radius} fill="none" stroke="var(--color-border)" strokeWidth={2.5} />
@@ -331,34 +414,15 @@ export default function PostComposer({ onPosted, authorName = 'P' }: PostCompose
                   </span>
                 )}
               </div>
-            )}
-
-            <div style={{ width: 1, height: 20, background: 'var(--color-border)' }} />
-
-            {/* Post button */}
-            <button
-              onClick={handlePost}
-              disabled={!canPost}
-              style={{
-                background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)',
-                color: canPost ? 'white' : 'var(--color-text-muted)',
-                border: 'none', borderRadius: 20, padding: '8px 20px',
-                fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
-                cursor: canPost ? 'pointer' : 'not-allowed',
-                transition: 'background 0.15s, color 0.15s',
-                minHeight: 36,
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}
-            >
-              {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
-              {isPending ? 'Posting…' : hasUploading ? 'Uploading…' : 'Post'}
-            </button>
-          </div>
+            )
+          )}
         </div>
       </div>
     </div>
   )
-}
+})
+
+export default PostComposer
 
 function ToolbarBtn({ icon, label, disabled, onClick, title }: {
   icon: React.ReactNode

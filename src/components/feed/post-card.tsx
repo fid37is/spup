@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   MessageCircle, Repeat2, ThumbsUp,
   Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag, BarChart2, Pin, PinOff, Megaphone,
+  Play, Volume2, VolumeX,
 } from 'lucide-react'
 import PromoteModal from './promote-modal'
 import {
@@ -68,9 +69,48 @@ function Avatar({
 }
 
 // ── MediaRow ──────────────────────────────────────────────────────────────────
-function TrackedVideo({ src, postId }: { src: string; postId: string }) {
+function getAutoplayPreference(): boolean {
+  if (typeof window === 'undefined') return true
+  const stored = window.localStorage.getItem('spup-autoplay-videos')
+  return stored === null ? true : stored === 'true'
+}
+
+function TrackedVideo({ src, postId, width, height }: { src: string; postId: string; width?: number | null; height?: number | null }) {
   const viewFired = useRef(false)
   const completionFired = useRef(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [muted, setMuted] = useState(true)
+  const [playing, setPlaying] = useState(false)
+  const autoplayEnabled = useRef(getAutoplayPreference())
+
+  useEffect(() => {
+    if (!autoplayEnabled.current) return
+    const video = videoRef.current
+    const container = containerRef.current
+    if (!video || !container) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          video.play().catch(() => {})
+        } else {
+          video.pause()
+        }
+      },
+      { threshold: [0, 0.5, 1] }
+    )
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
+
+  function togglePlay(e: React.MouseEvent) {
+    e.stopPropagation()
+    const video = videoRef.current
+    if (!video) return
+    if (video.paused) video.play().catch(() => {})
+    else video.pause()
+  }
 
   function handleTimeUpdate(e: React.SyntheticEvent<HTMLVideoElement>) {
     const v = e.currentTarget
@@ -85,11 +125,49 @@ function TrackedVideo({ src, postId }: { src: string; postId: string }) {
   }
 
   return (
-    <video
-      src={src} controls playsInline
-      onTimeUpdate={handleTimeUpdate}
-      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-    />
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <video
+        ref={videoRef}
+        src={src} playsInline loop muted={muted}
+        onTimeUpdate={handleTimeUpdate}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        style={{
+          width: '100%', height: '100%',
+          objectFit: width && height ? 'contain' : 'cover',
+          background: '#000',
+        }}
+      />
+
+      {/* Manual play/pause — needed when autoplay is off, or to resume after scroll-pause */}
+      {!playing && (
+        <button
+          onClick={togglePlay}
+          aria-label="Play"
+          style={{
+            position: 'absolute', inset: 0, margin: 'auto', width: 52, height: 52,
+            borderRadius: '50%', background: 'rgba(0,0,0,0.55)', border: 'none',
+            color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <Play size={22} fill="white" />
+        </button>
+      )}
+
+      <button
+        onClick={e => { e.stopPropagation(); setMuted(m => !m) }}
+        aria-label={muted ? 'Unmute' : 'Mute'}
+        style={{
+          position: 'absolute', bottom: 10, right: 10,
+          width: 32, height: 32, borderRadius: '50%',
+          background: 'rgba(0,0,0,0.6)', border: 'none', color: 'white',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}
+      >
+        {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+      </button>
+    </div>
   )
 }
 
@@ -121,7 +199,7 @@ function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: s
         >
           {m.media_type === 'image'
             ? <img src={m.url} alt="" style={{ width: '100%', maxHeight: 520, objectFit: 'contain' }} />
-            : <div style={{ width: '100%', aspectRatio: '16/9' }}><TrackedVideo src={m.url} postId={postId} /></div>
+            : <div style={{ width: '100%', aspectRatio: m.width && m.height ? `${m.width}/${m.height}` : '16/9' }}><TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} /></div>
           }
         </div>
         {viewerIdx !== null && (
@@ -488,6 +566,48 @@ export function PostActions({
 }
 
 // ── RepostCard ────────────────────────────────────────────────────────────────
+function TruncatedBody({ text, limit = 240 }: { text: string; limit?: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const needsTruncation = text.length > limit
+
+  if (!needsTruncation || expanded) {
+    return (
+      <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+        {text}
+        {needsTruncation && (
+          <>
+            {' '}
+            <span
+              onClick={e => { e.stopPropagation(); setExpanded(false) }}
+              style={{ color: 'var(--color-brand)', cursor: 'pointer', fontWeight: 600 }}
+            >
+              Show less
+            </span>
+          </>
+        )}
+      </p>
+    )
+  }
+
+  // Truncate at the last space before the limit so we don't cut mid-word
+  const cut = text.slice(0, limit)
+  const lastSpace = cut.lastIndexOf(' ')
+  const truncated = lastSpace > 0 ? cut.slice(0, lastSpace) : cut
+
+  return (
+    <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+      {truncated}
+      {'... '}
+      <span
+        onClick={e => { e.stopPropagation(); setExpanded(true) }}
+        style={{ color: 'var(--color-brand)', cursor: 'pointer', fontWeight: 600 }}
+      >
+        Read more
+      </span>
+    </p>
+  )
+}
+
 function RepostCard({ post, currentUserId, onReplyClick, onAnalyticsClick }: { post: FeedPost; currentUserId?: string; onReplyClick?: () => void; onAnalyticsClick?: () => void }) {
   const router = useRouter()
   const original = post.quoted_post
@@ -785,9 +905,9 @@ export default function PostCard({
 
           {/* Body */}
           {post.body?.trim() && (
-            <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, marginBottom: (post.media?.length || post.quoted_post) ? 12 : 10, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-              {post.body}
-            </p>
+            <div style={{ marginBottom: (post.media?.length || post.quoted_post) ? 12 : 10 }}>
+              <TruncatedBody text={post.body} />
+            </div>
           )}
 
           {/* Quoted post embed */}

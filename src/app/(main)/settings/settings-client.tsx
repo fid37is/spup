@@ -3,14 +3,14 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle,
-  X, Check, Eye, EyeOff, Loader, Moon, Sun,
+  ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle, Lock,
+  X, Check, Eye, EyeOff, Loader, Moon, Sun, Play,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
-import { updateProfileAction, deleteAccountAction } from '@/lib/actions/profiles'
+import { updateProfileAction, deleteAccountAction, changePasswordAction } from '@/lib/actions/profiles'
 import { useTheme } from '@/components/layout/theme-provider'
 
-type Panel = null | 'language' | 'theme'
+type Panel = null | 'language' | 'theme' | 'password' | 'autoplay'
 
 interface SettingsProfile {
   id: string
@@ -18,6 +18,7 @@ interface SettingsProfile {
   language_preference?: string
   notif_push?: boolean
   notif_email?: boolean
+  autoplay_preference?: string
 }
 
 const LANGS = [
@@ -139,6 +140,17 @@ function InlinePanel({ children }: { children: React.ReactNode }) {
   )
 }
 
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      fontSize: 11, fontWeight: 700, letterSpacing: '0.07em',
+      textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: 8,
+    }}>
+      {children}
+    </div>
+  )
+}
+
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
@@ -161,11 +173,21 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   const [notifPush,  setNotifPush]  = useState(profile.notif_push  ?? true)
   const [notifEmail, setNotifEmail] = useState(profile.notif_email ?? true)
   const [lang,       setLang]       = useState(profile.language_preference || 'en')
+  const [autoplay,   setAutoplay]   = useState(profile.autoplay_preference || 'wifi')
   const [showDelete,  setShowDelete]  = useState(false)
   const [deleteInput, setDeleteInput] = useState('')
   const [deleting,    setDeleting]    = useState(false)
 
   const { theme, setTheme } = useTheme()
+
+  // Password state
+  const [oldPass,  setOldPass]  = useState('')
+  const [newPass,  setNewPass]  = useState('')
+  const [confPass, setConfPass] = useState('')
+  const [showOld,  setShowOld]  = useState(false)
+  const [showNew,  setShowNew]  = useState(false)
+  const [showConf, setShowConf] = useState(false)
+  const [passErr,  setPassErr]  = useState('')
 
   function showFlash(text: string, ok = true) {
     setFlash({ text, ok })
@@ -191,11 +213,47 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     })
   }
 
+  async function handlePasswordChange() {
+    setPassErr('')
+    const r = await changePasswordAction(oldPass, newPass, confPass)
+    if ('error' in r && r.error) { setPassErr(r.error); showFlash(r.error, false); return }
+    showFlash('Password changed successfully')
+    setOldPass(''); setNewPass(''); setConfPass(''); setPanel(null)
+  }
+
+  const passScore = [
+    newPass.length >= 8,
+    /[A-Z]/.test(newPass),
+    /[0-9]/.test(newPass),
+    /[^A-Za-z0-9]/.test(newPass),
+  ].filter(Boolean).length
+  const passColor = ['var(--color-error)', 'var(--color-error)', '#F59E0B', 'var(--color-brand)'][passScore - 1] || 'var(--color-border)'
+  const passLabel = ['Weak', 'Fair', 'Good', 'Strong'][passScore - 1] || ''
+
+  const INP: React.CSSProperties = {
+    width: '100%', background: 'var(--input-bg)',
+    border: '1px solid var(--color-border)', borderRadius: 10,
+    padding: '10px 13px', color: 'var(--color-text-primary)',
+    fontSize: 15, outline: 'none', paddingRight: 44,
+    fontFamily: "'DM Sans', sans-serif",
+    WebkitAppearance: 'none', appearance: 'none', boxSizing: 'border-box',
+  }
+
   function handleLang(code: string, label: string) {
     setLang(code)
     startT(async () => {
       await updateProfileAction({ language_preference: code as any })
       showFlash(`Language set to ${label}`)
+      setPanel(null)
+    })
+  }
+
+  function handleAutoplay(value: string, label: string) {
+    setAutoplay(value)
+    if (typeof window !== 'undefined') localStorage.setItem('spup_autoplay', value)
+    startT(async () => {
+      await updateProfileAction({ autoplay_preference: value } as any)
+      showFlash(`Autoplay set to ${label}`)
       setPanel(null)
     })
   }
@@ -207,6 +265,12 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     if (r.error) { showFlash(r.error, false); setDeleting(false); return }
     window.location.replace('/')
   }
+
+  const AUTOPLAY_OPTIONS = [
+    { value: 'always', label: 'Always',        desc: 'Wi-Fi and mobile data' },
+    { value: 'wifi',   label: 'Wi-Fi only',    desc: 'Pause on mobile data'  },
+    { value: 'never',  label: 'Off',           desc: 'Never autoplay videos' },
+  ]
 
   const THEME_OPTIONS: { key: 'dark' | 'light'; label: string; Icon: any }[] = [
     { key: 'dark',  label: 'Dark',  Icon: Moon },
@@ -329,6 +393,149 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                 {lang === l.code && <Check size={15} color="var(--color-brand)" />}
               </button>
             ))}
+          </InlinePanel>
+        )}
+      </Card>
+
+      {/* ── VIDEO ───────────────────────────────────────────────────────── */}
+      <SectionLabel label="Video" />
+      <Card>
+        <Row
+          icon={Play}
+          label="Autoplay videos"
+          desc={AUTOPLAY_OPTIONS.find(o => o.value === autoplay)?.label || 'Wi-Fi only'}
+          onClick={() => togglePanel('autoplay')}
+          last={panel !== 'autoplay'}
+        />
+        {panel === 'autoplay' && (
+          <InlinePanel>
+            {AUTOPLAY_OPTIONS.map((opt, i) => (
+              <button
+                key={opt.value}
+                onClick={() => handleAutoplay(opt.value, opt.label)}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  width: '100%', padding: '13px 0', background: 'none', border: 'none',
+                  borderBottom: i < AUTOPLAY_OPTIONS.length - 1 ? '1px solid var(--color-border)' : 'none',
+                  cursor: 'pointer',
+                  color: autoplay === opt.value ? 'var(--color-brand)' : 'var(--color-text-primary)',
+                  fontSize: 15, fontFamily: "'DM Sans', sans-serif",
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                  <span>{opt.label}</span>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{opt.desc}</span>
+                </span>
+                {autoplay === opt.value && <Check size={15} color="var(--color-brand)" />}
+              </button>
+            ))}
+          </InlinePanel>
+        )}
+      </Card>
+
+      {/* ── SECURITY ─────────────────────────────────────────────────────── */}
+      <SectionLabel label="Security" />
+      <Card>
+        <Row
+          icon={Lock}
+          label="Change password"
+          desc="Update your account password"
+          onClick={() => togglePanel('password')}
+          last={panel !== 'password'}
+        />
+        {panel === 'password' && (
+          <InlinePanel>
+            <FieldLabel>Current password</FieldLabel>
+            <div style={{ position: 'relative', marginBottom: 14 }}>
+              <input
+                value={oldPass}
+                onChange={e => setOldPass(e.target.value)}
+                type={showOld ? 'text' : 'password'}
+                placeholder="Your current password"
+                autoComplete="current-password"
+                style={INP}
+              />
+              <button onClick={() => setShowOld(v => !v)} style={{
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
+              }}>
+                {showOld ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+
+            <FieldLabel>New password</FieldLabel>
+            <div style={{ position: 'relative', marginBottom: 14 }}>
+              <input
+                value={newPass}
+                onChange={e => setNewPass(e.target.value)}
+                type={showNew ? 'text' : 'password'}
+                placeholder="Min 8 chars, 1 uppercase, 1 number"
+                autoComplete="new-password"
+                style={INP}
+              />
+              <button onClick={() => setShowNew(v => !v)} style={{
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
+              }}>
+                {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+
+            {newPass.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 5 }}>
+                  {[0, 1, 2, 3].map(i => (
+                    <div key={i} style={{
+                      flex: 1, height: 3, borderRadius: 2,
+                      background: i < passScore ? passColor : 'var(--color-border)',
+                      transition: 'background 0.2s',
+                    }} />
+                  ))}
+                </div>
+                {passLabel && <span style={{ fontSize: 12, color: passColor }}>{passLabel}</span>}
+              </div>
+            )}
+
+            <FieldLabel>Confirm new password</FieldLabel>
+            <div style={{ position: 'relative', marginBottom: 16 }}>
+              <input
+                value={confPass}
+                onChange={e => setConfPass(e.target.value)}
+                type={showConf ? 'text' : 'password'}
+                placeholder="Repeat new password"
+                autoComplete="new-password"
+                style={INP}
+              />
+              <button onClick={() => setShowConf(v => !v)} style={{
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
+              }}>
+                {showConf ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+
+            {passErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 12 }}>{passErr}</p>}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button
+                onClick={() => { setPanel(null); setOldPass(''); setNewPass(''); setConfPass(''); setPassErr('') }}
+                style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 14, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePasswordChange}
+                disabled={!oldPass || newPass.length < 8 || confPass.length < 8}
+                style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 14, fontWeight: 700, cursor: !oldPass || newPass.length < 8 || confPass.length < 8 ? 'not-allowed' : 'pointer', opacity: !oldPass || newPass.length < 8 || confPass.length < 8 ? 0.5 : 1, fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
+                {isPending ? 'Saving…' : 'Update'}
+              </button>
+            </div>
           </InlinePanel>
         )}
       </Card>

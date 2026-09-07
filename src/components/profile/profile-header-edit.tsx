@@ -3,11 +3,10 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader, Check, X, Shield, Phone, Lock, Eye, EyeOff } from 'lucide-react'
+import { Loader, Check, X, Shield, Phone } from 'lucide-react'
 import {
   updateProfileAction,
   changeUsernameAction,
-  changePasswordAction,
 } from '@/lib/actions/profiles'
 
 interface EditProps {
@@ -72,25 +71,11 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
   const [saveError, setSaveError] = useState('')
 
   // Account sub-panels
-  type AccPanel = null | 'username' | 'password'
+  type AccPanel = null | 'username'
   const [accPanel,    setAccPanel]    = useState<AccPanel>(null)
   const [username,    setUsername]    = useState(profile.username)
   const [usernameErr, setUsernameErr] = useState('')
   const [accFlash,    setAccFlash]    = useState('')
-
-  // Password
-  const [newPass,   setNewPass]   = useState('')
-  const [confPass,  setConfPass]  = useState('')
-  const [showNew,   setShowNew]   = useState(false)
-  const [showConf,  setShowConf]  = useState(false)
-  const [passErr,   setPassErr]   = useState('')
-
-  const passScore = [
-    newPass.length >= 8, /[A-Z]/.test(newPass),
-    /[0-9]/.test(newPass), /[^A-Za-z0-9]/.test(newPass),
-  ].filter(Boolean).length
-  const passColor = ['var(--color-error)', 'var(--color-error)', '#F59E0B', 'var(--color-brand)'][passScore - 1] || 'var(--color-border)'
-  const passLabel = ['Weak', 'Fair', 'Good', 'Strong'][passScore - 1] || ''
 
   function flash(msg: string) { setAccFlash(msg); setTimeout(() => setAccFlash(''), 3000) }
 
@@ -121,16 +106,6 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
       flash('Username updated')
       setAccPanel(null)
       router.refresh()
-    })
-  }
-
-  function handlePasswordChange() {
-    setPassErr('')
-    startT(async () => {
-      const r = await changePasswordAction(newPass, confPass)
-      if (r.error) { setPassErr(r.error); return }
-      flash('Password changed')
-      setNewPass(''); setConfPass(''); setAccPanel(null)
     })
   }
 
@@ -328,57 +303,6 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
           <span style={{ fontSize: 16, color: 'var(--color-text-muted)' }}>›</span>
         </div>
 
-        {/* Password */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Lock size={15} color="var(--color-text-muted)" />
-              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Password</p>
-            </div>
-            <button onClick={() => setAccPanel(p => p === 'password' ? null : 'password')}
-              style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 16, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
-              {accPanel === 'password' ? 'Cancel' : 'Change'}
-            </button>
-          </div>
-          {accPanel === 'password' && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ position: 'relative', marginBottom: 10 }}>
-                <input value={newPass} onChange={e => setNewPass(e.target.value)}
-                  type={showNew ? 'text' : 'password'} placeholder="New password"
-                  autoComplete="new-password" style={{ ...INP, paddingRight: 40 }} />
-                <button onClick={() => setShowNew(v => !v)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4, display: 'flex' }}>
-                  {showNew ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-              {newPass.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
-                    {[0, 1, 2, 3].map(i => (
-                      <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i < passScore ? passColor : 'var(--color-border)', transition: 'background 0.2s' }} />
-                    ))}
-                  </div>
-                  {passLabel && <span style={{ fontSize: 11, color: passColor }}>{passLabel}</span>}
-                </div>
-              )}
-              <div style={{ position: 'relative', marginBottom: 10 }}>
-                <input value={confPass} onChange={e => setConfPass(e.target.value)}
-                  type={showConf ? 'text' : 'password'} placeholder="Confirm new password"
-                  autoComplete="new-password" style={{ ...INP, paddingRight: 40 }} />
-                <button onClick={() => setShowConf(v => !v)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4, display: 'flex' }}>
-                  {showConf ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-              {passErr && <p style={{ fontSize: 12, color: 'var(--color-error)', marginBottom: 8 }}>{passErr}</p>}
-              <button onClick={handlePasswordChange}
-                disabled={isPending || newPass.length < 8 || confPass.length < 8}
-                className="para-btn-primary"
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                {isPending && <Loader size={12} style={{ animation: 'spin .7s linear infinite' }} />}
-                Change password
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Save / Cancel buttons */}
