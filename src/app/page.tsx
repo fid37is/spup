@@ -180,7 +180,7 @@ export default async function LandingPage() {
               boxShadow: '0 0 8px var(--color-brand)',
             }} />
             <span style={{ fontSize: 12, color: 'var(--color-brand)', fontWeight: 600, letterSpacing: '0.07em' }}>
-              NOW IN BETA — JOIN FREE
+              NOW IN BETA - JOIN FREE
             </span>
           </div>
 

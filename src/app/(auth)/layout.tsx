@@ -27,8 +27,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             src="/logo.png"
             alt="Spup"
             style={{
-              width: 40, height: 40, borderRadius: 7,
-              filter: 'invert(1) hue-rotate(100deg) brightness(1.15) saturate(1.2)',
+              width: 34, height: 34, borderRadius: 7,
             }}
           />
           <span style={{

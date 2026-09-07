@@ -91,7 +91,7 @@ export default function LandingNav() {
             <img
               src="/logo.png"
               alt="Spup"
-              style={{ width: 54, height: 54, borderRadius: 8, display: 'block', filter: 'brightness(0) invert(1) sepia(1) saturate(3) hue-rotate(95deg)', }}
+              style={{ width: 34, height: 34, borderRadius: 8, display: 'block' }}
             />
       
             <span className="landing-nav-logo-text">Spup</span>
