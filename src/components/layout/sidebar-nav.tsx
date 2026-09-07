@@ -75,10 +75,6 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
                 width: 'auto',
                 display: 'block',
                 flexShrink: 0,
-                filter: theme === 'dark'
-                  ? 'invert(1) hue-rotate(100deg) brightness(1.15) saturate(1.2)'
-                  : 'invert(0.85) hue-rotate(80deg) brightness(0.55) contrast(1.5)',
-                transition: 'filter 0.2s ease',
               }}
             />
           </Link>

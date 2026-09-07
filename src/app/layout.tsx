@@ -48,7 +48,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'Spup',
-    title: 'Spup — Speak Up. Be Heard.',
+    title: 'Spup - Speak Up. Be Heard.',
     description: 'Nigeria\'s social platform where creators earn 70% of ad revenue. Join the conversation.',
     url: BASE_URL,
     locale: 'en_NG',
@@ -57,7 +57,7 @@ export const metadata: Metadata = {
         url: '/og/default.png',
         width: 1200,
         height: 630,
-        alt: 'Spup — Nigeria\'s social platform',
+        alt: 'Spup - Nigeria\'s social platform',
         type: 'image/png',
       },
     ],
@@ -66,7 +66,7 @@ export const metadata: Metadata = {
   // ── Twitter / X ─────────────────────────────────────────────────────────
   twitter: {
     card: 'summary_large_image',
-    title: 'Spup — Speak Up. Be Heard.',
+    title: 'Spup - Speak Up. Be Heard.',
     description: 'Nigeria\'s social platform where creators earn 70% of ad revenue.',
     images: ['/og/default.png'],
   },

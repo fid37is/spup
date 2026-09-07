@@ -246,7 +246,7 @@ export default function MobileHeader({ profile, unreadCount, title }: MobileHead
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
           <Link href="/feed" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
             <img
-              src={theme === 'dark' ? '/logo.png' : '/logo-light.png'}
+              src='/logo.png'
               alt="Spup"
               style={{ height: 28, width: 'auto' }}
             />
