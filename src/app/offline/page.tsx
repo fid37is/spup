@@ -89,7 +89,7 @@ export default function OfflinePage() {
           size={16}
           style={{ animation: checking ? 'spin 0.8s linear infinite' : 'none' }}
         />
-        {checking ? 'Checking…' : 'Try again'}
+        {checking ? 'Checking…' : 'Retry'}
       </button>
 
       <p style={{ marginTop: 20, fontSize: 13, color: '#3A3A3A' }}>
