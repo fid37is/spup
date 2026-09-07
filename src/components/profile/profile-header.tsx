@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Settings, Camera, Loader } from 'lucide-react'
 import { updateAvatarAction, updateBannerAction } from '@/lib/actions/profiles'
@@ -48,6 +49,7 @@ export default function ProfileHeader({
   const [cropTarget, setCropTarget] = useState<UploadTarget | null>(null)
   const [uploadErr,  setUploadErr]  = useState('')
   const [showAvatarLightbox, setShowAvatarLightbox] = useState(false)
+  const router = useRouter()
 
   const avatarRef = useRef<HTMLInputElement>(null)
   const bannerRef = useRef<HTMLInputElement>(null)
@@ -284,7 +286,7 @@ export default function ProfileHeader({
           <ProfileHeaderEdit
             profile={profile}
             onCancel={() => setEditing(false)}
-            onSaved={() => setEditing(false)}
+            onSaved={() => { setEditing(false); router.refresh() }}
           />
         )}
       </div>

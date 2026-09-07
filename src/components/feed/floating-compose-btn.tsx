@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Pencil, X, Loader2 } from 'lucide-react'
 import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-composer'
 
@@ -19,6 +20,27 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
   const lastScrollY = useRef(0)
   const ticking = useRef(false)
   const composerRef = useRef<PostComposerHandle>(null)
+  const [sheetHeight, setSheetHeight] = useState<number | null>(null)
+
+  // Track the *visual* viewport, not the layout viewport. `position: fixed`
+  // sized via inset:0 stays pinned to the full layout viewport on most mobile
+  // browsers even when the on-screen keyboard opens — it doesn't shrink, so a
+  // bottom-pinned toolbar ends up hidden behind the keyboard instead of
+  // sitting above it. Listening to visualViewport and applying an explicit
+  // height keeps the sheet (and everything pinned to its bottom) tracking
+  // what's actually visible above the keyboard.
+  useEffect(() => {
+    if (!open || !isMobile) return
+    const vv = window.visualViewport
+    if (!vv) return
+
+    function updateHeight() {
+      setSheetHeight(vv!.height)
+    }
+    updateHeight()
+    vv.addEventListener('resize', updateHeight)
+    return () => vv.removeEventListener('resize', updateHeight)
+  }, [open, isMobile])
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
@@ -88,20 +110,27 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
       </button>
 
       {open && (
-        isMobile ? (
-          /* ── Mobile: full-screen sheet ────────────────────────────────── */
+        isMobile ? createPortal(
+          /* ── Mobile: full-screen sheet, portaled to <body> ──────────────
+             .main-layout and .mobile-nav are BOTH direct children of body
+             (ToastProvider/AppThemeProvider render no wrapping DOM node),
+             and `body > * { z-index: 1 }` in globals.css pins them to the
+             same stacking context tier. Since .mobile-nav comes later in
+             DOM order, it always painted over anything nested inside
+             .main-layout, regardless of internal z-index. Portaling here
+             makes this sheet a sibling of both, so its own z-index actually
+             applies. */
           <div style={{
-            position: 'fixed', inset: 0, zIndex: 200,
+            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 300,
+            height: sheetHeight ? `${sheetHeight}px` : '100dvh',
             background: 'var(--color-bg)',
             display: 'flex', flexDirection: 'column',
             animation: 'fadeIn 0.15s ease',
           }}>
-            {/* Minimal top header — just close. Post lives at the bottom, not
-                cramped against the status bar / notch. */}
             <div style={{
-              display: 'flex', alignItems: 'center',
-              padding: '16px 16px 8px',
-              paddingTop: 'calc(20px + env(safe-area-inset-top))',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 16px',
+              paddingTop: 'calc(12px + env(safe-area-inset-top))',
             }}>
               <button
                 onClick={() => setOpen(false)}
@@ -110,9 +139,28 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
               >
                 <X size={22} />
               </button>
+              <button
+                onClick={() => composerRef.current?.submit()}
+                disabled={!canPost}
+                style={{
+                  background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)',
+                  color: canPost ? 'white' : 'var(--color-text-muted)',
+                  border: 'none', borderRadius: 20, padding: '8px 20px',
+                  fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
+                  cursor: canPost ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', gap: 6, minHeight: 36,
+                }}
+              >
+                {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
+                {postLabel}
+              </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 16px' }}>
+            {/* Fills all remaining height — PostComposer pins its audience
+                line + toolbar to the bottom of this space via flex, so the
+                compose area genuinely stretches instead of everything
+                clustering at the top. */}
+            <div style={{ flex: 1, minHeight: 0, padding: '0 16px', display: 'flex', flexDirection: 'column' }}>
               <PostComposer
                 ref={composerRef}
                 variant="fullscreen"
@@ -122,31 +170,8 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
                 onPosted={handlePosted}
               />
             </div>
-
-            {/* Docked Post bar at the bottom */}
-            <div style={{
-              padding: '12px 16px',
-              paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
-              borderTop: '1px solid var(--color-border)',
-              display: 'flex', justifyContent: 'flex-end',
-            }}>
-              <button
-                onClick={() => composerRef.current?.submit()}
-                disabled={!canPost}
-                style={{
-                  background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)',
-                  color: canPost ? 'white' : 'var(--color-text-muted)',
-                  border: 'none', borderRadius: 20, padding: '10px 26px',
-                  fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15,
-                  cursor: canPost ? 'pointer' : 'not-allowed',
-                  display: 'flex', alignItems: 'center', gap: 6, minHeight: 40,
-                }}
-              >
-                {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
-                {postLabel}
-              </button>
-            </div>
-          </div>
+          </div>,
+          document.body
         ) : (
           /* ── Desktop: centered modal ──────────────────────────────────── */
           <>
