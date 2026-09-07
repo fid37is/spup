@@ -16,6 +16,8 @@ interface FeedClientProps {
   initialPosts: FeedPost[]
   initialCursor: string | null
   currentUserId?: string
+  currentUserAvatarUrl?: string | null
+  currentUserDisplayName?: string | null
 }
 
 const TABS: { key: Tab; label: string }[] = [
@@ -36,7 +38,7 @@ const EMPTY: Record<Tab, { icon: React.ReactNode; title: string; body: string }>
   'mutuals':   { icon: <Rss size={32} />,      title: 'No mutuals yet',       body: 'When someone follows you back, their posts appear here.' },
 }
 
-export default function FeedClient({ initialPosts, initialCursor, currentUserId }: FeedClientProps) {
+export default function FeedClient({ initialPosts, initialCursor, currentUserId, currentUserAvatarUrl, currentUserDisplayName }: FeedClientProps) {
   const [activeTab, setActiveTab]       = useState<Tab>('for-you')
   const [posts, setPosts]               = useState<FeedPost[]>(initialPosts)
   const [cursor, setCursor]             = useState<string | null>(initialCursor)
@@ -266,10 +268,14 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId 
         </div>
       )}
 
-      <FloatingComposeBtn onPosted={post => {
-        setPosts(prev => [post as FeedPost, ...prev])
-        feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
-      }} />
+      <FloatingComposeBtn
+        authorAvatarUrl={currentUserAvatarUrl}
+        authorName={currentUserDisplayName || 'You'}
+        onPosted={post => {
+          setPosts(prev => [post as FeedPost, ...prev])
+          feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
+        }}
+      />
 
       <style>{`
         @keyframes spin   { to { transform: rotate(360deg) } }

@@ -9,7 +9,7 @@ export default async function FeedPage() {
   if (!user) redirect('/login')
 
   const { data: viewer } = await supabase
-    .from('users').select('id').eq('auth_id', user.id).maybeSingle()
+    .from('users').select('id, avatar_url, display_name').eq('auth_id', user.id).maybeSingle()
   const currentUserId = viewer?.id ?? undefined
 
   // Race the feed fetch against a 8s timeout so we never hit Next.js's 10s
@@ -34,5 +34,13 @@ export default async function FeedPage() {
     }
   }
 
-  return <FeedClient initialPosts={posts} initialCursor={nextCursor} currentUserId={currentUserId} />
+  return (
+    <FeedClient
+      initialPosts={posts}
+      initialCursor={nextCursor}
+      currentUserId={currentUserId}
+      currentUserAvatarUrl={viewer?.avatar_url ?? null}
+      currentUserDisplayName={viewer?.display_name ?? null}
+    />
+  )
 }

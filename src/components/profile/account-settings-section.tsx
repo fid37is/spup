@@ -11,12 +11,11 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ChevronRight, User, Shield, Phone, Lock,
-  Eye, EyeOff, Loader, Check, X,
+  ChevronRight, User, Shield, Phone,
+  Loader, Check, X,
 } from 'lucide-react'
 import {
   changeUsernameAction,
-  changePasswordAction,
 } from '@/lib/actions/profiles'
 
 interface AccountSettingsSectionProps {
@@ -26,7 +25,7 @@ interface AccountSettingsSectionProps {
   bvn_verified?: boolean
 }
 
-type Panel = null | 'username' | 'password'
+type Panel = null | 'username'
 
 // ── Primitives (self-contained, no external dependency) ───────────────────────
 
@@ -148,13 +147,6 @@ export default function AccountSettingsSection({
   const [username,    setUsername]    = useState(initialUsername)
   const [usernameErr, setUsernameErr] = useState('')
 
-  // Password state
-  const [newPass,  setNewPass]  = useState('')
-  const [confPass, setConfPass] = useState('')
-  const [showNew,  setShowNew]  = useState(false)
-  const [showConf, setShowConf] = useState(false)
-  const [passErr,  setPassErr]  = useState('')
-
   function showFlash(text: string, ok = true) {
     setFlash({ text, ok })
     setTimeout(() => setFlash(null), 3000)
@@ -171,27 +163,6 @@ export default function AccountSettingsSection({
       router.refresh()
     })
   }
-
-  function handlePasswordChange() {
-    setPassErr('')
-    startT(async () => {
-      const r = await changePasswordAction(newPass, confPass)
-      if (r.error) { setPassErr(r.error); return }
-      showFlash('Password changed')
-      setNewPass(''); setConfPass(''); setPanel(null)
-    })
-  }
-
-  // Password strength
-  const passScore = [
-    newPass.length >= 8,
-    /[A-Z]/.test(newPass),
-    /[0-9]/.test(newPass),
-    /[^A-Za-z0-9]/.test(newPass),
-  ].filter(Boolean).length
-
-  const passColor = ['var(--color-error)', 'var(--color-error)', '#F59E0B', 'var(--color-brand)'][passScore - 1] || 'var(--color-border)'
-  const passLabel = ['Weak', 'Fair', 'Good', 'Strong'][passScore - 1] || ''
 
   const INP: React.CSSProperties = {
     width: '100%', background: 'var(--input-bg)',
@@ -256,21 +227,21 @@ export default function AccountSettingsSection({
             {usernameErr && (
               <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 10 }}>{usernameErr}</p>
             )}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={handleUsernameChange}
-                disabled={isPending || username.length < 3 || username === initialUsername}
-                className="para-btn-primary"
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-              >
-                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
-                {isPending ? 'Checking…' : 'Save username'}
-              </button>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
                 onClick={() => { setPanel(null); setUsername(initialUsername); setUsernameErr('') }}
                 className="para-btn-ghost"
               >
                 Cancel
+              </button>
+              <button
+                onClick={handleUsernameChange}
+                disabled={isPending || username.length < 3 || username === initialUsername}
+                className="para-btn-primary"
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
+                {isPending ? 'Checking…' : 'Update'}
               </button>
             </div>
           </InlinePanel>
@@ -288,92 +259,9 @@ export default function AccountSettingsSection({
           desc={bvn_verified ? 'Verified — withdrawals enabled' : 'Required to withdraw earnings'}
           accentDesc={!!bvn_verified}
           onClick={() => router.push('/settings/verify-phone')}
+          last
         />
 
-        {/* Password */}
-        <Row
-          icon={Lock}
-          label="Change password"
-          desc="Update your account password"
-          onClick={() => togglePanel('password')}
-          last={panel !== 'password'}
-        />
-        {panel === 'password' && (
-          <InlinePanel>
-            <FieldLabel>New password</FieldLabel>
-            <div style={{ position: 'relative', marginBottom: 14 }}>
-              <input
-                value={newPass}
-                onChange={e => setNewPass(e.target.value)}
-                type={showNew ? 'text' : 'password'}
-                placeholder="Min 8 chars, 1 uppercase, 1 number"
-                autoComplete="new-password"
-                style={{ ...INP, paddingRight: 44 }}
-              />
-              <button onClick={() => setShowNew(v => !v)} style={{
-                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
-              }}>
-                {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-
-            {newPass.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', gap: 4, marginBottom: 5 }}>
-                  {[0, 1, 2, 3].map(i => (
-                    <div key={i} style={{
-                      flex: 1, height: 3, borderRadius: 2,
-                      background: i < passScore ? passColor : 'var(--color-border)',
-                      transition: 'background 0.2s',
-                    }} />
-                  ))}
-                </div>
-                {passLabel && <span style={{ fontSize: 12, color: passColor }}>{passLabel}</span>}
-              </div>
-            )}
-
-            <FieldLabel>Confirm password</FieldLabel>
-            <div style={{ position: 'relative', marginBottom: 16 }}>
-              <input
-                value={confPass}
-                onChange={e => setConfPass(e.target.value)}
-                type={showConf ? 'text' : 'password'}
-                placeholder="Repeat new password"
-                autoComplete="new-password"
-                style={{ ...INP, paddingRight: 44 }}
-              />
-              <button onClick={() => setShowConf(v => !v)} style={{
-                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--color-text-muted)', padding: 4, display: 'flex',
-              }}>
-                {showConf ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-
-            {passErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 12 }}>{passErr}</p>}
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={handlePasswordChange}
-                disabled={isPending || newPass.length < 8 || confPass.length < 8}
-                className="para-btn-primary"
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-              >
-                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
-                {isPending ? 'Saving…' : 'Change password'}
-              </button>
-              <button
-                onClick={() => { setPanel(null); setNewPass(''); setConfPass(''); setPassErr('') }}
-                className="para-btn-ghost"
-              >
-                Cancel
-              </button>
-            </div>
-          </InlinePanel>
-        )}
       </Card>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
