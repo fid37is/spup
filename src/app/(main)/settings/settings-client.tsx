@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { updateProfileAction, deleteAccountAction, changePasswordAction } from '@/lib/actions/profiles'
+import { createClient } from '@/lib/supabase/client'
 import { useTheme } from '@/components/layout/theme-provider'
 
 type Panel = null | 'language' | 'theme' | 'password' | 'autoplay'
@@ -188,6 +189,8 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   const [showNew,  setShowNew]  = useState(false)
   const [showConf, setShowConf] = useState(false)
   const [passErr,  setPassErr]  = useState('')
+  const [deletePass, setDeletePass] = useState('')
+  const [deletePassErr, setDeletePassErr] = useState('')
 
   function showFlash(text: string, ok = true) {
     setFlash({ text, ok })
@@ -259,8 +262,18 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   }
 
   async function handleDeleteAccount() {
-    if (deleteInput !== 'DELETE') return
+    if (deleteInput !== 'DELETE' || !deletePass) return
+    setDeletePassErr('')
     setDeleting(true)
+
+    // Re-authenticate before deleting
+    const supabase = createClient() as any
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (!authUser?.email) { setDeletePassErr('Session expired. Please log in again.'); setDeleting(false); return }
+
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email: authUser.email, password: deletePass })
+    if (authErr) { setDeletePassErr('Incorrect password.'); setDeleting(false); return }
+
     const r = await deleteAccountAction()
     if (r.error) { showFlash(r.error, false); setDeleting(false); return }
     window.location.replace('/')
@@ -568,7 +581,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
       {showDelete && (
         <>
           <div
-            onClick={() => { setShowDelete(false); setDeleteInput('') }}
+            onClick={() => { setShowDelete(false); setDeleteInput(''); setDeletePass(''); setDeletePassErr('') }}
             style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'var(--overlay-bg)' }}
           />
           <div style={{
@@ -609,6 +622,26 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                 wallet balance. This action cannot be undone.
               </p>
 
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
+                Enter your password to confirm
+              </div>
+              <input
+                type="password"
+                value={deletePass}
+                onChange={e => { setDeletePass(e.target.value); setDeletePassErr('') }}
+                placeholder="Your current password"
+                autoComplete="current-password"
+                style={{
+                  width: '100%', background: 'var(--input-bg)',
+                  border: `1px solid ${deletePassErr ? 'var(--color-error)' : 'var(--color-border)'}`,
+                  borderRadius: 10, padding: '10px 13px',
+                  color: 'var(--color-text-primary)', fontSize: 15,
+                  outline: 'none', fontFamily: "'DM Sans',sans-serif",
+                  boxSizing: 'border-box', marginBottom: 8,
+                }}
+              />
+              {deletePassErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 10 }}>{deletePassErr}</p>}
+
               <div style={{
                 fontSize: 11, fontWeight: 700, letterSpacing: '0.07em',
                 color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 8,
@@ -635,7 +668,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
 
               <div style={{ display: 'flex', gap: 12 }}>
                 <button
-                  onClick={() => { setShowDelete(false); setDeleteInput('') }}
+                  onClick={() => { setShowDelete(false); setDeleteInput(''); setDeletePass(''); setDeletePassErr('') }}
                   className="para-btn-ghost"
                   style={{ flex: 1, padding: '13px 0', fontSize: 15, fontFamily: "'Syne', sans-serif", fontWeight: 600 }}
                 >
@@ -643,13 +676,13 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                 </button>
                 <button
                   onClick={handleDeleteAccount}
-                  disabled={deleteInput !== 'DELETE' || deleting}
+                  disabled={deleteInput !== 'DELETE' || !deletePass || deleting}
                   style={{
                     flex: 1, padding: 13,
                     background: 'var(--color-error)', border: 'none', borderRadius: 10,
                     color: 'white',
-                    cursor: deleteInput !== 'DELETE' || deleting ? 'not-allowed' : 'pointer',
-                    opacity: deleteInput !== 'DELETE' || deleting ? 0.45 : 1,
+                    cursor: deleteInput !== 'DELETE' || !deletePass || deleting ? 'not-allowed' : 'pointer',
+                    opacity: deleteInput !== 'DELETE' || !deletePass || deleting ? 0.45 : 1,
                     fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
                     transition: 'opacity 0.15s',

@@ -6,3 +6,7 @@ export function createBrowserClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 }
+
+export function createClient() {
+  throw new Error('Function not implemented.')
+}

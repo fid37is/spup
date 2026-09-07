@@ -55,6 +55,16 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
   const [error,       setError]       = useState('')
   const [isPending,   startT]         = useTransition()
 
+  const isDirty = displayName !== (profile.display_name || '') ||
+    bio !== (profile.bio || '') ||
+    location !== (profile.location || '') ||
+    website !== (profile.website_url || '')
+
+  function safeClose() {
+    if (isDirty && !confirm('Discard unsaved changes?')) return
+    onClose()
+  }
+
   // Trap scroll behind modal
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -64,13 +74,17 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
 
   // Close on Escape
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') safeClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [isDirty])
 
   function handleSave() {
     if (!displayName.trim()) { setError('Display name is required.'); return }
+    if (website.trim() && !/^https?:\/\//i.test(website.trim())) {
+      setError('Website URL must start with https:// or http://')
+      return
+    }
     setError('')
     startT(async () => {
       const result = await updateProfileAction({
@@ -89,7 +103,7 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
     <>
       {/* Backdrop */}
       <div
-        onClick={onClose}
+        onClick={safeClose}
         style={{
           position: 'fixed', inset: 0, zIndex: 300,
           background: 'var(--overlay-bg)',
@@ -128,7 +142,7 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
             background: 'var(--color-surface)',
           }}>
             <button
-              onClick={onClose}
+              onClick={safeClose}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -194,7 +208,7 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
                 placeholder="Your name"
                 style={INP}
               />
-              <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>
+              <p style={{ fontSize: 12, color: (50 - displayName.length) <= 10 ? 'var(--color-error)' : 'var(--color-text-muted)', marginTop: 4 }}>
                 {50 - displayName.length} characters remaining
               </p>
             </div>
@@ -212,7 +226,7 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
                 placeholder="Tell people about yourself"
                 style={{ ...INP, resize: 'none', lineHeight: 1.5 }}
               />
-              <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>
+              <p style={{ fontSize: 12, color: (160 - bio.length) <= 20 ? 'var(--color-error)' : 'var(--color-text-muted)', marginTop: 4 }}>
                 {160 - bio.length} characters remaining
               </p>
             </div>

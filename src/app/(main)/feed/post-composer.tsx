@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef, useTransition, useCallback, useImperativeHandle, forwardRef, useEffect } from 'react'
-import { ImageIcon, X, Loader2, Globe, BarChart2, Clock, MapPin } from 'lucide-react'
+import { ImageIcon, X, Loader2, Globe, BarChart2, MapPin, Camera, Mic } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
+import { useToast } from '@/components/layout/toast'
 
 const MAX_CHARS = 500
 const MAX_MEDIA = 4
@@ -45,9 +46,11 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const [body, setBody] = useState('')
   const [media, setMedia] = useState<MediaItem[]>([])
   const [isPending, startTransition] = useTransition()
+  const { success: toastSuccess } = useToast()
   const [error, setError] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
 
   const charsLeft = MAX_CHARS - body.length
   const isOverLimit = charsLeft < 0
@@ -166,6 +169,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       setMedia([])
       setError('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
+      toastSuccess('Your post is live')
       if (onPosted && 'postId' in result) onPosted('post' in result && result.post ? result.post : { id: result.postId })
     })
   }
@@ -179,10 +183,15 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
   return (
     <div style={{
-      padding: '14px 16px',
-      borderBottom: '1px solid var(--color-border)',
-      display: 'flex', gap: 12,
+      padding: variant === 'fullscreen' ? '14px 0' : '14px 16px',
+      borderBottom: variant === 'modal' ? '1px solid var(--color-border)' : undefined,
+      display: 'flex',
+      flexDirection: 'column',
+      flex: variant === 'fullscreen' ? 1 : undefined,
+      minHeight: variant === 'fullscreen' ? 0 : undefined,
     }}>
+      {/* Top block: avatar + textarea + media */}
+      <div style={{ display: 'flex', gap: 12 }}>
       {/* Avatar */}
       <div style={{
         width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
@@ -314,7 +323,16 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             <X size={12} /> {error}
           </div>
         )}
+      </div>
+      </div>
 
+      {/* Spacer — pushes audience line + toolbar to the very bottom of the
+          screen in fullscreen mode, so the compose area actually stretches
+          instead of everything bunching up at the top. No-op in modal
+          variant (flex: 1 has nothing to grow within there). */}
+      {variant === 'fullscreen' && <div style={{ flex: 1 }} />}
+
+      <div style={variant === 'fullscreen' ? undefined : { marginLeft: 54 }}>
         {/* Audience — display-only for now, reply-permission settings aren't built yet */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 13, color: 'var(--color-brand)', fontWeight: 600 }}>
           <Globe size={14} />
@@ -342,9 +360,24 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
               onClick={() => mediaInputRef.current?.click()}
               title={canAddMore ? 'Add photos or videos' : 'Max 4 media'}
             />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*,video/*"
+              capture="environment"
+              style={{ display: 'none' }}
+              onChange={e => { handleFiles(e.target.files); e.target.value = '' }}
+            />
+            <ToolbarBtn
+              icon={<Camera size={18} />}
+              label="Take photo or video"
+              disabled={!canAddMore}
+              onClick={() => cameraInputRef.current?.click()}
+              title={canAddMore ? 'Take a photo or video' : 'Max 4 media'}
+            />
+            <ToolbarBtn icon={<Mic size={18} />} label="Voice" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<span style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid currentColor', borderRadius: 4, padding: '1px 3px', lineHeight: 1 }}>GIF</span>} label="Add GIF" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<BarChart2 size={18} />} label="Add poll" disabled title="Coming soon" onClick={() => {}} />
-            <ToolbarBtn icon={<Clock size={18} />} label="Schedule post" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<MapPin size={18} />} label="Add location" disabled title="Coming soon" onClick={() => {}} />
           </div>
 
