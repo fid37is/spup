@@ -1,156 +1,123 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import crypto from 'crypto'
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!
-const PAYSTACK_BASE = 'https://api.paystack.co'
 
-async function paystackRequest(path: string, method: string, body?: object) {
-  const res = await fetch(`${PAYSTACK_BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${PAYSTACK_SECRET}`,
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return res.json()
-}
+// ============================================================
+// This was previously a byte-for-byte duplicate of
+// paystack/initiate/route.ts — i.e. not a webhook handler at all.
+// It required a logged-in user session (which Paystack, calling
+// server-to-server, will never have) and never verified the
+// request actually came from Paystack.
+//
+// Paystack transfers are asynchronous: the /transfer call in
+// initiate/route.ts only means "queued". This is the endpoint that
+// finds out what actually happened, via transfer.success /
+// transfer.failed / transfer.reversed events.
+//
+// Configure this exact URL in the Paystack dashboard under
+// Settings → API Keys & Webhooks.
+// ============================================================
 
 export async function POST(request: NextRequest) {
+  const rawBody = await request.text()
+
+  // Verify the request genuinely came from Paystack before trusting
+  // anything in it — Paystack signs the raw body with your secret key.
+  const signature = request.headers.get('x-paystack-signature')
+  const expectedSignature = crypto
+    .createHmac('sha512', PAYSTACK_SECRET)
+    .update(rawBody)
+    .digest('hex')
+
+  if (!signature || signature !== expectedSignature) {
+    console.error('Paystack webhook: invalid signature')
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+  }
+
+  const event = JSON.parse(rawBody)
+  const admin = createAdminClient()
+
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    switch (event.event) {
+      case 'transfer.success': {
+        const reference = event.data.reference
+        const { data: txn } = await admin
+          .from('transactions')
+          .select('id, status')
+          .eq('reference', reference)
+          .single()
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('id, bvn_verified')
-      .eq('auth_id', user.id)
-      .single()
+        if (!txn) {
+          console.error(`Paystack webhook: no transaction found for reference ${reference}`)
+          break
+        }
+        if (txn.status === 'completed') break // already processed, avoid double-handling
 
-    if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-    if (!profile.bvn_verified) {
-      return NextResponse.json({ error: 'BVN verification required before withdrawal' }, { status: 403 })
-    }
+        await admin
+          .from('transactions')
+          .update({ status: 'completed', completed_at: new Date().toISOString() })
+          .eq('id', txn.id)
 
-    const { data: wallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', profile.id)
-      .single()
-
-    if (!wallet) return NextResponse.json({ error: 'Wallet not found' }, { status: 404 })
-
-    // Minimum withdrawal: ₦1,000 = 100,000 kobo
-    if (wallet.balance_kobo < 100_000) {
-      return NextResponse.json({
-        error: `Minimum withdrawal is ₦1,000. Current balance: ₦${(wallet.balance_kobo / 100).toFixed(2)}`
-      }, { status: 400 })
-    }
-
-    const body = await request.json()
-    const { amount_kobo, bank_code, account_number } = body
-
-    if (!amount_kobo || !bank_code || !account_number) {
-      return NextResponse.json({ error: 'amount_kobo, bank_code, and account_number are required' }, { status: 400 })
-    }
-
-    if (amount_kobo > wallet.balance_kobo) {
-      return NextResponse.json({ error: 'Withdrawal amount exceeds available balance' }, { status: 400 })
-    }
-
-    // Step 1: Create or reuse Paystack transfer recipient
-    let recipientCode = wallet.paystack_recipient_code
-
-    if (!recipientCode) {
-      const recipientRes = await paystackRequest('/transferrecipient', 'POST', {
-        type: 'nuban',
-        name: body.account_name || 'Spup Creator',
-        account_number,
-        bank_code,
-        currency: 'NGN',
-      })
-
-      if (!recipientRes.status) {
-        return NextResponse.json({ error: 'Failed to create transfer recipient' }, { status: 502 })
+        break
       }
 
-      recipientCode = recipientRes.data.recipient_code
+      case 'transfer.failed':
+      case 'transfer.reversed': {
+        const reference = event.data.reference
+        const { data: txn } = await admin
+          .from('transactions')
+          .select('id, status, wallet_id, amount_kobo')
+          .eq('reference', reference)
+          .single()
 
-      // Save for future withdrawals
-      await supabase
-        .from('wallets')
-        .update({
-          paystack_recipient_code: recipientCode,
-          bank_name: recipientRes.data.details?.bank_name,
-          bank_account_number: account_number,
-          bank_account_name: body.account_name,
-        })
-        .eq('id', wallet.id)
+        if (!txn) {
+          console.error(`Paystack webhook: no transaction found for reference ${reference}`)
+          break
+        }
+        if (txn.status === 'failed') break // already processed
+
+        const { data: wallet } = await admin
+          .from('wallets')
+          .select('balance_kobo')
+          .eq('id', txn.wallet_id)
+          .single()
+
+        if (wallet) {
+          // Restore the balance that was deducted optimistically at initiate time.
+          await admin
+            .from('wallets')
+            .update({
+              balance_kobo: wallet.balance_kobo + txn.amount_kobo,
+              // A transfer that failed on Paystack's end isn't the user's
+              // fault — don't make them wait out the 14-day cycle for a
+              // withdrawal that never actually happened.
+              last_payout_at: null,
+            })
+            .eq('id', txn.wallet_id)
+        }
+
+        await admin
+          .from('transactions')
+          .update({ status: 'failed' })
+          .eq('id', txn.id)
+
+        break
+      }
+
+      default:
+        // Other events (e.g. transfer.reversed variants, dedicated account
+        // events) can be added here as needed — ignore anything unhandled.
+        break
     }
 
-    // Step 2: Generate unique reference
-    const reference = `SPUP-WD-${profile.id.slice(0, 8).toUpperCase()}-${Date.now()}`
-
-    // Step 3: Create pending transaction record BEFORE transfer (idempotency)
-    const { data: txn, error: txnError } = await supabase
-      .from('transactions')
-      .insert({
-        wallet_id: wallet.id,
-        type: 'withdrawal',
-        amount_kobo,
-        platform_fee_kobo: 0,
-        status: 'pending',
-        reference,
-        description: `Withdrawal to ${account_number}`,
-        metadata: { bank_code, account_number, recipient_code: recipientCode },
-      })
-      .select('id')
-      .single()
-
-    if (txnError) {
-      return NextResponse.json({ error: 'Failed to create transaction record' }, { status: 500 })
-    }
-
-    // Step 4: Deduct from balance immediately (prevent double-spend)
-    await supabase
-      .from('wallets')
-      .update({ balance_kobo: wallet.balance_kobo - amount_kobo })
-      .eq('id', wallet.id)
-
-    // Step 5: Initiate Paystack transfer
-    const transferRes = await paystackRequest('/transfer', 'POST', {
-      source: 'balance',
-      amount: amount_kobo,   // Paystack also uses kobo
-      recipient: recipientCode,
-      reason: 'Spup creator earnings withdrawal',
-      reference,
-    })
-
-    if (!transferRes.status) {
-      // Rollback: restore balance and mark transaction failed
-      await Promise.all([
-        supabase.from('wallets').update({ balance_kobo: wallet.balance_kobo }).eq('id', wallet.id),
-        supabase.from('transactions').update({ status: 'failed' }).eq('id', txn.id),
-      ])
-      return NextResponse.json({ error: 'Transfer failed. Your balance has been restored.' }, { status: 502 })
-    }
-
-    // Update transaction with Paystack transfer code
-    await supabase
-      .from('transactions')
-      .update({ metadata: { ...transferRes.data, bank_code, account_number } })
-      .eq('id', txn.id)
-
-    return NextResponse.json({
-      success: true,
-      reference,
-      transfer_code: transferRes.data.transfer_code,
-      message: 'Withdrawal initiated. Funds arrive in 3–5 business days.',
-    })
+    return NextResponse.json({ received: true })
 
   } catch (error) {
-    console.error('Withdrawal error:', error)
-    return NextResponse.json({ error: 'Withdrawal failed. Please try again.' }, { status: 500 })
+    console.error('Paystack webhook processing error:', error)
+    // Still return 200 so Paystack doesn't retry-storm on a transient error
+    // after we've already read/verified the event; log for manual follow-up.
+    return NextResponse.json({ received: true, warning: 'processed with errors' })
   }
 }

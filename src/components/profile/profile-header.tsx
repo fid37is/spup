@@ -30,6 +30,7 @@ interface ProfileHeaderProps {
     occupation?: string | null
     email?: string | null
     phone_number?: string | null
+    phone_verified?: boolean
     bvn_verified?: boolean
   }
   stats: { following: string; followers: string; posts: string; mutuals: string }

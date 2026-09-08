@@ -7,6 +7,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 
+const PAYOUT_CYCLE_DAYS = 14
+
 // ─── Wallet balance ───────────────────────────────────────────────────────────
 
 export async function getWallet(userId: string) {
@@ -18,6 +20,21 @@ export async function getWallet(userId: string) {
     .single()
 
   return data
+}
+
+// ─── Next payout eligibility (14-day cycle) ────────────────────────────────────
+
+export async function getNextPayoutDate(userId: string) {
+  const wallet = await getWallet(userId)
+  if (!wallet?.last_payout_at) return { eligible_now: true, next_eligible_at: null }
+
+  const nextEligible = new Date(wallet.last_payout_at)
+  nextEligible.setDate(nextEligible.getDate() + PAYOUT_CYCLE_DAYS)
+
+  return {
+    eligible_now: nextEligible <= new Date(),
+    next_eligible_at: nextEligible.toISOString(),
+  }
 }
 
 // ─── Transaction history (paginated) ─────────────────────────────────────────
@@ -67,12 +84,16 @@ export async function getMonthlyEarnings(walletId: string) {
 }
 
 // ─── Monetisation eligibility check ──────────────────────────────────────────
+//
+// phone_verified and bvn_verified are now separate (see phone-kyc.ts /
+// bvn-kyc.ts) — bvn_verified only becomes true after a real BVN check, not
+// after phone OTP alone.
 
 export async function checkMonetisationEligibility(userId: string) {
   const supabase = await createClient()
   const { data: user } = await supabase
     .from('users')
-    .select('followers_count, posts_count, is_monetised, bvn_verified, created_at, status')
+    .select('followers_count, posts_count, is_monetised, phone_verified, bvn_verified, created_at, status')
     .eq('id', userId)
     .single()
 
@@ -85,11 +106,12 @@ export async function checkMonetisationEligibility(userId: string) {
   return {
     is_monetised: user.is_monetised,
     criteria: {
-      followers:    { met: user.followers_count >= 500, value: user.followers_count, required: 500 },
-      account_age:  { met: accountAgeDays >= 90,        value: accountAgeDays,       required: 90 },
-      posts:        { met: user.posts_count >= 100,     value: user.posts_count,     required: 100 },
-      good_standing:{ met: user.status === 'active',    value: user.status,          required: 'active' },
-      bvn_verified: { met: user.bvn_verified,           value: user.bvn_verified,    required: true },
+      followers:      { met: user.followers_count >= 500, value: user.followers_count, required: 500 },
+      account_age:    { met: accountAgeDays >= 90,        value: accountAgeDays,       required: 90 },
+      posts:          { met: user.posts_count >= 100,     value: user.posts_count,     required: 100 },
+      good_standing:  { met: user.status === 'active',    value: user.status,          required: 'active' },
+      phone_verified: { met: user.phone_verified,         value: user.phone_verified,  required: true },
+      bvn_verified:   { met: user.bvn_verified,           value: user.bvn_verified,    required: true },
     },
   }
 }

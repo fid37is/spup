@@ -22,6 +22,7 @@ interface Props {
     birthday_visibility?: string | null
     email?: string | null
     phone_number?: string | null
+    phone_verified?: boolean
     bvn_verified?: boolean
   }
   stats: {
