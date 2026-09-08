@@ -343,7 +343,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', gap: 2 }}>
+          <div className="composer-toolbar-icons" style={{ display: 'flex', gap: 2, overflowX: 'auto', WebkitOverflowScrolling: 'touch', minWidth: 0 }}>
             {/* Media upload — one button, accepts photos and videos together */}
             <input
               ref={mediaInputRef}
@@ -380,6 +380,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             <ToolbarBtn icon={<BarChart2 size={18} />} label="Add poll" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<MapPin size={18} />} label="Add location" disabled title="Coming soon" onClick={() => {}} />
           </div>
+          <style>{`.composer-toolbar-icons::-webkit-scrollbar { display: none; }`}</style>
 
           {variant === 'modal' ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -471,7 +472,7 @@ function ToolbarBtn({ icon, label, disabled, onClick, title }: {
       title={title || label}
       aria-label={label}
       style={{
-        width: 36, height: 36,
+        width: 36, height: 36, flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'none', border: 'none',
         cursor: disabled ? 'not-allowed' : 'pointer',
