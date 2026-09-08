@@ -1,25 +1,35 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getProfileByAuthId } from '@/lib/queries'
-import { getWallet, getTransactions, getMonthlyEarnings, checkMonetisationEligibility } from '@/lib/queries'
+import { getWallet, getTransactions, getMonthlyEarnings, getNextPayoutDate } from '@/lib/queries'
+import { getMonetisationEligibility } from '@/lib/actions/monetisation'
 import { formatNaira, formatNumber } from '@/lib/utils'
-import { TrendingUp, ArrowDownToLine, Clock, CheckCircle, AlertCircle, ArrowUpRight, Shield } from 'lucide-react'
+import { TrendingUp, ArrowDownToLine, CheckCircle, ArrowUpRight, Shield } from 'lucide-react'
 import WithdrawButton from './withdraw-button'
+import AcceptMonetisationButton from './accept-monetisation-button'
 import Link from 'next/link'
 
 /* ── Monetisation checklist ─────────────────────────────────────────────── */
+/* Growth criteria only (90 days / 500 followers / 100 posts) — deliberately
+   independent of phone/BVN verification, which stays gated at withdrawal
+   only. See lib/actions/monetisation.ts. */
 function MonetisationChecklist({
-  criteria, is_monetised,
+  criteria, is_monetised, eligibleToAccept,
 }: {
-  criteria: NonNullable<Awaited<ReturnType<typeof checkMonetisationEligibility>>>['criteria']
+  criteria: NonNullable<Awaited<ReturnType<typeof getMonetisationEligibility>>>['criteria']
   is_monetised: boolean
+  eligibleToAccept: boolean
 }) {
+  const safeCriteria = criteria ?? {
+    followers: { met: false, value: 0 },
+    account_age: { met: false, value: 0 },
+    posts: { met: false, value: 0 },
+  }
+
   const items = [
-    { label: '500+ followers',    ...criteria.followers,    display: `${formatNumber(criteria.followers.value as number)} / 500` },
-    { label: '90-day account',    ...criteria.account_age,  display: `${Math.min(criteria.account_age.value as number, 90)} / 90 days` },
-    { label: '100+ posts',        ...criteria.posts,        display: `${formatNumber(criteria.posts.value as number)} / 100` },
-    { label: 'Account in good standing', ...criteria.good_standing, display: criteria.good_standing.met ? 'Good standing' : 'Has violations' },
-    { label: 'BVN verified',      ...criteria.bvn_verified, display: criteria.bvn_verified.met ? 'Verified' : 'Not verified' },
+    { label: '500+ followers',    ...safeCriteria.followers,    display: `${formatNumber(safeCriteria.followers.value as number)} / 500` },
+    { label: '90-day account',    ...safeCriteria.account_age,  display: `${Math.min(safeCriteria.account_age.value as number, 90)} / 90 days` },
+    { label: '100+ posts',        ...safeCriteria.posts,        display: `${formatNumber(safeCriteria.posts.value as number)} / 100` },
   ]
   const metCount = items.filter(i => i.met).length
   const pct = Math.round((metCount / items.length) * 100)
@@ -32,7 +42,11 @@ function MonetisationChecklist({
             {is_monetised ? 'Monetisation active' : 'Monetisation eligibility'}
           </h2>
           <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-            {is_monetised ? 'You are earning ad revenue' : `${metCount} of ${items.length} criteria met`}
+            {is_monetised
+              ? 'You are earning ad revenue'
+              : eligibleToAccept
+                ? 'All criteria met — enable below'
+                : `${metCount} of ${items.length} criteria met`}
           </p>
         </div>
         <span style={{
@@ -148,9 +162,10 @@ export default async function WalletPage() {
   const profile = await getProfileByAuthId(user.id)
   if (!profile) redirect('/login')
 
-  const [wallet, eligibility] = await Promise.all([
+  const [wallet, eligibility, nextPayout] = await Promise.all([
     getWallet(profile.id),
-    checkMonetisationEligibility(profile.id),
+    getMonetisationEligibility(),
+    getNextPayoutDate(profile.id),
   ])
 
   const { transactions } = wallet ? await getTransactions(wallet.id, 20) : { transactions: [] }
@@ -211,11 +226,35 @@ export default async function WalletPage() {
             <StatCard label="Withdrawn" value={formatNaira(totalWithdrawn)} />
           </div>
 
-          <WithdrawButton canWithdraw={canWithdraw} balance={balance} bvnVerified={profile.bvn_verified} savedBank={savedBank} />
+          <WithdrawButton canWithdraw={canWithdraw} balance={balance} bvnVerified={profile.bvn_verified} savedBank={savedBank} nextEligibleAt={nextPayout.next_eligible_at} />
         </div>
 
-        {/* BVN banner */}
-        {!profile.bvn_verified && (
+        {/* Phone/BVN banners — shown in dependency order; BVN verification
+            requires phone to be verified first (see bvn-kyc.ts) */}
+        {!profile.phone_verified && (
+          <div style={{
+            border: '1px solid var(--color-border)',
+            borderRadius: 14,
+            padding: '14px 16px',
+            marginBottom: 12,
+            display: 'flex', gap: 12, alignItems: 'flex-start',
+          }}>
+            <Shield size={18} color="var(--color-gold)" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
+                Phone verification required
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
+                Verify your phone number first — this unlocks BVN verification, needed before you can withdraw.
+              </div>
+              <Link href="/settings/verify-phone" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
+                Verify phone <ArrowUpRight size={13} />
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {profile.phone_verified && !profile.bvn_verified && (
           <div style={{
             border: '1px solid var(--color-border)',
             borderRadius: 14,
@@ -229,18 +268,22 @@ export default async function WalletPage() {
                 BVN verification required
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
-                Verify your BVN as required by the CBN to withdraw your earnings.
+                Only needed before you withdraw — you can keep posting and earning without it until then.
               </div>
-              <Link href="/settings/verify-phone" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
+              <Link href="/settings/verify-bvn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
                 Verify BVN <ArrowUpRight size={13} />
               </Link>
             </div>
           </div>
         )}
 
-        {/* Monetisation checklist — only when not yet monetised */}
-        {eligibility && !eligibility.is_monetised && (
-          <MonetisationChecklist criteria={eligibility.criteria} is_monetised={eligibility.is_monetised} />
+        {/* Monetisation: checklist while not yet eligible/monetised, accept
+            button once all growth criteria are met */}
+        {eligibility && !eligibility.is_monetised && eligibility.eligible_to_accept && (
+          <AcceptMonetisationButton />
+        )}
+        {eligibility && eligibility.criteria && !eligibility.is_monetised && (
+          <MonetisationChecklist criteria={eligibility.criteria} is_monetised={eligibility.is_monetised} eligibleToAccept={eligibility.eligible_to_accept} />
         )}
 
         {/* Transactions */}

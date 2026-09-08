@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!
 const PAYSTACK_BASE = 'https://api.paystack.co'
+const PAYOUT_CYCLE_DAYS = 14
 
 async function paystackRequest(path: string, method: string, body?: object) {
   const res = await fetch(`${PAYSTACK_BASE}${path}`, {
@@ -40,6 +41,21 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (!wallet) return NextResponse.json({ error: 'Wallet not found' }, { status: 404 })
+
+    // Payout cycle: withdrawals only every 14 days, not on demand — gives the
+    // earnings pipeline time to catch and reverse fraud-flagged amounts
+    // before money actually leaves the platform.
+    if (wallet.last_payout_at) {
+      const nextEligible = new Date(wallet.last_payout_at)
+      nextEligible.setDate(nextEligible.getDate() + PAYOUT_CYCLE_DAYS)
+
+      if (nextEligible > new Date()) {
+        return NextResponse.json({
+          error: `You can request your next withdrawal on ${nextEligible.toLocaleDateString('en-NG', { year: 'numeric', month: 'long', day: 'numeric' })}.`,
+          next_eligible_at: nextEligible.toISOString(),
+        }, { status: 429 })
+      }
+    }
 
     // Minimum withdrawal: ₦1,000 = 100,000 kobo
     if (wallet.balance_kobo < 100_000) {
@@ -135,6 +151,12 @@ export async function POST(request: NextRequest) {
       ])
       return NextResponse.json({ error: 'Transfer failed. Your balance has been restored.' }, { status: 502 })
     }
+
+    // Step 6: Record this payout so the next 14-day window starts now
+    await supabase
+      .from('wallets')
+      .update({ last_payout_at: new Date().toISOString() })
+      .eq('id', wallet.id)
 
     // Update transaction with Paystack transfer code
     await supabase

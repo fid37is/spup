@@ -41,9 +41,10 @@ interface WithdrawButtonProps {
   balance: number
   bvnVerified: boolean
   savedBank?: { bank_name: string; bank_account_number: string; bank_account_name: string; paystack_recipient_code: string } | null
+  nextEligibleAt?: string | null
 }
 
-export default function WithdrawButton({ canWithdraw, balance, bvnVerified, savedBank }: WithdrawButtonProps) {
+export default function WithdrawButton({ canWithdraw, balance, bvnVerified, savedBank, nextEligibleAt }: WithdrawButtonProps) {
   const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
@@ -322,17 +323,25 @@ export default function WithdrawButton({ canWithdraw, balance, bvnVerified, save
     </>
   )
 
+  const cycleActive = !!nextEligibleAt && new Date(nextEligibleAt) > new Date()
+  const effectiveCanWithdraw = canWithdraw && !cycleActive
+
   return (
     <>
       <button
-        onClick={() => canWithdraw && setOpen(true)}
-        disabled={!canWithdraw}
-        style={{ display: 'flex', alignItems: 'center', gap: 8, background: canWithdraw ? 'var(--color-brand)' : 'var(--color-surface-2)', color: canWithdraw ? 'white' : 'var(--color-text-muted)', border: 'none', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, cursor: canWithdraw ? 'pointer' : 'not-allowed', transition: 'background 0.15s' }}
+        onClick={() => effectiveCanWithdraw && setOpen(true)}
+        disabled={!effectiveCanWithdraw}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, background: effectiveCanWithdraw ? 'var(--color-brand)' : 'var(--color-surface-2)', color: effectiveCanWithdraw ? 'white' : 'var(--color-text-muted)', border: 'none', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, cursor: effectiveCanWithdraw ? 'pointer' : 'not-allowed', transition: 'background 0.15s' }}
       >
         <ArrowDownToLine size={16} />
         Withdraw
       </button>
-      {!canWithdraw && bvnVerified && balance < 100_000 && (
+      {cycleActive && (
+        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>
+          Next withdrawal available {new Date(nextEligibleAt!).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}
+        </p>
+      )}
+      {!cycleActive && !canWithdraw && bvnVerified && balance < 100_000 && (
         <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>Minimum withdrawal is ₦1,000</p>
       )}
       {mounted && open && createPortal(modal, document.body)}

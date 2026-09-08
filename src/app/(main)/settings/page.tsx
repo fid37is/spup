@@ -1,4 +1,5 @@
 // src/app/(main)/settings/page.tsx
+
 import { createClient } from '@/lib/supabase/server'
 import { redirect }     from 'next/navigation'
 import { ArrowLeft }    from 'lucide-react'

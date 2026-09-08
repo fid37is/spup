@@ -4,9 +4,10 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import {
-  BadgeCheck, MapPin, Globe, Calendar, Cake,
+  MapPin, Globe, Calendar, Cake,
   ChevronDown, Shield, Phone, Briefcase,
 } from 'lucide-react'
+import VerifiedBadge from '@/components/ui/verified-badge'
 
 interface ViewProps {
   profile: {
@@ -23,6 +24,7 @@ interface ViewProps {
     birthday_visibility?: string | null
     email?: string | null
     phone_number?: string | null
+    phone_verified?: boolean
     bvn_verified?: boolean
   }
   stats: { following: string; followers: string; mutuals: string }
@@ -56,7 +58,7 @@ export default function ProfileHeaderView({
         margin: '0 0 2px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
       }}>
         {profile.display_name}
-        {profile.verification_tier !== 'none' && <BadgeCheck size={18} color="var(--color-brand)" />}
+        {profile.verification_tier !== 'none' && <VerifiedBadge tier={profile.verification_tier} size={18} />}
         {profile.is_monetised && (
           <span style={{ fontSize: 10, background: 'var(--color-gold)', color: '#000', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
             PRO
@@ -136,9 +138,13 @@ export default function ProfileHeaderView({
               <span>{profile.email}</span>
             </div>
           )}
+          <div style={{ ...ROW, color: profile.phone_verified ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
+            <Phone size={15} strokeWidth={1.8} color={profile.phone_verified ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
+            <span>{profile.phone_verified ? 'Phone verified' : 'Phone not verified'}</span>
+          </div>
           <div style={{ ...ROW, color: profile.bvn_verified ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
-            <Phone size={15} strokeWidth={1.8} color={profile.bvn_verified ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
-            <span>{profile.bvn_verified ? 'Phone & BVN verified' : 'Phone & BVN not verified'}</span>
+            <Shield size={15} strokeWidth={1.8} color={profile.bvn_verified ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
+            <span>{profile.bvn_verified ? 'BVN verified' : 'BVN not verified — required before withdrawal'}</span>
           </div>
         </div>
       )}
