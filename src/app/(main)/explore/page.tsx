@@ -65,7 +65,7 @@ type SearchTabKey = typeof SEARCH_TABS[number]['key']
 // ─── Shared select ────────────────────────────────────────────────────────────
 
 const POST_SELECT = `
-  id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+  id, body, post_type, likes_count, comments_count, reposts_count,
   bookmarks_count, impressions_count, created_at, edited_at, is_sensitive, quoted_post_id,
   author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, is_monetised),
   media:post_media(id, media_type, url, thumbnail_url, width, height, position)
@@ -73,31 +73,28 @@ const POST_SELECT = `
 
 // ─── Data fetchers ────────────────────────────────────────────────────────────
 
-/** Batch-hydrate like/dislike/bookmark/repost. Mirrors feed.ts exactly. */
+/** Batch-hydrate like/bookmark/repost. Mirrors feed.ts exactly. */
 async function hydrateEngagement(db: Supabase, userId: string, posts: any[]) {
   if (!posts.length) return []
   const ids = posts.map((p: any) => p.id)
-  const [{ data: likes }, { data: dislikes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
+  const [{ data: likes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
     db.from('likes').select('post_id').eq('user_id', userId).in('post_id', ids),
-    db.from('dislikes').select('post_id').eq('user_id', userId).in('post_id', ids),
     db.from('bookmarks').select('post_id').eq('user_id', userId).in('post_id', ids),
     db.from('posts').select('quoted_post_id').eq('user_id', userId).eq('post_type', 'repost').in('quoted_post_id', ids),
   ])
   const likedSet      = new Set((likes     || []).map((r: any) => r.post_id))
-  const dislikedSet   = new Set((dislikes  || []).map((r: any) => r.post_id))
   const bookmarkedSet = new Set((bookmarks || []).map((r: any) => r.post_id))
   const repostedSet   = new Set((reposts   || []).map((r: any) => r.quoted_post_id))
   return posts.map((p: any) => ({
     ...p,
     is_liked:      likedSet.has(p.id),
-    is_disliked:   dislikedSet.has(p.id),
     is_bookmarked: bookmarkedSet.has(p.id),
     is_reposted:   repostedSet.has(p.id),
   }))
 }
 
 function noEngagement(posts: any[]) {
-  return posts.map((p: any) => ({ ...p, is_liked: false, is_disliked: false, is_reposted: false, is_bookmarked: false }))
+  return posts.map((p: any) => ({ ...p, is_liked: false, is_reposted: false, is_bookmarked: false }))
 }
 
 /** Posts tagged with any of the given hashtag tags (interest IDs). */

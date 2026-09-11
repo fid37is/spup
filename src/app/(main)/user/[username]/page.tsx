@@ -107,7 +107,6 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   const initialPosts: FeedPost[] = rawPosts.map((p: any) => ({
     ...p,
     is_liked:      likedSet.has(p.id),
-    is_disliked:   false,
     is_reposted:   repostedSet.has(p.id),
     is_bookmarked: bookmarkedSet.has(p.id),
   }))

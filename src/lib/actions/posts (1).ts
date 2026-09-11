@@ -24,7 +24,7 @@ async function getCallerProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { supabase, profile: null }
-  const { data: profile } = await supabase.from('users').select('id, username, status').eq('auth_id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('id, status').eq('auth_id', user.id).single()
   return { supabase, profile }
 }
 
@@ -290,8 +290,7 @@ export async function togglePinPostAction(postId: string) {
     // Unpin
     await supabase.from('posts').update({ is_pinned: false }).eq('id', postId)
     revalidatePath('/profile')
-    revalidatePath(`/user/${profile.username}`)
-    revalidatePath(`/post/${postId}`)
+    revalidatePath(`/user/${profile.id}`)
     return { pinned: false }
   } else {
     // Unpin any existing pinned post first (only one allowed)
@@ -304,8 +303,7 @@ export async function togglePinPostAction(postId: string) {
     // Pin this post
     await supabase.from('posts').update({ is_pinned: true }).eq('id', postId)
     revalidatePath('/profile')
-    revalidatePath(`/user/${profile.username}`)
-    revalidatePath(`/post/${postId}`)
+    revalidatePath(`/user/${profile.id}`)
     return { pinned: true }
   }
 }

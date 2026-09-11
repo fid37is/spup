@@ -116,14 +116,14 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
         event: 'UPDATE', schema: 'public', table: 'posts',
       }, payload => {
         const u = payload.new as {
-          id: string; likes_count: number; dislikes_count: number
+          id: string; likes_count: number
           reposts_count: number; comments_count: number; impressions_count: number
         }
         const visibleIds = new Set(postsRef.current.map(p => p.id))
         if (!visibleIds.has(u.id)) return
         setPosts(prev => prev.map(p =>
           p.id === u.id
-            ? { ...p, likes_count: u.likes_count, dislikes_count: u.dislikes_count, reposts_count: u.reposts_count, comments_count: u.comments_count, impressions_count: u.impressions_count }
+            ? { ...p, likes_count: u.likes_count, reposts_count: u.reposts_count, comments_count: u.comments_count, impressions_count: u.impressions_count }
             : p
         ))
       })

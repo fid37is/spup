@@ -19,7 +19,6 @@ export interface FeedPost {
   body: string | null
   post_type: string
   likes_count: number
-  dislikes_count: number
   comments_count: number
   reposts_count: number
   bookmarks_count: number
@@ -57,7 +56,6 @@ export interface FeedPost {
     media: Array<{ id: string; media_type: string; url: string; thumbnail_url: string | null; width: number | null; height: number | null; position: number }>
   } | null
   is_liked: boolean
-  is_disliked: boolean
   is_reposted: boolean
   is_bookmarked: boolean
   is_pinned: boolean
@@ -95,7 +93,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   let query = supabase
     .from('posts')
     .select(`
-      id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+      id, body, post_type, likes_count, comments_count, reposts_count,
       bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -134,7 +132,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
       const { data: interestRows } = await supabase
         .from('post_hashtags')
         .select(`post:posts(
-          id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+          id, body, post_type, likes_count, comments_count, reposts_count,
           bookmarks_count, impressions_count, link_clicks_count, detail_expands_count,
           video_views_count, video_completions_count, created_at, edited_at,
           is_sensitive, quoted_post_id,
@@ -190,7 +188,7 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
   let query = supabase
     .from('posts')
     .select(`
-      id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+      id, body, post_type, likes_count, comments_count, reposts_count,
       bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -249,7 +247,7 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
   let query = supabase
     .from('posts')
     .select(`
-      id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+      id, body, post_type, likes_count, comments_count, reposts_count,
       bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -288,7 +286,7 @@ export async function getPostRepliesAction(postId: string, cursor?: string) {
   let query = supabase
     .from('posts')
     .select(`
-      id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+      id, body, post_type, likes_count, comments_count, reposts_count,
       bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -311,7 +309,7 @@ export async function getPostRepliesAction(postId: string, cursor?: string) {
 
   const hydrated = profile
     ? await hydrateEngagement(supabase, profile.id, page)
-    : page.map(p => ({ ...p, is_liked: false, is_disliked: false, is_reposted: false, is_bookmarked: false }))
+    : page.map(p => ({ ...p, is_liked: false, is_reposted: false, is_bookmarked: false }))
 
   // return { posts: hydrated, nextCursor }
   return { posts: hydrated as FeedPost[], nextCursor }
@@ -331,7 +329,7 @@ export async function getBookmarkedPostsAction(cursor?: string) {
     .from('bookmarks')
     .select(`
       post:posts(
-        id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+        id, body, post_type, likes_count, comments_count, reposts_count,
         bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
         author:users!posts_user_id_fkey(
           id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -375,7 +373,7 @@ export async function getProfileTabAction(
     : null
 
   const BASE_SELECT = `
-    id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+    id, body, post_type, likes_count, comments_count, reposts_count,
     bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
     author:users!posts_user_id_fkey(
       id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -385,7 +383,7 @@ export async function getProfileTabAction(
 
   // media tab uses !inner to only return posts that have at least one media row
   const MEDIA_SELECT = `
-    id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+    id, body, post_type, likes_count, comments_count, reposts_count,
     bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
     author:users!posts_user_id_fkey(
       id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -440,7 +438,7 @@ export async function getProfileTabAction(
 
   const hydrated = viewer
     ? await hydrateEngagement(supabase, viewer.id, rawPosts)
-    : rawPosts.map(p => ({ ...p, is_liked: false, is_disliked: false, is_reposted: false, is_bookmarked: false }))
+    : rawPosts.map(p => ({ ...p, is_liked: false, is_reposted: false, is_bookmarked: false }))
 
   return { posts: hydrated as FeedPost[], nextCursor }
 }
@@ -504,9 +502,8 @@ async function hydrateEngagement(
     posts.map(p => p.quoted_post_id).filter(Boolean)
   )] as string[]
 
-  const [{ data: likes }, { data: dislikes }, { data: bookmarks }, { data: reposts }, { data: quotedPosts }] = await Promise.all([
+  const [{ data: likes }, { data: bookmarks }, { data: reposts }, { data: quotedPosts }] = await Promise.all([
     supabase.from('likes').select('post_id').eq('user_id', userId).in('post_id', ids),
-    supabase.from('dislikes').select('post_id').eq('user_id', userId).in('post_id', ids),
     supabase.from('bookmarks').select('post_id').eq('user_id', userId).in('post_id', ids),
     supabase.from('posts').select('quoted_post_id').eq('user_id', userId).eq('post_type', 'repost').in('quoted_post_id', ids),
     quotedIds.length
@@ -519,7 +516,6 @@ async function hydrateEngagement(
   ])
 
   const likedSet = new Set((likes || []).map((l: {post_id: string}) => l.post_id))
-  const dislikedSet = new Set((dislikes || []).map((d: {post_id: string}) => d.post_id))
   const bookmarkedSet = new Set((bookmarks || []).map((b: {post_id: string}) => b.post_id))
   const repostedSet = new Set((reposts || []).map((r: {quoted_post_id: string}) => r.quoted_post_id))
   const quotedMap = new Map((quotedPosts || []).map((q: any) => [q.id, q]))
@@ -527,7 +523,6 @@ async function hydrateEngagement(
   return posts.map(p => ({
     ...p,
     is_liked: likedSet.has(p.id),
-    is_disliked: dislikedSet.has(p.id),
     is_bookmarked: bookmarkedSet.has(p.id),
     is_reposted: repostedSet.has(p.id),
     quoted_post: p.quoted_post_id ? (quotedMap.get(p.quoted_post_id) ?? null) : null,

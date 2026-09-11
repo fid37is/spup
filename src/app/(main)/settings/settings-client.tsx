@@ -8,8 +8,8 @@ import {
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { updateProfileAction, deleteAccountAction, changePasswordAction } from '@/lib/actions/profiles'
-import { createClient } from '@/lib/supabase/client'
 import { useTheme } from '@/components/layout/theme-provider'
+import { createBrowserClient } from '@/lib/supabase/client'
 
 type Panel = null | 'language' | 'theme' | 'password' | 'autoplay'
 
@@ -179,6 +179,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   const [deleteInput, setDeleteInput] = useState('')
   const [deleting,    setDeleting]    = useState(false)
 
+  const router = useRouter()
   const { theme, setTheme } = useTheme()
 
   // Password state
@@ -267,11 +268,11 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     setDeleting(true)
 
     // Re-authenticate before deleting
-    const supabase = createClient() as any
-    const { data: { user: authUser } } = await supabase.auth.getUser()
+    const browser = createBrowserClient()
+    const { data: { user: authUser } } = await browser.auth.getUser()
     if (!authUser?.email) { setDeletePassErr('Session expired. Please log in again.'); setDeleting(false); return }
 
-    const { error: authErr } = await supabase.auth.signInWithPassword({ email: authUser.email, password: deletePass })
+    const { error: authErr } = await browser.auth.signInWithPassword({ email: authUser.email, password: deletePass })
     if (authErr) { setDeletePassErr('Incorrect password.'); setDeleting(false); return }
 
     const r = await deleteAccountAction()
@@ -317,10 +318,23 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
         <Row
           icon={Eye}
           label="Private account"
-          desc="Only approved followers can see your posts"
-          last
+          desc={isPrivate ? 'Private — followers must be approved' : 'Public — anyone can follow and see your posts'}
+          accentDesc={isPrivate}
+          last={!isPrivate}
           right={<Toggle checked={isPrivate} onChange={togglePrivacy} disabled={isPending} />}
         />
+        {isPrivate && (
+          <div style={{
+            padding: '12px 20px 14px',
+            background: 'var(--color-surface-2)',
+            borderTop: '1px solid var(--color-border)',
+            fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.6,
+          }}>
+            <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>What this means: </span>
+            New followers must send a request that you approve. Existing followers are unaffected.
+            Your posts, replies, and likes are hidden from non-followers.
+          </div>
+        )}
       </Card>
 
       {/* ── NOTIFICATIONS ────────────────────────────────────────────────── */}
@@ -551,6 +565,13 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
             </div>
           </InlinePanel>
         )}
+        <Row
+          icon={Shield}
+          label="Two-factor authentication"
+          desc="Add an extra layer of security to your account"
+          onClick={() => router.push('/settings/two-factor')}
+          last
+        />
       </Card>
 
       {/* ── SESSION ──────────────────────────────────────────────────────── */}
