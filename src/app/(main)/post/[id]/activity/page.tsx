@@ -43,7 +43,7 @@ export default async function PostActivityPage({
   const { data: post } = await supabase
     .from('posts')
     .select(`
-      id, body, likes_count, reposts_count, quotes_count,
+      id, body, likes_count, reposts_count, quotes_count, created_at, impressions_count,
       author:users!posts_user_id_fkey(id, username, display_name, avatar_url)
     `)
     .eq('id', id).is('deleted_at', null).single()
@@ -94,6 +94,22 @@ export default async function PostActivityPage({
                 {post.body}
               </p>
             )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+                {new Date(post.created_at).toLocaleString('en-NG', {
+                  hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: 'numeric',
+                })}
+              </span>
+              {post.impressions_count > 0 && (
+                <>
+                  <span style={{ color: 'var(--color-border-light)' }}>·</span>
+                  <span style={{ fontSize: 13, color: 'var(--color-text-primary)', fontWeight: 600 }}>
+                    {formatNumber(post.impressions_count)}
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Views</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
