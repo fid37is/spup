@@ -68,6 +68,13 @@ export async function createPostAction(data: CreatePostSchema) {
     void notifyPostAuthor(supabase, parent_post_id, profile.id, 'post_comment')
     revalidatePath(`/post/${parent_post_id}`)
   }
+  if (quoted_post_id) {
+    // This was previously never incremented at all — quote posts were being
+    // created with no effect on the quoted post's quotes_count.
+    bumpCounter(supabase, 'posts', 'quotes_count', quoted_post_id, 1)
+    void notifyPostAuthor(supabase, quoted_post_id, profile.id, 'post_quote')
+    revalidatePath(`/post/${quoted_post_id}`)
+  }
   revalidatePath('/feed')
 
   // Return the fully-hydrated post (author, media, counts, created_at) so the
@@ -83,7 +90,6 @@ export async function createPostAction(data: CreatePostSchema) {
     post: {
       ...hydrated,
       is_liked: false,
-      is_disliked: false,
       is_reposted: false,
       is_bookmarked: false,
     },
@@ -93,9 +99,37 @@ export async function createPostAction(data: CreatePostSchema) {
 export async function deletePostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
+
+  // Fetch parent/quoted post ids before deleting — needed to decrement their
+  // counts below. Without this, deleting a reply or quote left the parent's
+  // comments_count / quotes_count permanently inflated.
+  const { data: existingPost } = await supabase
+    .from('posts')
+    .select('parent_post_id, quoted_post_id, post_type')
+    .eq('id', postId)
+    .single()
+
   const { error } = await supabase.from('posts').update({ deleted_at: new Date().toISOString() }).match({ id: postId, user_id: profile.id })
   if (error) return { error: 'Could not delete post.' }
   bumpCounter(supabase, 'users', 'posts_count', profile.id, -1)
+
+  if (existingPost?.parent_post_id) {
+    bumpCounter(supabase, 'posts', 'comments_count', existingPost.parent_post_id, -1)
+    revalidatePath(`/post/${existingPost.parent_post_id}`)
+  }
+  // quoted_post_id is used by both 'quote' and 'repost' post_types (a plain
+  // repost points at the original via quoted_post_id with no body) — decrement
+  // the correct counter for which one this actually was.
+  if (existingPost?.quoted_post_id && existingPost.post_type === 'quote') {
+    bumpCounter(supabase, 'posts', 'quotes_count', existingPost.quoted_post_id, -1)
+    revalidatePath(`/post/${existingPost.quoted_post_id}`)
+  }
+  if (existingPost?.quoted_post_id && existingPost.post_type === 'repost') {
+    // Covers deletion via this action (e.g. moderation) — toggleRepostAction
+    // already handles its own decrement for the normal unrepost path.
+    bumpCounter(supabase, 'posts', 'reposts_count', existingPost.quoted_post_id, -1)
+  }
+
   revalidatePath('/feed')
   revalidatePath('/profile')
   return { success: true }
@@ -131,36 +165,6 @@ export async function toggleLikeAction(postId: string) {
   revalidatePath('/feed')
   revalidatePath(`/post/${postId}`)
   return { liked: true }
-}
-
-export async function toggleDislikeAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return { error: 'Not authenticated' }
-
-  // Remove a like if the user had liked it (can't like and dislike simultaneously)
-  const { data: existingLike } = await supabase
-    .from('likes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
-  if (existingLike) {
-    await supabase.from('likes').delete().match({ user_id: profile.id, post_id: postId })
-    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
-  }
-
-  const { data: existing } = await supabase
-    .from('dislikes').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
-  if (existing) {
-    await supabase.from('dislikes').delete().match({ user_id: profile.id, post_id: postId })
-    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'dislikes_count', p_id: postId, p_amount: -1 })
-    revalidatePath('/feed')
-    revalidatePath(`/post/${postId}`)
-    return { disliked: false }
-  }
-  await supabase
-    .from('dislikes')
-    .upsert({ user_id: profile.id, post_id: postId }, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
-  await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'dislikes_count', p_id: postId, p_amount: 1 })
-  revalidatePath('/feed')
-  revalidatePath(`/post/${postId}`)
-  return { disliked: true }
 }
 
 export async function toggleRepostAction(postId: string) {
@@ -239,7 +243,7 @@ export async function recordVideoCompletionAction(postId: string) {
 async function notifyPostAuthor(
   supabase: Awaited<ReturnType<typeof createClient>>,
   postId: string, actorId: string,
-  type: 'post_like' | 'post_repost' | 'post_comment'
+  type: 'post_like' | 'post_repost' | 'post_comment' | 'post_quote'
 ) {
   const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).single()
   if (!post || post.user_id === actorId) return
@@ -251,7 +255,7 @@ export async function getPostAnalyticsAction(postId: string) {
     .from('posts')
     .select(`
       id, body, created_at,
-      likes_count, dislikes_count, comments_count,
+      likes_count, comments_count,
       reposts_count, bookmarks_count, impressions_count,
       author:users!posts_user_id_fkey(id, auth_id, display_name, username, avatar_url)
     `)

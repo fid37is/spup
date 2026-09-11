@@ -19,24 +19,25 @@ const ThemeContext = createContext<ThemeContextValue>({
 export function useTheme() { return useContext(ThemeContext) }
 
 const STYLE = `
-  #theme-snapshot {
-    position: fixed;
-    inset: 0;
-    z-index: 99999;
-    pointer-events: none;
-    will-change: clip-path;
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
   }
-  #theme-snapshot.slide-up {
-    animation: snap-up 0.65s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+  ::view-transition-new(root) { z-index: 1; }
+  ::view-transition-old(root) { z-index: 2; }
+
+  html[data-theme-direction="up"]::view-transition-old(root) {
+    animation: curtain-up 0.5s cubic-bezier(0.76, 0, 0.24, 1) forwards;
   }
-  #theme-snapshot.slide-down {
-    animation: snap-down 0.65s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+  html[data-theme-direction="down"]::view-transition-old(root) {
+    animation: curtain-down 0.5s cubic-bezier(0.76, 0, 0.24, 1) forwards;
   }
-  @keyframes snap-up {
+  @keyframes curtain-up {
     from { clip-path: inset(0 0 0 0); }
     to   { clip-path: inset(0 0 100% 0); }
   }
-  @keyframes snap-down {
+  @keyframes curtain-down {
     from { clip-path: inset(0 0 0 0); }
     to   { clip-path: inset(100% 0 0 0); }
   }
@@ -53,8 +54,23 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
       s.textContent = STYLE
       document.head.appendChild(s)
     }
-    const current = document.documentElement.getAttribute('data-theme') as Theme
-    if (current === 'light') setThemeState('light')
+
+    // Source of truth is localStorage, not the DOM attribute — the
+    // pre-hydration inline script in layout.tsx only sets data-theme on a
+    // route whitelist (to avoid overriding marketing-page branding), so it
+    // can't be relied on here. Reading localStorage directly makes theme
+    // persistence correct on every app route regardless of that whitelist.
+    let saved: Theme | null = null
+    try { saved = localStorage.getItem('spup-theme') as Theme | null } catch {}
+
+    const resolved: Theme = saved === 'light' || saved === 'dark'
+      ? saved
+      : (document.documentElement.getAttribute('data-theme') as Theme) || 'dark'
+
+    setThemeState(resolved)
+    if (document.documentElement.getAttribute('data-theme') !== resolved) {
+      document.documentElement.setAttribute('data-theme', resolved)
+    }
   }, [])
 
   const setTheme = useCallback((next: Theme) => {
@@ -66,44 +82,46 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
   const toggle = useCallback(() => {
     if (animatingRef.current) return
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
-    animatingRef.current = true
 
-    // 1. Screenshot the current theme into a canvas
-    import('html2canvas').then(({ default: html2canvas }) => {
-      html2canvas(document.body, {
-        useCORS: true,
-        allowTaint: true,
-        scale: window.devicePixelRatio,
-        logging: false,
-      }).then(canvas => {
-        // 2. Slap the canvas screenshot as a fixed overlay — covers the page
-        const snap = document.createElement('div')
-        snap.id = 'theme-snapshot'
-        snap.style.cssText = `
-          background: url(${canvas.toDataURL()}) top left / 100% auto no-repeat;
-        `
-        document.body.appendChild(snap)
-
-        // 3. Switch theme immediately underneath the snapshot
-        setTheme(next)
-
-        // 4. Animate the snapshot away in the right direction
-        //    dark→light: snapshot (old dark) slides UP, revealing light beneath
-        //    light→dark: snapshot (old light) slides DOWN, revealing dark beneath
-        void snap.offsetWidth
-        snap.classList.add(next === 'light' ? 'slide-up' : 'slide-down')
-
-        // 5. Cleanup
-        setTimeout(() => {
-          snap.remove()
-          animatingRef.current = false
-        }, 680)
-      })
-    }).catch(() => {
-      // html2canvas not available — fall back to instant switch
+    // Native View Transitions API — no screenshotting, so no CORS/tainted-
+    // canvas failure mode (which is what silently killed the old
+    // html2canvas-based animation whenever a cross-origin image, like a
+    // Cloudinary avatar, was on screen). Falls back to an instant switch on
+    // browsers that don't support it yet.
+    if (typeof document.startViewTransition !== 'function') {
       setTheme(next)
+      return
+    }
+
+    animatingRef.current = true
+    // dark→light: old (dark) view curtains UP, revealing light beneath
+    // light→dark: old (light) view curtains DOWN, revealing dark beneath
+    document.documentElement.setAttribute('data-theme-direction', next === 'light' ? 'up' : 'down')
+
+    try {
+      const transition = document.startViewTransition(() => {
+        setTheme(next)
+      })
+
+      const reset = () => {
+        document.documentElement.removeAttribute('data-theme-direction')
+        animatingRef.current = false
+      }
+
+      transition.finished.catch(() => {}).finally(reset)
+      // Belt-and-braces: force-reset even if `finished` never settles for
+      // some unforeseen reason, so the toggle can never get stuck for good.
+      setTimeout(reset, 1200)
+    } catch {
+      // startViewTransition can throw synchronously (e.g. another transition
+      // already in progress, document not fully active). Without this catch,
+      // animatingRef stays true forever and every future click on this
+      // button silently no-ops until a full page refresh — which is exactly
+      // the "toggle works inconsistently" symptom.
+      document.documentElement.removeAttribute('data-theme-direction')
       animatingRef.current = false
-    })
+      setTheme(next)
+    }
   }, [theme, setTheme])
 
   return (

@@ -1,21 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
-import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import ReplyComposer from './reply-composer'
 import ReplyToReply from './reply-to-reply'
+import ReplySortMenu from './reply-sort-menu'
 import { formatNumber } from '@/lib/utils'
 
 const POST_SELECT = `
-  id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+  id, body, post_type, likes_count, comments_count, reposts_count,
   bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
   author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, is_monetised),
   media:post_media(id, media_type, url, thumbnail_url, width, height, position)
 `
 
-async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postId: string, viewerId: string | null) {
+async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postId: string, viewerId: string | null, replySort: 'recent' | 'top') {
   const { data: post } = await supabase
     .from('posts').select(POST_SELECT)
     .eq('id', postId).is('deleted_at', null).single()
@@ -25,7 +25,8 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
   const { data: replies } = await supabase
     .from('posts').select(POST_SELECT)
     .eq('parent_post_id', postId).is('deleted_at', null)
-    .order('created_at', { ascending: true }).limit(50)
+    .order(replySort === 'top' ? 'likes_count' : 'created_at', { ascending: replySort !== 'top' })
+    .limit(50)
 
   const replyIds = (replies || []).map((r: any) => r.id)
   const { data: nestedReplies } = replyIds.length > 0
@@ -46,21 +47,18 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
 
     if (viewer) {
       const allIds = [post.id, ...(replies || []).map((r: any) => r.id), ...(nestedReplies || []).map((r: any) => r.id)]
-      const [{ data: likes }, { data: dislikes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
+      const [{ data: likes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
         supabase.from('likes').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
-        supabase.from('dislikes').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
         supabase.from('bookmarks').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
         supabase.from('posts').select('parent_post_id').eq('user_id', viewer.id).eq('post_type', 'repost').in('parent_post_id', allIds),
       ])
       const likedSet = new Set((likes || []).map((l: any) => l.post_id))
-      const dislikedSet = new Set((dislikes || []).map((d: any) => d.post_id))
       const bookmarkedSet = new Set((bookmarks || []).map((b: any) => b.post_id))
       const repostedSet = new Set((reposts || []).map((r: any) => r.parent_post_id))
 
       const hydrate = (p: any) => ({
         ...p,
         is_liked: likedSet.has(p.id),
-        is_disliked: dislikedSet.has(p.id),
         is_bookmarked: bookmarkedSet.has(p.id),
         is_reposted: repostedSet.has(p.id),
       })
@@ -73,23 +71,30 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
   }
 
   return {
-    post: { ...post, is_liked: false, is_disliked: false, is_bookmarked: false, is_reposted: false },
+    post: { ...post, is_liked: false, is_bookmarked: false, is_reposted: false },
     replies: (replies || []).map((r: any) => ({
-      ...r, is_liked: false, is_disliked: false, is_bookmarked: false, is_reposted: false,
-      nested: (nestedByParent[r.id] || []).map((n: any) => ({ ...n, is_liked: false, is_disliked: false, is_bookmarked: false, is_reposted: false })),
+      ...r, is_liked: false, is_bookmarked: false, is_reposted: false,
+      nested: (nestedByParent[r.id] || []).map((n: any) => ({ ...n, is_liked: false, is_bookmarked: false, is_reposted: false })),
     })),
   }
 }
 
-export default async function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PostDetailPage({
+  params, searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ replySort?: string }>
+}) {
   const { id } = await params
+  const { replySort: replySortParam } = await searchParams
+  const replySort: 'recent' | 'top' = replySortParam === 'top' ? 'top' : 'recent'
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) redirect('/login')
 
-  const data = await getPost(supabase, id, user.id)
+  const data = await getPost(supabase, id, user.id, replySort)
   if (!data) notFound()
 
   const { post, replies } = data
@@ -124,7 +129,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Main post */}
-      <PostCardWithAnalytics post={post} currentUserId={viewerUserId} />
+      <PostCard post={post} currentUserId={viewerUserId} />
 
       {/* Timestamp + views */}
       <div style={{
@@ -145,15 +150,30 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Engagement totals row */}
-      {(post.reposts_count > 0 || post.likes_count > 0 || post.dislikes_count > 0 || post.bookmarks_count > 0) && (
+      {(post.reposts_count > 0 || post.likes_count > 0 || post.bookmarks_count > 0) && (
         <div style={{
           display: 'flex', gap: 20, padding: '12px 20px',
           borderBottom: '1px solid var(--color-border)', flexWrap: 'wrap',
         }}>
           {post.reposts_count > 0 && <StatPill value={post.reposts_count} label="Reposts" />}
           {post.likes_count > 0 && <StatPill value={post.likes_count} label="Likes" />}
-          {post.dislikes_count > 0 && <StatPill value={post.dislikes_count} label="Dislikes" />}
           {post.bookmarks_count > 0 && <StatPill value={post.bookmarks_count} label="Bookmarks" />}
+        </div>
+      )}
+
+      {/* Reply sort + view activity — only shown once there's something to sort/view */}
+      {(replies.length > 0 || post.likes_count > 0 || post.reposts_count > 0) && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 20px', borderBottom: '1px solid var(--color-border)',
+        }}>
+          <ReplySortMenu postId={id} currentSort={replySort} />
+          <Link
+            href={`/post/${id}/activity`}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: 'var(--color-text-muted)', textDecoration: 'none' }}
+          >
+            View activity <ArrowRight size={13} />
+          </Link>
         </div>
       )}
 

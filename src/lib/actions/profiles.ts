@@ -95,6 +95,27 @@ export async function updateBannerAction(bannerUrl: string) {
   return { success: true }
 }
 
+// ─── Check username availability ─────────────────────────────────────────────
+
+export async function checkUsernameAvailableAction(username: string) {
+  const usernameSchema = z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/)
+  const parsed = usernameSchema.safeParse(username.toLowerCase())
+  if (!parsed.success) return { available: false, error: 'Invalid username format' }
+
+  const { supabase } = await getCallerProfile()
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  const { data: me } = await supabase
+    .from('users').select('username').eq('auth_id', authUser?.id ?? '').single()
+
+  // Same as current username
+  if (me?.username === parsed.data) return { available: true }
+
+  const { data: taken } = await supabase
+    .from('users').select('id').eq('username', parsed.data).maybeSingle()
+
+  return { available: !taken }
+}
+
 // ─── Change username ──────────────────────────────────────────────────────────
 
 export async function changeUsernameAction(newUsername: string) {
@@ -143,7 +164,7 @@ export async function changePasswordAction(oldPassword: string, newPassword: str
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
 
-  // Verify old password by re-authenticating with the user's email
+  // Verify old password by re-authenticating
   const { data: { user } } = await supabase.auth.getUser()
   if (!user?.email) return { error: 'Not authenticated' }
 

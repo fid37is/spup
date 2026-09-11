@@ -27,6 +27,7 @@ export async function proxy(request: NextRequest) {
         sameSite: 'lax',
         secure: isProd,
         path: '/',
+        maxAge: 60 * 60 * 24 * 30, // 30 days — see server.ts for rationale
       },
       cookies: {
         getAll() {

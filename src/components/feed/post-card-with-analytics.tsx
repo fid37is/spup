@@ -1,11 +1,15 @@
 // src/components/feed/post-card-with-analytics.tsx
 'use client'
 
-import { useState } from 'react'
 import PostCard from './post-card'
-import PostAnalyticsDrawer from './post-analytics-drawer'
 import type { FeedPost } from '@/lib/actions/feed'
 
+// Previously toggled an inline analytics drawer via onAnalyticsClick/analyticsOpen
+// on PostCard. That prop pair no longer exists on PostCard — analytics moved to
+// a dedicated "Post activity" page (see post/[id]/activity/page.tsx), reached
+// via a link on the post detail page, not an inline toggle. Kept as a thin
+// passthrough (rather than replacing every call site) since this component is
+// used in 5 places across the app.
 export default function PostCardWithAnalytics({
   post,
   currentUserId,
@@ -15,25 +19,5 @@ export default function PostCardWithAnalytics({
   currentUserId?: string
   onReplyClick?: () => void
 }) {
-  const [analyticsOpen, setAnalyticsOpen] = useState(false)
-  const isOwnPost = !!(currentUserId && post.author?.id === currentUserId)
-
-  return (
-    <>
-      <PostCard
-        post={post}
-        currentUserId={currentUserId}
-        onReplyClick={onReplyClick}
-        onAnalyticsClick={() => setAnalyticsOpen(v => !v)}
-        analyticsOpen={analyticsOpen}
-      />
-      {analyticsOpen && (
-        <PostAnalyticsDrawer
-          post={post}
-          isOwnPost={isOwnPost}
-          onClose={() => setAnalyticsOpen(false)}
-        />
-      )}
-    </>
-  )
+  return <PostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
 }

@@ -33,6 +33,8 @@ export interface User {
   verification_tier: VerificationTier
   is_private: boolean
   is_monetised: boolean
+  monetised_at: string | null
+  phone_verified: boolean
   bvn_verified: boolean
   followers_count: number
   following_count: number

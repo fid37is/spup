@@ -11,7 +11,7 @@
 import { createClient } from '@/lib/supabase/server'
 
 const POST_SELECT = `
-  id, body, post_type, likes_count, dislikes_count, comments_count, reposts_count,
+  id, body, post_type, likes_count, comments_count, reposts_count,
   bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
   author:users!posts_user_id_fkey(
     id, username, display_name, avatar_url, verification_tier, is_monetised
@@ -93,4 +93,54 @@ export async function searchPosts(query: string, limit = 20) {
     .limit(limit)
 
   return data || []
+}
+// ─── Post Activity: who liked a post ────────────────────────────────────────
+// Powers the dedicated "Post activity" page (post/[id]/activity) — Threads-
+// style: likes/reposts/quotes counts + a sortable list of likers with their
+// follower counts and follow-state relative to the viewer.
+
+export async function getPostLikers(
+  postId: string,
+  viewerId: string | null,
+  sort: 'recent' | 'top' = 'recent',
+  limit = 30
+) {
+  const supabase = await createClient()
+
+  const { data: rows } = await supabase
+    .from('likes')
+    .select(`
+      created_at,
+      user:users!likes_user_id_fkey(id, username, display_name, avatar_url, verification_tier, followers_count)
+    `)
+    .eq('post_id', postId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  let likers = (rows || [])
+    .map((r: any) => r.user)
+    .filter(Boolean)
+
+  if (sort === 'top') {
+    likers = [...likers].sort((a: any, b: any) => (b.followers_count || 0) - (a.followers_count || 0))
+  }
+
+  if (!viewerId || likers.length === 0) {
+    return likers.map((u: any) => ({ ...u, is_following: false }))
+  }
+
+  const { data: viewer } = await supabase
+    .from('users').select('id').eq('auth_id', viewerId).maybeSingle()
+
+  if (!viewer) return likers.map((u: any) => ({ ...u, is_following: false }))
+
+  const { data: followRows } = await supabase
+    .from('follows')
+    .select('following_id')
+    .eq('follower_id', viewer.id)
+    .in('following_id', likers.map((u: any) => u.id))
+
+  const followingSet = new Set((followRows || []).map((f: any) => f.following_id))
+
+  return likers.map((u: any) => ({ ...u, is_following: followingSet.has(u.id) }))
 }

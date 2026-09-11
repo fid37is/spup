@@ -37,7 +37,6 @@ export default async function ProfilePage() {
   const initialPosts: FeedPost[] = rawPosts.map((p: any) => ({
     ...p,
     is_liked:      likedSet.has(p.id),
-    is_disliked:   false,
     is_reposted:   repostedSet.has(p.id),
     is_bookmarked: bookmarkedSet.has(p.id),
   }))
@@ -68,7 +67,6 @@ export default async function ProfilePage() {
           ...profile,
           email:        (profile as any).email        ?? null,
           phone_number: (profile as any).phone_number ?? null,
-          phone_verified: (profile as any).phone_verified ?? false,
           bvn_verified: (profile as any).bvn_verified ?? false,
         }}
         stats={stats}

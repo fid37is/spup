@@ -53,6 +53,25 @@ export async function hasChatPinAction() {
   return { hasPin: !!data }
 }
 
+
+// ── Public key management (E2E encryption) ────────────────────────────────────
+
+export async function uploadPublicKeyAction(publicKeyB64: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  const { error } = await supabase
+    .from('users').update({ public_key: publicKeyB64 }).eq('id', profile.id)
+  if (error) return { error: error.message }
+  return { success: true }
+}
+
+export async function getPublicKeyAction(userId: string) {
+  const { supabase } = await getCallerProfile()
+  const { data } = await supabase
+    .from('users').select('public_key').eq('id', userId).single()
+  return { publicKey: (data as any)?.public_key ?? null }
+}
+
 // ── Conversations ─────────────────────────────────────────────────────────────
 
 export async function getConversationsAction() {
@@ -180,7 +199,7 @@ export async function sendMessageAction(conversationId: string, body: string, re
   // Update conversation preview
   await supabase.from('conversations').update({
     last_message_at: msg.created_at,
-    last_message_preview: body.trim().slice(0, 80),
+    last_message_preview: body.trim().startsWith('enc:') ? '[Encrypted message]' : body.trim().slice(0, 80),
   }).eq('id', conversationId)
 
   // Increment unread for the other participant

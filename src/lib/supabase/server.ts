@@ -3,7 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 const isProd = process.env.NODE_ENV === 'production'
-const cookieDomain = isProd ? '.spup.live' : 'localhost'
+const cookieDomain = isProd ? '.spup.live' : '.localhost'
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -17,6 +17,12 @@ export async function createClient() {
         sameSite: 'lax',
         secure: isProd,
         path: '/',
+        // How long the cookie itself survives in the browser. This is the
+        // outer bound — set it >= whatever inactivity window is configured
+        // in the Supabase dashboard (Authentication > Sessions), so the
+        // cookie never gets deleted client-side before Supabase would have
+        // expired the session server-side anyway.
+        maxAge: 60 * 60 * 24 * 30, // 30 days
       },
       cookies: {
         getAll() {

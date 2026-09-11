@@ -4,14 +4,13 @@
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  MessageCircle, Repeat2, ThumbsUp,
-  Bookmark, Share2, MoreHorizontal, Trash2, Quote, Flag, BarChart2, Pin, PinOff, Megaphone,
+  MessageCircle, Repeat2, Heart, Send,
+  Bookmark, MoreHorizontal, Trash2, Quote, Flag, Pin, PinOff, Megaphone, Link2,
   Play, Volume2, VolumeX,
 } from 'lucide-react'
 import PromoteModal from './promote-modal'
 import {
   toggleLikeAction,
-  toggleDislikeAction,
   toggleRepostAction,
   toggleBookmarkAction,
   deletePostAction,
@@ -318,6 +317,59 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
 }
 
 // ── ActionBtn ─────────────────────────────────────────────────────────────────
+// ── MenuItems ─────────────────────────────────────────────────────────────────
+// Shared list of "..." menu actions — rendered inside a bottom sheet on mobile
+// and a compact anchored popup on desktop (same items, different container).
+function MenuItems({
+  isOwnPost, bookmarked, isPinned,
+  onPromote, onPin, onBookmark, onCopyLink, onDelete, onReport,
+  size, fontSize, gap, padding,
+}: {
+  isOwnPost: boolean; bookmarked: boolean; isPinned: boolean
+  onPromote: () => void; onPin: (e: React.MouseEvent) => void
+  onBookmark: (e: React.MouseEvent) => void; onCopyLink: (e: React.MouseEvent) => void
+  onDelete: (e: React.MouseEvent) => void; onReport: (e: React.MouseEvent) => void
+  size: number; fontSize: number; gap: number; padding: string
+}) {
+  const itemStyle = (color: string): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap, width: '100%', padding,
+    background: 'none', border: 'none', borderRadius: size >= 18 ? 12 : 8,
+    cursor: 'pointer', color, fontSize, fontFamily: "'DM Sans',sans-serif",
+    whiteSpace: 'nowrap',
+  })
+
+  return (
+    <>
+      {isOwnPost && (
+        <>
+          <button onClick={e => { e.stopPropagation(); onPromote() }} style={itemStyle('#1A9E5F')}>
+            <Megaphone size={size} /> Promote post
+          </button>
+          <button onClick={onPin} style={itemStyle('var(--color-text-primary)')}>
+            {isPinned ? <PinOff size={size} /> : <Pin size={size} />}
+            {isPinned ? 'Unpin from profile' : 'Pin to your profile'}
+          </button>
+        </>
+      )}
+      <button onClick={onBookmark} style={itemStyle('var(--color-text-primary)')}>
+        <Bookmark size={size} fill={bookmarked ? 'var(--color-gold)' : 'none'} color={bookmarked ? 'var(--color-gold)' : 'currentColor'} />
+        {bookmarked ? 'Saved' : 'Save'}
+      </button>
+      <button onClick={onCopyLink} style={itemStyle('var(--color-text-primary)')}>
+        <Link2 size={size} /> Copy link
+      </button>
+      {isOwnPost && (
+        <button onClick={onDelete} style={itemStyle('var(--color-error)')}>
+          <Trash2 size={size} /> Delete post
+        </button>
+      )}
+      <button onClick={onReport} style={itemStyle('var(--color-text-secondary)')}>
+        <Flag size={size} /> Report post
+      </button>
+    </>
+  )
+}
+
 function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false, burst = false }: {
   icon: React.ReactNode; count: number | null; active: boolean; activeColor: string
   onClick: (e: React.MouseEvent) => void; label: string; showZero?: boolean; burst?: boolean
@@ -389,22 +441,16 @@ export function PostActions({
   post,
   currentUserId,
   onReplyClick,
-  onAnalyticsClick,
-  analyticsOpen,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
-  onAnalyticsClick?: () => void
-  analyticsOpen?: boolean
 }) {
   const [, startTransition] = useTransition()
   const [liked, setLiked] = useState(post.is_liked)
   const [likeCount, setLikeCount] = useState(post.likes_count)
   const [reposted, setReposted] = useState(post.is_reposted)
   const [repostCount, setRepostCount] = useState(post.reposts_count)
-  const [bookmarked, setBookmarked] = useState(post.is_bookmarked)
-  const [bookmarkCount, setBookmarkCount] = useState(post.bookmarks_count || 0)
   const [showRepostMenu, setShowRepostMenu] = useState(false)
   const [showQuoteModal, setShowQuoteModal] = useState(false)
   const repostRef = useRef<HTMLDivElement>(null)
@@ -453,22 +499,7 @@ export function PostActions({
     })
   }
 
-  function handleBookmark(e: React.MouseEvent) {
-    e.stopPropagation()
-    const nextBookmarked = !bookmarked
-    setBookmarked(nextBookmarked)
-    setBookmarkCount(c => nextBookmarked ? c + 1 : Math.max(0, c - 1))
-    startTransition(async () => {
-      const r = await toggleBookmarkAction(post.id)
-      if ('error' in r) {
-        setBookmarked(!nextBookmarked)
-        setBookmarkCount(c => nextBookmarked ? Math.max(0, c - 1) : c + 1)
-        toastError('Could not save post. Try again.')
-      } else {
-        success(nextBookmarked ? 'Post saved' : 'Removed from saved')
-      }
-    })
-  }
+
 
   async function handleShare(e: React.MouseEvent) {
     e.stopPropagation()
@@ -480,16 +511,10 @@ export function PostActions({
     } catch { /* user dismissed share sheet */ }
   }
 
-  function handleAnalytics(e: React.MouseEvent) {
-    e.stopPropagation()
-    void recordImpressionAction(post.id)
-    if (onAnalyticsClick) onAnalyticsClick()
-  }
-
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', width: '100%', marginTop: 8 }}>
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
+        <div>
           <ActionBtn
             icon={<MessageCircle size={18} />}
             count={post.comments_count}
@@ -503,7 +528,7 @@ export function PostActions({
           />
         </div>
 
-        <div ref={repostRef} style={{ position: 'relative', flex: 1, display: 'flex', justifyContent: 'center' }}>
+        <div ref={repostRef} style={{ position: 'relative' }}>
           <ActionBtn
             icon={<Repeat2 size={18} />} count={repostCount}
             active={reposted} activeColor="var(--color-brand)"
@@ -513,7 +538,7 @@ export function PostActions({
           {showRepostMenu && (
             <div
               onClick={e => e.stopPropagation()}
-              style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 4, zIndex: 30, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 6, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
+              style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, zIndex: 30, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 6, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
             >
               <button onClick={handleRepost} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: reposted ? 'var(--color-brand)' : 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
                 <Repeat2 size={16} /> {reposted ? 'Undo repost' : 'Repost'}
@@ -525,35 +550,17 @@ export function PostActions({
           )}
         </div>
 
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+        <div>
           <ActionBtn
-            icon={<ThumbsUp size={18} fill={liked ? 'var(--color-brand)' : 'none'} />}
+            icon={<Heart size={18} fill={liked ? 'var(--color-brand)' : 'none'} />}
             count={likeCount} active={liked} activeColor="var(--color-brand)"
             onClick={handleLike} label="Like" burst
           />
         </div>
 
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+        <div>
           <ActionBtn
-            icon={<BarChart2 size={18} />}
-            count={post.impressions_count > 0 ? post.impressions_count : null}
-            active={!!analyticsOpen} activeColor="var(--color-brand)"
-            onClick={handleAnalytics} label="Analytics"
-          />
-        </div>
-
-        {/* Bookmark — hidden for now, preserved for later */}
-        <div style={{ display: 'none' }}>
-          <ActionBtn
-            icon={<Bookmark size={18} fill={bookmarked ? 'var(--color-gold)' : 'none'} />}
-            count={bookmarkCount} active={bookmarked} activeColor="var(--color-gold)"
-            onClick={handleBookmark} label="Save"
-          />
-        </div>
-
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-          <ActionBtn
-            icon={<Share2 size={18} />} count={null}
+            icon={<Send size={17} />} count={null}
             active={false} activeColor="var(--color-brand)"
             onClick={handleShare} label="Share"
           />
@@ -608,7 +615,7 @@ function TruncatedBody({ text, limit = 240 }: { text: string; limit?: number }) 
   )
 }
 
-function RepostCard({ post, currentUserId, onReplyClick, onAnalyticsClick }: { post: FeedPost; currentUserId?: string; onReplyClick?: () => void; onAnalyticsClick?: () => void }) {
+function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; currentUserId?: string; onReplyClick?: () => void }) {
   const router = useRouter()
   const original = post.quoted_post
   if (!original) return null
@@ -617,7 +624,6 @@ function RepostCard({ post, currentUserId, onReplyClick, onAnalyticsClick }: { p
   const originalAsPost: FeedPost = {
     ...(original as any),
     is_liked: (original as any).is_liked ?? false,
-    is_disliked: (original as any).is_disliked ?? false,
     is_reposted: (original as any).is_reposted ?? false,
     is_bookmarked: (original as any).is_bookmarked ?? false,
     impressions_count: (original as any).impressions_count ?? 0,
@@ -690,7 +696,7 @@ function RepostCard({ post, currentUserId, onReplyClick, onAnalyticsClick }: { p
           <MediaRow media={original.media} postId={original.id} post={originalAsPost} />
 
           {/* Action bar on the original post inside repost */}
-          <PostActions post={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} />
+          <PostActions post={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} />
         </div>
       </div>
     </article>
@@ -702,18 +708,17 @@ export default function PostCard({
   post,
   currentUserId,
   onReplyClick,
-  onAnalyticsClick,
-  analyticsOpen,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
-  onAnalyticsClick?: () => void
-  analyticsOpen?: boolean
 }) {
   const [, startTransition] = useTransition()
+  const [bookmarked, setBookmarked] = useState(post.is_bookmarked)
+  const [bookmarkCount, setBookmarkCount] = useState(post.bookmarks_count || 0)
   const [, startPinT]      = useTransition()
   const [showMenu,       setShowMenu]       = useState(false)
+  const [isMobile, setIsMobile] = useState(true)
   const [showPromoteModal, setShowPromoteModal] = useState(false)
   const [deleted,        setDeleted]        = useState(false)
   const [isPinned,       setIsPinned]       = useState(post.is_pinned ?? false)
@@ -725,6 +730,14 @@ export default function PostCard({
   const impressionFired = useRef(false)
 
   const isOwnPost = !!currentUserId && post.author?.id === currentUserId
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    setIsMobile(mq.matches)
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
   const isRepost = post.post_type === 'repost'
 
   // Fire impression once when post is 50% visible for >= 1 second
@@ -753,13 +766,40 @@ export default function PostCard({
   }, [post.id, isRepost, isOwnPost])
 
   if (deleted) return null
-  if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} />
+  if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
 
   function navigate(e: React.MouseEvent) {
     // Prevent navigation when any interactive element is clicked
     const target = e.target as HTMLElement
     if (target.closest('button,a,textarea,input,video,[data-no-nav]')) return
     router.push(`/post/${post.id}`)
+  }
+
+  function handleBookmark(e: React.MouseEvent) {
+    e.stopPropagation()
+    setShowMenu(false)
+    const next = !bookmarked
+    setBookmarked(next)
+    setBookmarkCount(c => next ? c + 1 : Math.max(0, c - 1))
+    startTransition(async () => {
+      const r = await toggleBookmarkAction(post.id)
+      if ('error' in r) {
+        setBookmarked(!next)
+        setBookmarkCount(c => next ? Math.max(0, c - 1) : c + 1)
+        toastError('Could not save post. Try again.')
+      } else {
+        success(next ? 'Post saved' : 'Removed from saved')
+      }
+    })
+  }
+
+  function handleCopyLink(e: React.MouseEvent) {
+    e.stopPropagation()
+    setShowMenu(false)
+    const url = `${window.location.origin}/post/${post.id}`
+    navigator.clipboard.writeText(url)
+      .then(() => success('Link copied'))
+      .catch(() => toastError('Could not copy link.'))
   }
 
   function handleDelete(e: React.MouseEvent) {
@@ -864,42 +904,54 @@ export default function PostCard({
               >
                 <MoreHorizontal size={16} />
               </button>
-              {showMenu && (
+              {showMenu && (isMobile ? (
                 <>
-                  <div onClick={e => { e.stopPropagation(); setShowMenu(false) }} style={{ position: 'fixed', inset: 0, zIndex: 10 }} />
-                  <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 20, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 4, minWidth: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
-                    {isOwnPost && (
-                      <>
-                        <button
-                          onClick={e => { e.stopPropagation(); setShowMenu(false); setShowPromoteModal(true) }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: '#1A9E5F', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
-                        >
-                          <Megaphone size={15} /> Promote post
-                        </button>
-                        <button
-                          onClick={handlePin}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
-                        >
-                          {isPinned ? <PinOff size={15} /> : <Pin size={15} />}
-                          {isPinned ? 'Unpin from profile' : 'Pin to your profile'}
-                        </button>
-                        <button
-                          onClick={handleDelete}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-error)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
-                        >
-                          <Trash2 size={15} /> Delete post
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={e => { e.stopPropagation(); setShowMenu(false); info('Report submitted. Thank you.') }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-secondary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}
-                    >
-                      <Flag size={15} /> Report post
-                    </button>
+                  <div
+                    onClick={e => { e.stopPropagation(); setShowMenu(false) }}
+                    style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.5)' }}
+                  />
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 201,
+                      background: 'var(--color-surface-raised)',
+                      borderTopLeftRadius: 20, borderTopRightRadius: 20,
+                      padding: '10px 8px calc(env(safe-area-inset-bottom, 0px) + 12px)',
+                      boxShadow: '0 -8px 30px rgba(0,0,0,0.4)',
+                      animation: 'sheetUp 0.18s ease-out',
+                    }}
+                  >
+                    <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)', margin: '2px auto 10px' }} />
+                    <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
+                      onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
+                      onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink}
+                      onDelete={handleDelete}
+                      onReport={() => { setShowMenu(false); info('Report submitted. Thank you.') }}
+                      size={18} fontSize={15} gap={12} padding="14px 16px" />
+                  </div>
+                  <style>{`@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+                </>
+              ) : (
+                <>
+                  <div onClick={e => { e.stopPropagation(); setShowMenu(false) }} style={{ position: 'fixed', inset: 0, zIndex: 200 }} />
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 201,
+                      background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)',
+                      borderRadius: 14, padding: 6, minWidth: 210,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                    }}
+                  >
+                    <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
+                      onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
+                      onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink}
+                      onDelete={handleDelete}
+                      onReport={() => { setShowMenu(false); info('Report submitted. Thank you.') }}
+                      size={15} fontSize={14} gap={8} padding="9px 12px" />
                   </div>
                 </>
-              )}
+              ))}
             </div>
           </div>
 
@@ -936,7 +988,7 @@ export default function PostCard({
           <MediaRow media={post.media} postId={post.id} post={post} />
 
           {/* Action bar */}
-          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} onAnalyticsClick={onAnalyticsClick} analyticsOpen={analyticsOpen} />
+          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
 
           {showPromoteModal && (
             <PromoteModal postId={post.id} onClose={() => setShowPromoteModal(false)} />
