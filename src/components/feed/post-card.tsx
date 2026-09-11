@@ -4,7 +4,7 @@
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  MessageCircle, Repeat2, Heart, Send,
+  MessageCircle, Repeat2, Heart, Send, BarChart2,
   Bookmark, MoreHorizontal, Trash2, Quote, Flag, Pin, PinOff, Megaphone, Link2,
   Play, Volume2, VolumeX,
 } from 'lucide-react'
@@ -19,6 +19,8 @@ import {
   recordLinkClickAction,
   recordVideoViewAction,
   recordVideoCompletionAction,
+  recordDetailExpandAction,
+  recordProfileVisitFromPostAction,
   togglePinPostAction,
   checkHasPinnedPostAction,
 } from '@/lib/actions'
@@ -29,13 +31,14 @@ import MediaViewer from '@/components/feed/media-viewer'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
-  name, avatarUrl, size = 42, username, clickable = false,
+  name, avatarUrl, size = 42, username, clickable = false, postId,
 }: {
   name: string
   avatarUrl?: string | null
   size?: number
   username?: string
   clickable?: boolean
+  postId?: string
 }) {
   const router = useRouter()
   const colors = ['#1A7A4A', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A1A4A', '#4A7A1A']
@@ -44,7 +47,11 @@ function Avatar({
     <div
       onClick={
         clickable && username
-          ? e => { e.stopPropagation(); router.push(`/user/${username}`) }
+          ? e => {
+              e.stopPropagation()
+              if (postId) void recordProfileVisitFromPostAction(postId)
+              router.push(`/user/${username}`)
+            }
           : undefined
       }
       style={{
@@ -322,12 +329,13 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
 // and a compact anchored popup on desktop (same items, different container).
 function MenuItems({
   isOwnPost, bookmarked, isPinned,
-  onPromote, onPin, onBookmark, onCopyLink, onDelete, onReport,
+  onPromote, onPin, onBookmark, onCopyLink, onShare, onDelete, onReport,
   size, fontSize, gap, padding,
 }: {
   isOwnPost: boolean; bookmarked: boolean; isPinned: boolean
   onPromote: () => void; onPin: (e: React.MouseEvent) => void
   onBookmark: (e: React.MouseEvent) => void; onCopyLink: (e: React.MouseEvent) => void
+  onShare: (e: React.MouseEvent) => void
   onDelete: (e: React.MouseEvent) => void; onReport: (e: React.MouseEvent) => void
   size: number; fontSize: number; gap: number; padding: string
 }) {
@@ -357,6 +365,9 @@ function MenuItems({
       </button>
       <button onClick={onCopyLink} style={itemStyle('var(--color-text-primary)')}>
         <Link2 size={size} /> Copy link
+      </button>
+      <button onClick={onShare} style={itemStyle('var(--color-text-primary)')}>
+        <Send size={size} /> Share
       </button>
       {isOwnPost && (
         <button onClick={onDelete} style={itemStyle('var(--color-error)')}>
@@ -501,16 +512,6 @@ export function PostActions({
 
 
 
-  async function handleShare(e: React.MouseEvent) {
-    e.stopPropagation()
-    e.preventDefault()
-    const url = `${window.location.origin}/post/${post.id}`
-    try {
-      if (navigator.share) await navigator.share({ title: post.author?.display_name, text: post.body || '', url })
-      else { await navigator.clipboard.writeText(url); success('Link copied to clipboard') }
-    } catch { /* user dismissed share sheet */ }
-  }
-
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
@@ -560,9 +561,11 @@ export function PostActions({
 
         <div>
           <ActionBtn
-            icon={<Send size={17} />} count={null}
+            icon={<BarChart2 size={17} />}
+            count={post.impressions_count > 0 ? post.impressions_count : null}
             active={false} activeColor="var(--color-brand)"
-            onClick={handleShare} label="Share"
+            onClick={e => { e.stopPropagation(); router.push(`/post/${post.id}/activity`) }}
+            label="Impressions"
           />
         </div>
       </div>
@@ -573,7 +576,7 @@ export function PostActions({
 }
 
 // ── RepostCard ────────────────────────────────────────────────────────────────
-function TruncatedBody({ text, limit = 240 }: { text: string; limit?: number }) {
+function TruncatedBody({ text, limit = 240, postId }: { text: string; limit?: number; postId: string }) {
   const [expanded, setExpanded] = useState(false)
   const needsTruncation = text.length > limit
 
@@ -606,7 +609,11 @@ function TruncatedBody({ text, limit = 240 }: { text: string; limit?: number }) 
       {truncated}
       {'... '}
       <span
-        onClick={e => { e.stopPropagation(); setExpanded(true) }}
+        onClick={e => {
+          e.stopPropagation()
+          setExpanded(true)
+          void recordDetailExpandAction(postId)
+        }}
         style={{ color: 'var(--color-brand)', cursor: 'pointer', fontWeight: 600 }}
       >
         Read more
@@ -670,11 +677,11 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
 
       {/* Original post content */}
       <div style={{ display: 'flex', gap: 12 }}>
-        <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable size={42} />
+        <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable size={42} postId={original.id} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
             <span
-              onClick={e => { e.stopPropagation(); router.push(`/user/${original.author.username}`) }}
+              onClick={e => { e.stopPropagation(); void recordProfileVisitFromPostAction(original.id); router.push(`/user/${original.author.username}`) }}
               style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
               onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
               onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
@@ -802,6 +809,16 @@ export default function PostCard({
       .catch(() => toastError('Could not copy link.'))
   }
 
+  async function handleShare(e: React.MouseEvent) {
+    e.stopPropagation()
+    setShowMenu(false)
+    const url = `${window.location.origin}/post/${post.id}`
+    try {
+      if (navigator.share) await navigator.share({ title: post.author?.display_name, text: post.body || '', url })
+      else { await navigator.clipboard.writeText(url); success('Link copied to clipboard') }
+    } catch { /* user dismissed share sheet */ }
+  }
+
   function handleDelete(e: React.MouseEvent) {
     e.stopPropagation()
     setShowMenu(false)
@@ -866,7 +883,7 @@ export default function PostCard({
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
       >
-        <Avatar name={author?.display_name || 'S'} avatarUrl={author?.avatar_url} username={author?.username} clickable />
+        <Avatar name={author?.display_name || 'S'} avatarUrl={author?.avatar_url} username={author?.username} clickable postId={post.id} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Pinned badge */}
@@ -880,7 +897,7 @@ export default function PostCard({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
               <span
-                onClick={e => { e.stopPropagation(); author?.username && router.push(`/user/${author.username}`) }}
+                onClick={e => { e.stopPropagation(); if (author?.username) { void recordProfileVisitFromPostAction(post.id); router.push(`/user/${author.username}`) } }}
                 style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
                 onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
                 onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
@@ -924,7 +941,7 @@ export default function PostCard({
                     <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)', margin: '2px auto 10px' }} />
                     <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
                       onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
-                      onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink}
+                      onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
                       onDelete={handleDelete}
                       onReport={() => { setShowMenu(false); info('Report submitted. Thank you.') }}
                       size={18} fontSize={15} gap={12} padding="14px 16px" />
@@ -945,7 +962,7 @@ export default function PostCard({
                   >
                     <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
                       onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
-                      onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink}
+                      onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
                       onDelete={handleDelete}
                       onReport={() => { setShowMenu(false); info('Report submitted. Thank you.') }}
                       size={15} fontSize={14} gap={8} padding="9px 12px" />
@@ -958,7 +975,7 @@ export default function PostCard({
           {/* Body */}
           {post.body?.trim() && (
             <div style={{ marginBottom: (post.media?.length || post.quoted_post) ? 12 : 10 }}>
-              <TruncatedBody text={post.body} />
+              <TruncatedBody text={post.body} postId={post.id} />
             </div>
           )}
 
