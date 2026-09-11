@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/server'
 const POST_SELECT = `
   id, body, post_type, likes_count, comments_count, reposts_count,
   bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+  is_pinned, quoted_post_id,
   author:users!posts_user_id_fkey(
     id, username, display_name, avatar_url, verification_tier, is_monetised
   ),

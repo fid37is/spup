@@ -11,6 +11,7 @@ import { formatNumber } from '@/lib/utils'
 const POST_SELECT = `
   id, body, post_type, likes_count, comments_count, reposts_count,
   bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
+  is_pinned, quoted_post_id,
   author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, is_monetised),
   media:post_media(id, media_type, url, thumbnail_url, width, height, position)
 `
@@ -149,18 +150,6 @@ export default async function PostDetailPage({
         )}
       </div>
 
-      {/* Engagement totals row */}
-      {(post.reposts_count > 0 || post.likes_count > 0 || post.bookmarks_count > 0) && (
-        <div style={{
-          display: 'flex', gap: 20, padding: '12px 20px',
-          borderBottom: '1px solid var(--color-border)', flexWrap: 'wrap',
-        }}>
-          {post.reposts_count > 0 && <StatPill value={post.reposts_count} label="Reposts" />}
-          {post.likes_count > 0 && <StatPill value={post.likes_count} label="Likes" />}
-          {post.bookmarks_count > 0 && <StatPill value={post.bookmarks_count} label="Bookmarks" />}
-        </div>
-      )}
-
       {/* Reply sort + view activity — only shown once there's something to sort/view */}
       {(replies.length > 0 || post.likes_count > 0 || post.reposts_count > 0) && (
         <div style={{
@@ -223,15 +212,5 @@ export default async function PostDetailPage({
         ))
       )}
     </div>
-  )
-}
-
-function StatPill({ value, label }: { value: number; label: string }) {
-  return (
-    <span style={{ fontSize: 15, color: 'var(--color-text-secondary)' }}>
-      <strong style={{ color: 'var(--color-text-primary)', fontFamily: "'Syne', sans-serif" }}>
-        {formatNumber(value)}
-      </strong>{' '}{label}
-    </span>
   )
 }
