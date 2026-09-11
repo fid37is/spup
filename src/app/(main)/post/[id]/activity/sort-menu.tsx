@@ -4,13 +4,13 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, Check } from 'lucide-react'
 
-export default function SortMenu({ postId, currentSort }: { postId: string; currentSort: 'recent' | 'top' }) {
+export default function SortMenu({ postId, currentSort, tab }: { postId: string; currentSort: 'recent' | 'top'; tab: 'likes' | 'quotes' }) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
 
   function select(sort: 'recent' | 'top') {
     setOpen(false)
-    router.push(`/post/${postId}/activity?sort=${sort}`)
+    router.push(`/post/${postId}/activity?tab=${tab}&sort=${sort}`)
   }
 
   return (

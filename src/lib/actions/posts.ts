@@ -240,6 +240,15 @@ export async function recordVideoCompletionAction(postId: string) {
   void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'video_completions_count', p_id: postId, p_amount: 1 })
 }
 
+// ── Profile visit tracking ────────────────────────────────────────────────────
+// Fires when a viewer clicks the author's avatar/name from a specific post —
+// attributes the resulting profile visit back to that post for analytics.
+export async function recordProfileVisitFromPostAction(postId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'profile_visits_count', p_id: postId, p_amount: 1 })
+}
+
 async function notifyPostAuthor(
   supabase: Awaited<ReturnType<typeof createClient>>,
   postId: string, actorId: string,
@@ -255,8 +264,10 @@ export async function getPostAnalyticsAction(postId: string) {
     .from('posts')
     .select(`
       id, body, created_at,
-      likes_count, comments_count,
-      reposts_count, bookmarks_count, impressions_count,
+      likes_count, comments_count, reposts_count, quotes_count,
+      bookmarks_count, impressions_count,
+      video_views_count, video_completions_count,
+      link_clicks_count, detail_expands_count, profile_visits_count,
       author:users!posts_user_id_fkey(id, auth_id, display_name, username, avatar_url)
     `)
     .eq('id', postId)
@@ -270,7 +281,14 @@ export async function getPostAnalyticsAction(postId: string) {
   if (!user) return { error: 'Not authenticated' }
   if ((post.author as any)?.auth_id !== user.id) return { error: 'Not authorized' }
 
-  return { data: post }
+  // "Engagements" — total interactions, mirroring how X/Twitter defines it:
+  // every distinct action a viewer took on the post, not just likes/replies.
+  const engagements_count =
+    post.likes_count + post.comments_count + post.reposts_count + post.quotes_count +
+    post.bookmarks_count + post.link_clicks_count + post.detail_expands_count +
+    post.profile_visits_count
+
+  return { data: { ...post, engagements_count } }
 }
 export async function togglePinPostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
