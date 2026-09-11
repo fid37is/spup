@@ -6,7 +6,6 @@ import PostCard from '@/components/feed/post-card'
 import ReplyComposer from './reply-composer'
 import ReplyToReply from './reply-to-reply'
 import ReplySortMenu from './reply-sort-menu'
-import { formatNumber } from '@/lib/utils'
 
 const POST_SELECT = `
   id, body, post_type, likes_count, comments_count, reposts_count,
@@ -107,11 +106,6 @@ export default async function PostDetailPage({
   const viewerAvatar = viewer?.avatar_url ?? null
   const viewerUserId = viewer?.id ?? undefined
 
-  const date = new Date(post.created_at).toLocaleString('en-NG', {
-    hour: '2-digit', minute: '2-digit',
-    day: 'numeric', month: 'short', year: 'numeric',
-  })
-
   return (
     <div style={{ paddingBottom: 80 }}>
       {/* Header */}
@@ -131,24 +125,6 @@ export default async function PostDetailPage({
 
       {/* Main post */}
       <PostCard post={post} currentUserId={viewerUserId} />
-
-      {/* Timestamp + views */}
-      <div style={{
-        padding: '10px 20px 12px',
-        borderBottom: '1px solid var(--color-border)',
-        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-      }}>
-        <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>{date}</span>
-        {post.impressions_count > 0 && (
-          <>
-            <span style={{ color: 'var(--color-border-light)' }}>·</span>
-            <span style={{ fontSize: 14, color: 'var(--color-text-primary)', fontWeight: 600 }}>
-              {formatNumber(post.impressions_count)}
-            </span>
-            <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>Views</span>
-          </>
-        )}
-      </div>
 
       {/* Reply sort + view activity — only shown once there's something to sort/view */}
       {(replies.length > 0 || post.likes_count > 0 || post.reposts_count > 0) && (

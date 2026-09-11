@@ -45,6 +45,7 @@ export async function getUserPosts(userId: string, limit = 20) {
     .eq('user_id', userId)
     .is('deleted_at', null)
     .is('parent_post_id', null)
+    .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit)
 
