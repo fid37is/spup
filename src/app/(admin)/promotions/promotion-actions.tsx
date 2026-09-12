@@ -1,36 +1,44 @@
-// src/app/(admin)/dashboard/promotions/promotion-actions.tsx
+// src/app/(admin)/promotions/promotion-actions.tsx
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { adminCancelPromotionAction } from '@/lib/actions/admin'
 
 export default function PromotionActions({ promotionId }: { promotionId: string }) {
   const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const router = useRouter()
 
   function cancel() {
+    setError(null)
     startTransition(async () => {
-      await adminCancelPromotionAction(promotionId, 'Cancelled by admin')
-      window.location.reload()
+      const result = await adminCancelPromotionAction(promotionId, 'Cancelled by admin')
+      if (result?.error) { setError(result.error); return }
+      router.refresh()
     })
   }
 
   if (confirming) {
     return (
-      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-        <button
-          onClick={cancel}
-          disabled={isPending}
-          style={{ background: '#E53935', color: '#fff', border: 'none', borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-        >
-          {isPending ? '…' : 'Confirm'}
-        </button>
-        <button
-          onClick={() => setConfirming(false)}
-          style={{ background: 'transparent', color: '#6A6A60', border: '1px solid #2A2A30', borderRadius: 7, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}
-        >
-          Cancel
-        </button>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex justify-end gap-1.5">
+          <button
+            onClick={cancel}
+            disabled={isPending}
+            className="rounded-[7px] bg-error px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+          >
+            {isPending ? '…' : 'Confirm'}
+          </button>
+          <button
+            onClick={() => { setConfirming(false); setError(null) }}
+            className="rounded-[7px] border border-[#2A2A30] bg-transparent px-3 py-1.5 text-xs text-secondary"
+          >
+            Cancel
+          </button>
+        </div>
+        {error && <span className="text-[11px] text-error">{error}</span>}
       </div>
     )
   }
@@ -38,7 +46,7 @@ export default function PromotionActions({ promotionId }: { promotionId: string 
   return (
     <button
       onClick={() => setConfirming(true)}
-      style={{ background: 'transparent', border: '1px solid rgba(229,57,53,0.25)', color: '#E53935', borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+      className="rounded-[7px] border border-error/25 bg-transparent px-3 py-1.5 text-xs font-semibold text-error"
     >
       Stop promotion
     </button>

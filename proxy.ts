@@ -1,10 +1,9 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { authCookieOptions } from '@/lib/supabase/cookie-options'
 
 const PROTECTED_ROUTES = ['/feed', '/profile', '/notifications', '/messages', '/settings', '/onboarding', '/wallet', '/explore']
 const AUTH_ROUTES = ['/login', '/signup', '/verify-otp', '/forgot-password']
-const isProd = process.env.NODE_ENV === 'production'
-const cookieDomain = isProd ? '.spup.live' : '.localhost'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -22,13 +21,7 @@ export async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookieOptions: {
-        domain: cookieDomain,
-        sameSite: 'lax',
-        secure: isProd,
-        path: '/',
-        maxAge: 60 * 60 * 24 * 30, // 30 days — see server.ts for rationale
-      },
+      cookieOptions: authCookieOptions,
       cookies: {
         getAll() {
           return request.cookies.getAll()

@@ -1,15 +1,16 @@
 // src/components/admin/admin-nav.tsx
 'use client'
 
+import { useEffect, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, FileText, Megaphone,
   Flag, ShieldAlert, LogOut, Activity, Radio,
-  Wallet, BadgeCheck, UserPlus,
+  Wallet, BadgeCheck, UserPlus, Menu, X,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
-import { useTransition } from 'react'
+import { cn } from '@/lib/utils'
 
 // NOTE: these hrefs are intentionally NOT prefixed with /dashboard.
 // proxy.ts rewrites every request on the admin.* subdomain to /dashboard/*
@@ -60,81 +61,157 @@ const NAV_GROUPS = [
   },
 ]
 
-export default function AdminNav({ profile }: { profile: { role: string; display_name: string; username: string } }) {
-  const pathname = usePathname()
+type Profile = { role: string; display_name: string; username: string }
+
+function RoleBadge({ role }: { role: string }) {
+  const isAdmin = role === 'admin'
+  return (
+    <span
+      className={cn(
+        'inline-block rounded-md border px-2 py-0.5 text-[11px] font-bold tracking-wide',
+        isAdmin
+          ? 'bg-error/10 border-error/25 text-error'
+          : 'bg-gold/10 border-gold/25 text-gold'
+      )}
+    >
+      {role.toUpperCase()}
+    </span>
+  )
+}
+
+function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  return (
+    <nav className="flex-1">
+      {NAV_GROUPS.map(group => (
+        <div key={group.label} className="mb-[18px]">
+          <div className="px-3 pb-1.5 text-[10px] font-bold tracking-[0.08em] text-faint">
+            {group.label.toUpperCase()}
+          </div>
+          {group.items.map(({ href, icon: Icon, label }) => {
+            const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+            return (
+              <Link key={href} href={href} onClick={onNavigate} className="block no-underline">
+                <div
+                  className={cn(
+                    'mb-0.5 flex items-center gap-3 rounded-btn px-3 py-2.5 transition-colors',
+                    isActive ? 'bg-brand-muted text-brand' : 'text-secondary'
+                  )}
+                >
+                  <Icon size={18} strokeWidth={isActive ? 2.5 : 1.8} />
+                  <span className={cn('font-display text-[13.5px]', isActive ? 'font-bold' : 'font-medium')}>
+                    {label}
+                  </span>
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+      ))}
+    </nav>
+  )
+}
+
+function ProfileFooter({ profile }: { profile: Profile }) {
   const [, startTransition] = useTransition()
+  return (
+    <div className="border-t border-border px-0 pb-4 pt-3">
+      <div className="mb-1 px-3 py-2">
+        <div className="font-display text-[13px] font-semibold text-primary">{profile.display_name}</div>
+        <div className="text-[11px] text-faint">@{profile.username}</div>
+      </div>
+      <button
+        onClick={() => startTransition(() => signOutAction())}
+        className="flex w-full items-center gap-2.5 rounded-btn px-3 py-2.5 text-[14px] text-secondary transition-colors hover:text-primary"
+      >
+        <LogOut size={16} /> Sign out
+      </button>
+    </div>
+  )
+}
+
+export default function AdminNav({ profile }: { profile: Profile }) {
+  const pathname = usePathname()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  // Close the drawer whenever the route changes
+  useEffect(() => { setDrawerOpen(false) }, [pathname])
 
   return (
-    <aside style={{
-      width: 232, flexShrink: 0, position: 'sticky', top: 0, height: '100dvh',
-      borderRight: '1px solid #1E1E26', padding: '0 12px',
-      display: 'flex', flexDirection: 'column', overflowY: 'auto',
-    }}>
-      {/* Logo + role badge */}
-      <div style={{ padding: '18px 10px 20px' }}>
-        <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#1A9E5F', letterSpacing: '-0.02em' }}>
-          Spup
-        </div>
-        <div style={{
-          marginTop: 6, display: 'inline-block',
-          background: profile.role === 'admin' ? 'rgba(229,57,53,0.12)' : 'rgba(212,160,23,0.12)',
-          border: `1px solid ${profile.role === 'admin' ? 'rgba(229,57,53,0.25)' : 'rgba(212,160,23,0.25)'}`,
-          borderRadius: 6, padding: '2px 8px',
-          fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
-          color: profile.role === 'admin' ? '#E53935' : '#D4A017',
-        }}>
-          {profile.role.toUpperCase()}
-        </div>
-      </div>
-
-      <nav style={{ flex: 1 }}>
-        {NAV_GROUPS.map(group => (
-          <div key={group.label} style={{ marginBottom: 18 }}>
-            <div style={{ padding: '0 12px 6px', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#33333A' }}>
-              {group.label.toUpperCase()}
-            </div>
-            {group.items.map(({ href, icon: Icon, label }) => {
-              const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
-              return (
-                <Link key={href} href={href} style={{ textDecoration: 'none', display: 'block' }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '9px 12px', borderRadius: 10, marginBottom: 2,
-                    background: isActive ? 'rgba(26,158,95,0.1)' : 'transparent',
-                    color: isActive ? '#1A9E5F' : '#6A6A60',
-                    transition: 'background 0.12s, color 0.12s',
-                  }}>
-                    <Icon size={17} strokeWidth={isActive ? 2.5 : 1.8} />
-                    <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: isActive ? 700 : 500, fontSize: 13.5 }}>
-                      {label}
-                    </span>
-                  </div>
-                </Link>
-              )
-            })}
-          </div>
-        ))}
-      </nav>
-
-      {/* Profile + sign out */}
-      <div style={{ padding: '12px 0 16px', borderTop: '1px solid #1E1E26' }}>
-        <div style={{ padding: '8px 12px', marginBottom: 4 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif" }}>{profile.display_name}</div>
-          <div style={{ fontSize: 11, color: '#44444A' }}>@{profile.username}</div>
-        </div>
+    <>
+      {/* Mobile top bar (below md) */}
+      <div className="sticky top-0 z-[50] flex h-14 items-center gap-3 border-b border-border bg-bg/95 px-4 backdrop-blur-lg md:hidden">
         <button
-          onClick={() => startTransition(() => signOutAction())}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            width: '100%', padding: '9px 12px', background: 'none', border: 'none',
-            borderRadius: 10, cursor: 'pointer', color: '#6A6A60',
-            fontSize: 14, fontFamily: "'DM Sans', sans-serif",
-            transition: 'color 0.12s',
-          }}
+          onClick={() => setDrawerOpen(true)}
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-primary"
+          aria-label="Open menu"
         >
-          <LogOut size={16} /> Sign out
+          <Menu size={22} />
         </button>
+        <span className="font-display text-lg font-extrabold tracking-tight text-brand">Spup Admin</span>
+        <div className="ml-auto">
+          <RoleBadge role={profile.role} />
+        </div>
       </div>
-    </aside>
+
+      {/*
+        Rendered inline, NOT via createPortal(..., document.body) — globals.css
+        has `body > * { position: relative; z-index: 1; }` to keep page
+        content above a decorative background grid. That rule was overriding
+        `fixed` on anything portaled directly into body (unlayered CSS always
+        beats Tailwind's layered utilities), which is why this was rendering
+        in normal document flow instead of as an overlay. Nothing in this
+        layout clips overflow, so `fixed` positions correctly from here
+        without needing to escape into body at all. */}
+      <div
+        onClick={() => setDrawerOpen(false)}
+        className={cn(
+          'fixed inset-0 z-[300] bg-black/55 transition-opacity duration-200 md:hidden',
+          drawerOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+        )}
+      />
+      <div
+        className={cn(
+          'fixed inset-y-0 left-0 z-[310] flex w-[80vw] max-w-[280px] flex-col md:hidden',
+          'border-r border-border bg-bg pb-[env(safe-area-inset-bottom)] transition-transform duration-300 ease-out',
+          drawerOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+      >
+        <div className="flex flex-shrink-0 items-center justify-between px-4 pb-3 pt-4">
+          <div className="flex items-center gap-2">
+            <span className="font-display text-xl font-extrabold tracking-tight text-brand">Spup</span>
+            <RoleBadge role={profile.role} />
+          </div>
+          <button
+            onClick={() => setDrawerOpen(false)}
+            className="rounded-lg p-1.5 text-secondary"
+            aria-label="Close menu"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2">
+          <NavLinks pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
+        </div>
+        <div className="flex-shrink-0">
+          <ProfileFooter profile={profile} />
+        </div>
+      </div>
+
+      {/* Desktop sidebar (md and up) */}
+      <aside className="sticky top-0 hidden h-dvh w-[232px] flex-shrink-0 flex-col border-r border-border px-3 md:flex">
+        <div className="flex-shrink-0 px-2.5 pb-5 pt-[18px]">
+          <div className="font-display text-[22px] font-extrabold tracking-tight text-brand">Spup</div>
+          <div className="mt-1.5">
+            <RoleBadge role={profile.role} />
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <NavLinks pathname={pathname} />
+        </div>
+        <div className="flex-shrink-0">
+          <ProfileFooter profile={profile} />
+        </div>
+      </aside>
+    </>
   )
 }

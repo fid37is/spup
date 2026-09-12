@@ -21,7 +21,7 @@ async function getActivityFeed(): Promise<FeedEvent[]> {
 
   const [{ data: signups }, { data: posts }, { data: txns }, { data: promos }, { data: reports }] = await Promise.all([
     admin.from('users').select('id, username, display_name, created_at').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
-    admin.from('posts').select('id, body, created_at, author:users!posts_user_id_fkey(username)').is('deleted_at', null).order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
+    admin.from('posts').select('id, body, post_type, created_at, author:users!posts_user_id_fkey(username)').is('deleted_at', null).order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('transactions').select('id, type, amount_kobo, status, created_at, wallet:wallets(user:users(username))').eq('status', 'completed').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('post_promotions').select('id, tier, price_kobo, status, created_at, user:users(username)').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('reports').select('id, reason, entity_type, created_at, reporter:users!reports_reporter_id_fkey(username)').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
@@ -33,7 +33,18 @@ async function getActivityFeed(): Promise<FeedEvent[]> {
     events.push({ id: `signup-${u.id}`, type: 'signup', created_at: u.created_at, actor: `@${u.username}`, detail: `joined Spup as ${u.display_name}`, color: '#378ADD', icon: UserPlus })
   }
   for (const p of (posts || []) as any[]) {
-    events.push({ id: `post-${p.id}`, type: 'post', created_at: p.created_at, actor: `@${p.author?.username || 'unknown'}`, detail: `posted: "${(p.body || '').slice(0, 60)}${(p.body || '').length > 60 ? '…' : ''}"`, color: '#8A8A85', icon: FileText })
+    // Reposts intentionally carry no body text (they're a pointer to the
+    // original post via quoted_post_id) — rendering them through the same
+    // `posted: "..."` template as original posts made every repost look
+    // like an empty post in this feed. Label by post_type instead.
+    const bodyPreview = `"${(p.body || '').slice(0, 60)}${(p.body || '').length > 60 ? '…' : ''}"`
+    const detail =
+      p.post_type === 'repost' ? 'reposted a post' :
+      p.post_type === 'quote'  ? `quoted a post: ${bodyPreview}` :
+      p.post_type === 'reply'  ? `replied: ${bodyPreview}` :
+      `posted: ${bodyPreview}`
+
+    events.push({ id: `post-${p.id}`, type: 'post', created_at: p.created_at, actor: `@${p.author?.username || 'unknown'}`, detail, color: '#8A8A85', icon: FileText })
   }
   for (const t of (txns || []) as any[]) {
     const label = t.type.replace(/_/g, ' ')

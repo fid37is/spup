@@ -1,11 +1,11 @@
 // src/app/(admin)/promotions/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatNaira, formatNumber, formatRelativeTime } from '@/lib/utils'
-import { Megaphone, TrendingUp, Wallet, Eye } from 'lucide-react'
+import { Megaphone, TrendingUp, Eye } from 'lucide-react'
 import Link from 'next/link'
 import { StatCard } from '@/components/admin/stat-card'
 import { StatusBadge } from '@/components/admin/status-badge'
-import { DataTable, Column } from '@/components/admin/data-table'
+import { DataTable, type Column } from '@/components/admin/data-table'
 import PromotionActions from './promotion-actions'
 
 interface SearchParams { status?: string }
@@ -89,22 +89,20 @@ export default async function AdminPromotionsPage({ searchParams }: { searchPara
     {
       key: 'post', header: 'Post', width: '32%',
       render: r => (
-        <Link href={`/promotions/${r.id}`} style={{ textDecoration: 'none' }}>
-          <div style={{ fontSize: 13, color: '#F0F0EC', marginBottom: 2, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <Link href={`/promotions/${r.id}`} className="block no-underline">
+          <div className="mb-0.5 max-w-[320px] truncate text-[13px] text-primary">
             {r.post?.body || '(no text)'}
           </div>
-          <div style={{ fontSize: 12, color: '#44444A' }}>
-            @{r.user?.username || 'unknown'}
-          </div>
+          <div className="text-xs text-faint">@{r.user?.username || 'unknown'}</div>
         </Link>
       ),
     },
-    { key: 'tier', header: 'Tier', render: r => <span style={{ fontSize: 13, color: '#8A8A85', textTransform: 'capitalize' }}>{r.tier}</span> },
-    { key: 'price', header: 'Price', align: 'right', render: r => <span style={{ fontSize: 13, fontWeight: 700, color: '#1A9E5F', fontFamily: "'Syne', sans-serif" }}>{formatNaira(r.price_kobo)}</span> },
-    { key: 'impressions', header: 'Impressions', align: 'right', render: r => <span style={{ fontSize: 13, color: '#D0D0C8' }}>{formatNumber(r.impressions_count)}</span> },
-    { key: 'clicks', header: 'Clicks', align: 'right', render: r => <span style={{ fontSize: 13, color: '#D0D0C8' }}>{formatNumber(r.clicks_count)}</span> },
+    { key: 'tier', header: 'Tier', mobileHidden: true, render: r => <span className="text-[13px] capitalize text-secondary">{r.tier}</span> },
+    { key: 'price', header: 'Price', align: 'right', render: r => <span className="font-display text-[13px] font-bold text-brand">{formatNaira(r.price_kobo)}</span> },
+    { key: 'impressions', header: 'Impressions', align: 'right', mobileHidden: true, render: r => <span className="text-[13px] text-[#D0D0C8]">{formatNumber(r.impressions_count)}</span> },
+    { key: 'clicks', header: 'Clicks', align: 'right', render: r => <span className="text-[13px] text-[#D0D0C8]">{formatNumber(r.clicks_count)}</span> },
     { key: 'status', header: 'Status', render: r => <StatusBadge status={r.status} /> },
-    { key: 'ends', header: 'Ends', render: r => <span style={{ fontSize: 12, color: '#44444A' }}>{r.ends_at ? formatRelativeTime(r.ends_at) : '—'}</span> },
+    { key: 'ends', header: 'Ends', mobileHidden: true, render: r => <span className="text-xs text-faint">{r.ends_at ? formatRelativeTime(r.ends_at) : '—'}</span> },
     {
       key: 'actions', header: '', align: 'right',
       render: r => r.status === 'active' ? <PromotionActions promotionId={r.id} /> : null,
@@ -112,38 +110,36 @@ export default async function AdminPromotionsPage({ searchParams }: { searchPara
   ]
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Promotions</h1>
-        <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>Users paying to boost their own posts</p>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Promotions</h1>
+        <p className="mt-0.5 text-sm text-faint">Users paying to boost their own posts</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 28 }}>
+      <div className="mb-7 grid grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3.5">
         <StatCard icon={Megaphone} label="Currently active" value={formatNumber(summary.activeCount)} />
         <StatCard icon={TrendingUp} label="Revenue this month" value={formatNaira(summary.revenueThisMonth)} color="#1A9E5F" />
         <StatCard icon={Eye} label="Total impressions served" value={formatNumber(summary.totalImpressions)} color="#378ADD" />
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #1E1E26' }}>
+      <div className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {TABS.map(tab => (
-          <a
+          <Link
             key={tab.key}
             href={`?status=${tab.key}`}
+            className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 font-display text-[13px] font-semibold no-underline sm:px-4"
             style={{
-              padding: '10px 16px', textDecoration: 'none', fontSize: 13,
-              fontFamily: "'Syne', sans-serif", fontWeight: 600,
-              color: activeStatus === tab.key ? '#F0F0EC' : '#44444A',
-              borderBottom: activeStatus === tab.key ? '2px solid #1A9E5F' : '2px solid transparent',
-              display: 'flex', alignItems: 'center', gap: 6,
+              color: activeStatus === tab.key ? 'var(--color-text-primary)' : 'var(--color-text-faint)',
+              borderBottomColor: activeStatus === tab.key ? 'var(--color-brand)' : 'transparent',
             }}
           >
             {tab.label}
             {counts[tab.key] > 0 && (
-              <span style={{ background: '#1E1E26', color: '#6A6A60', fontSize: 10, fontWeight: 800, borderRadius: 8, padding: '1px 6px' }}>
+              <span className="rounded-lg bg-[color:var(--color-surface-3)] px-1.5 py-0.5 text-[10px] font-extrabold text-secondary">
                 {counts[tab.key]}
               </span>
             )}
-          </a>
+          </Link>
         ))}
       </div>
 

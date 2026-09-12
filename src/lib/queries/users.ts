@@ -6,6 +6,7 @@
  */
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { sanitizeFilterTerm } from '@/lib/utils'
 
 // ─── Profile by username ──────────────────────────────────────────────────────
 
@@ -97,10 +98,11 @@ export async function getFollowing(userId: string, limit = 50) {
 
 export async function searchUsers(query: string, limit = 20) {
   const supabase = await createClient()
+  const term = sanitizeFilterTerm(query)
   const { data } = await supabase
     .from('users')
     .select('id, username, display_name, avatar_url, verification_tier, followers_count, bio')
-    .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
+    .or(`username.ilike.%${term}%,display_name.ilike.%${term}%`)
     .is('deleted_at', null)
     .neq('status', 'banned')
     .order('followers_count', { ascending: false })

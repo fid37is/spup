@@ -1,9 +1,23 @@
-// src/app/(admin)/admin/waitlist/page.tsx
+// src/app/(admin)/waitlist/page.tsx
+import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatRelativeTime } from '@/lib/utils'
 import WaitlistInviteButton from './invite-button'
+import { DataTable, type Column } from '@/components/admin/data-table'
 
 interface SearchParams { status?: string }
+
+type WaitlistRow = {
+  id: string
+  full_name: string
+  phone: string | null
+  email: string | null
+  referrer: string | null
+  position: number
+  status: string
+  created_at: string
+  invited_at: string | null
+}
 
 async function getWaitlist(params: SearchParams) {
   const admin = createAdminClient()
@@ -16,7 +30,7 @@ async function getWaitlist(params: SearchParams) {
     .order('position', { ascending: true })
     .limit(100)
 
-  return { entries: data || [], total: count || 0 }
+  return { entries: (data || []) as WaitlistRow[], total: count || 0 }
 }
 
 async function getWaitlistCounts() {
@@ -31,7 +45,7 @@ async function getWaitlistCounts() {
 
 export default async function AdminWaitlistPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams
-  const [{ entries, total }, counts] = await Promise.all([getWaitlist(params), getWaitlistCounts()])
+  const [{ entries }, counts] = await Promise.all([getWaitlist(params), getWaitlistCounts()])
   const activeStatus = params.status || 'waiting'
 
   const TABS = [
@@ -40,93 +54,81 @@ export default async function AdminWaitlistPage({ searchParams }: { searchParams
     { key: 'joined',   label: 'Joined',   count: counts.joined },
   ]
 
+  const columns: Column<WaitlistRow>[] = [
+    {
+      key: 'name', header: 'Name',
+      render: e => (
+        <div>
+          <div className="font-display text-[13px] font-semibold text-primary">{e.full_name}</div>
+          <div className="text-xs text-faint">#{e.position}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'contact', header: 'Contact', mobileHidden: true,
+      render: e => (
+        <div>
+          <div className="text-[13px] text-secondary">{e.phone || e.email || '—'}</div>
+          {e.phone && e.email && <div className="text-[11px] text-faint">{e.email}</div>}
+        </div>
+      ),
+    },
+    { key: 'referrer', header: 'Referrer', mobileHidden: true, render: e => <span className="text-xs text-faint">{e.referrer || '—'}</span> },
+    { key: 'signed_up', header: 'Signed up', mobileHidden: true, render: e => <span className="text-xs text-faint">{formatRelativeTime(e.created_at)}</span> },
+    {
+      key: 'actions', header: 'Actions', align: 'right',
+      render: e => (
+        <>
+          {e.status === 'waiting' && <WaitlistInviteButton waitlistId={e.id} name={e.full_name} />}
+          {e.status === 'invited' && <span className="text-xs text-[#378ADD]">Invited {e.invited_at ? formatRelativeTime(e.invited_at) : ''}</span>}
+          {e.status === 'joined' && <span className="text-xs text-brand">✓ Joined</span>}
+        </>
+      ),
+    },
+  ]
+
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Waitlist</h1>
-        <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>
-          {counts.waiting + counts.invited + counts.joined} total signups
-        </p>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Waitlist</h1>
+        <p className="mt-0.5 text-sm text-faint">{counts.waiting + counts.invited + counts.joined} total signups</p>
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
+      <div className="mb-6 grid grid-cols-3 gap-2.5 sm:gap-3.5">
         {[
           { label: 'Waiting', value: counts.waiting, color: '#D4A017' },
           { label: 'Invited', value: counts.invited, color: '#378ADD' },
           { label: 'Joined',  value: counts.joined,  color: '#1A9E5F' },
         ].map(s => (
-          <div key={s.label} style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 12, padding: '18px 20px' }}>
-            <div style={{ fontSize: 12, color: '#44444A', marginBottom: 6, letterSpacing: '0.04em' }}>{s.label.toUpperCase()}</div>
-            <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 30, color: s.color }}>{s.value.toLocaleString()}</div>
+          <div key={s.label} className="rounded-xl border border-border bg-surface px-3.5 py-3.5 sm:px-5">
+            <div className="mb-1.5 text-[11px] tracking-wide text-faint sm:text-xs">{s.label.toUpperCase()}</div>
+            <div className="font-display text-xl font-extrabold sm:text-[30px]" style={{ color: s.color }}>{s.value.toLocaleString()}</div>
           </div>
         ))}
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #1E1E26' }}>
+      <div className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {TABS.map(tab => (
-          <a key={tab.key} href={`?status=${tab.key}`} style={{
-            padding: '10px 18px', textDecoration: 'none', fontSize: 14,
-            fontFamily: "'Syne', sans-serif", fontWeight: 600,
-            color: activeStatus === tab.key ? '#F0F0EC' : '#44444A',
-            borderBottom: activeStatus === tab.key ? '2px solid #1A9E5F' : '2px solid transparent',
-            display: 'flex', alignItems: 'center', gap: 7,
-          }}>
+          <Link
+            key={tab.key}
+            href={`?status=${tab.key}`}
+            className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2.5 font-display text-sm font-semibold no-underline"
+            style={{
+              color: activeStatus === tab.key ? 'var(--color-text-primary)' : 'var(--color-text-faint)',
+              borderBottomColor: activeStatus === tab.key ? 'var(--color-brand)' : 'transparent',
+            }}
+          >
             {tab.label}
-            <span style={{ background: '#1E1E26', color: '#6A6A60', fontSize: 11, fontWeight: 700, borderRadius: 8, padding: '1px 6px' }}>
+            <span className="rounded-lg bg-[color:var(--color-surface-3)] px-1.5 py-0.5 text-[11px] font-bold text-secondary">
               {tab.count}
             </span>
-          </a>
+          </Link>
         ))}
       </div>
 
-      <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #1E1E26', background: '#0A0A0F' }}>
-              {['#', 'Name', 'Contact', 'Referrer', 'Signed up', 'Actions'].map(h => (
-                <th key={h} style={{ padding: '11px 16px', fontSize: 11, fontWeight: 700, color: '#44444A', textAlign: 'left', letterSpacing: '0.06em' }}>
-                  {h.toUpperCase()}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e: any, i: number) => (
-              <tr key={e.id} style={{ borderBottom: i < entries.length - 1 ? '1px solid #141418' : 'none' }}>
-                <td style={{ padding: '12px 16px', fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 700, color: '#44444A' }}>
-                  #{e.position}
-                </td>
-                <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif" }}>
-                  {e.full_name}
-                </td>
-                <td style={{ padding: '12px 16px' }}>
-                  <div style={{ fontSize: 13, color: '#8A8A85' }}>{e.phone || e.email || '—'}</div>
-                  {e.phone && e.email && <div style={{ fontSize: 11, color: '#44444A' }}>{e.email}</div>}
-                </td>
-                <td style={{ padding: '12px 16px', fontSize: 12, color: '#44444A' }}>
-                  {e.referrer || '—'}
-                </td>
-                <td style={{ padding: '12px 16px', fontSize: 12, color: '#44444A' }}>
-                  {formatRelativeTime(e.created_at)}
-                </td>
-                <td style={{ padding: '12px 16px' }}>
-                  {e.status === 'waiting' && <WaitlistInviteButton waitlistId={e.id} name={e.full_name} />}
-                  {e.status === 'invited' && <span style={{ fontSize: 12, color: '#378ADD' }}>Invited {e.invited_at ? formatRelativeTime(e.invited_at) : ''}</span>}
-                  {e.status === 'joined' && <span style={{ fontSize: 12, color: '#1A9E5F' }}>✓ Joined</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {entries.length === 0 && (
-          <div style={{ padding: '48px 20px', textAlign: 'center' }}>
-            <p style={{ fontSize: 14, color: '#44444A' }}>No {activeStatus} entries</p>
-          </div>
-        )}
-      </div>
+      <DataTable columns={columns} rows={entries} keyField="id" emptyMessage={`No ${activeStatus} entries`} />
     </div>
   )
 }

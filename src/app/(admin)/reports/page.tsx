@@ -1,4 +1,5 @@
-// src/app/(admin)/admin/reports/page.tsx
+// src/app/(admin)/reports/page.tsx
+import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatRelativeTime } from '@/lib/utils'
 import ReportActions from './report-actions'
@@ -22,6 +23,14 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   dismissed: { bg: 'rgba(100,100,100,0.12)', color: '#555' },
 }
 
+// Where an admin can actually go to look at the reported thing. Comments
+// don't have a standalone view, so there's no link for those.
+function entityHref(entityType: string, entityId: string): string | null {
+  if (entityType === 'post') return `/post/${entityId}`
+  if (entityType === 'user') return `/users/${entityId}`
+  return null
+}
+
 async function getReports(params: SearchParams) {
   const admin = createAdminClient()
   const status = params.status || 'pending'
@@ -37,7 +46,26 @@ async function getReports(params: SearchParams) {
     .order('created_at', { ascending: true })
     .limit(50)
 
-  return data || []
+  const reports = data || []
+
+  // "Suspend user" needs the *author's* id, which is only the same as
+  // entity_id when the report target is a user. For post reports, entity_id
+  // is the post id — look up its author so the suspend action hits the
+  // right account instead of silently matching nothing.
+  const postIds = reports.filter((r: any) => r.entity_type === 'post').map((r: any) => r.entity_id)
+  let postAuthors: Record<string, string> = {}
+  if (postIds.length > 0) {
+    const { data: authoredPosts } = await admin.from('posts').select('id, user_id').in('id', postIds)
+    postAuthors = Object.fromEntries((authoredPosts || []).map((p: any) => [p.id, p.user_id]))
+  }
+
+  return reports.map((r: any) => ({
+    ...r,
+    targetUserId:
+      r.entity_type === 'user' ? r.entity_id :
+      r.entity_type === 'post' ? (postAuthors[r.entity_id] ?? null) :
+      null,
+  }))
 }
 
 async function getReportCounts() {
@@ -68,97 +96,107 @@ export default async function AdminReportsPage({ searchParams }: { searchParams:
   ]
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Reports</h1>
-        <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>User-submitted content reports</p>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Reports</h1>
+        <p className="mt-0.5 text-sm text-faint">User-submitted content reports</p>
       </div>
 
       {/* Status tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid #1E1E26', paddingBottom: 0 }}>
+      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-border">
         {TABS.map(tab => (
-          <a
+          <Link
             key={tab.key}
             href={`?status=${tab.key}`}
+            className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2.5 font-display text-sm font-semibold no-underline sm:px-[18px]"
             style={{
-              padding: '10px 18px', textDecoration: 'none', fontSize: 14,
-              fontFamily: "'Syne', sans-serif", fontWeight: 600,
-              color: activeStatus === tab.key ? '#F0F0EC' : '#44444A',
-              borderBottom: activeStatus === tab.key ? '2px solid #1A9E5F' : '2px solid transparent',
-              display: 'flex', alignItems: 'center', gap: 8,
-              transition: 'color 0.15s',
+              color: activeStatus === tab.key ? 'var(--color-text-primary)' : 'var(--color-text-faint)',
+              borderBottomColor: activeStatus === tab.key ? 'var(--color-brand)' : 'transparent',
             }}
           >
             {tab.label}
             {tab.count > 0 && (
-              <span style={{
-                background: tab.key === 'pending' && tab.count > 0 ? '#E53935' : '#1E1E26',
-                color: tab.key === 'pending' && tab.count > 0 ? 'white' : '#6A6A60',
-                fontSize: 11, fontWeight: 800, borderRadius: 10, padding: '1px 7px',
-              }}>
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[11px] font-extrabold"
+                style={{
+                  background: tab.key === 'pending' ? 'var(--color-error)' : 'var(--color-surface-3)',
+                  color: tab.key === 'pending' ? 'white' : 'var(--color-text-secondary)',
+                }}
+              >
                 {tab.count}
               </span>
             )}
-          </a>
+          </Link>
         ))}
       </div>
 
       {reports.length === 0 ? (
-        <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, padding: '60px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>✓</div>
-          <p style={{ fontSize: 15, color: '#44444A' }}>No {activeStatus} reports</p>
+        <div className="rounded-2xl border border-border bg-surface px-5 py-16 text-center">
+          <div className="mb-3 text-3xl">✓</div>
+          <p className="text-[15px] text-faint">No {activeStatus} reports</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-3">
           {reports.map((r: any) => {
             const pill = STATUS_STYLE[r.status] || STATUS_STYLE.pending
+            const href = entityHref(r.entity_type, r.entity_id)
             return (
-              <div key={r.id} style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, padding: '18px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-                  <div style={{ flex: 1 }}>
+              <div key={r.id} className="rounded-2xl border border-border bg-surface p-4 sm:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <div className="min-w-0 flex-1">
                     {/* Header row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', background: pill.bg, color: pill.color, padding: '2px 8px', borderRadius: 5 }}>
+                    <div className="mb-2.5 flex flex-wrap items-center gap-2">
+                      <span
+                        className="rounded px-2 py-0.5 text-[11px] font-bold tracking-wide"
+                        style={{ background: pill.bg, color: pill.color }}
+                      >
                         {r.status.toUpperCase()}
                       </span>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#D0D0C8', fontFamily: "'Syne', sans-serif" }}>
+                      <span className="font-display text-[13px] font-semibold text-[#D0D0C8]">
                         {REASON_LABEL[r.reason] || r.reason}
                       </span>
-                      <span style={{ fontSize: 12, color: '#44444A' }}>on {r.entity_type}</span>
-                      <span style={{ fontSize: 12, color: '#3A3A40' }}>·</span>
-                      <span style={{ fontSize: 12, color: '#3A3A40' }}>{formatRelativeTime(r.created_at)}</span>
+                      <span className="text-xs text-faint">on {r.entity_type}</span>
+                      <span className="text-xs text-[#3A3A40]">·</span>
+                      <span className="text-xs text-[#3A3A40]">{formatRelativeTime(r.created_at)}</span>
                     </div>
 
                     {/* Reporter */}
-                    <div style={{ fontSize: 13, color: '#6A6A60', marginBottom: r.details ? 8 : 0 }}>
+                    <div className="text-[13px] text-secondary">
                       Reported by{' '}
-                      <a href={`/admin/users?q=${r.reporter?.username}`} style={{ color: '#8A8A85', textDecoration: 'none', fontWeight: 600 }}>
+                      <Link href={`/users?q=${encodeURIComponent(r.reporter?.username || '')}`} className="font-semibold text-[#8A8A85] no-underline">
                         @{r.reporter?.username}
-                      </a>
+                      </Link>
                     </div>
 
                     {/* Details */}
                     {r.details && (
-                      <div style={{ fontSize: 13, color: '#9A9A90', background: '#131318', borderRadius: 8, padding: '10px 14px', marginTop: 8, fontStyle: 'italic', lineHeight: 1.5 }}>
+                      <div className="mt-2 rounded-lg bg-[color:var(--color-surface-2)] px-3.5 py-2.5 text-[13px] italic leading-relaxed text-[#9A9A90]">
                         &ldquo;{r.details}&rdquo;
                       </div>
                     )}
 
                     {/* Entity link */}
-                    <div style={{ marginTop: 10 }}>
-                      <a
-                        href={r.entity_type === 'post' ? `/post/${r.entity_id}` : `/admin/users?q=${r.entity_id}`}
-                        target="_blank"
-                        style={{ fontSize: 12, color: '#1A9E5F', textDecoration: 'none', fontWeight: 500 }}
-                      >
-                        View {r.entity_type} →
-                      </a>
+                    <div className="mt-2.5">
+                      {href ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-medium text-brand no-underline"
+                        >
+                          View {r.entity_type} →
+                        </a>
+                      ) : (
+                        <span className="text-xs text-faint">No direct view available for this {r.entity_type}</span>
+                      )}
                     </div>
                   </div>
 
                   {/* Actions */}
                   {r.status === 'pending' && (
-                    <ReportActions reportId={r.id} entityType={r.entity_type} entityId={r.entity_id} />
+                    <div className="flex justify-end sm:justify-start">
+                      <ReportActions reportId={r.id} entityType={r.entity_type} entityId={r.entity_id} targetUserId={r.targetUserId} />
+                    </div>
                   )}
                 </div>
               </div>

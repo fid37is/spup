@@ -14,6 +14,12 @@ const NAV = [
 export default function MobileBottomNav({ unreadCount }: { unreadCount: number }) {
   const pathname = usePathname()
 
+  // Focused, full-screen sub-pages hide the nav entirely, matching how X's own
+  // Post Activity screen has no bottom tab bar — these are drill-down detail
+  // views, not top-level destinations.
+  const hiddenOn = [/^\/post\/[^/]+\/activity/]
+  if (hiddenOn.some(re => re.test(pathname))) return null
+
   return (
     <nav style={{
       position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,

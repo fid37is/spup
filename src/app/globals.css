@@ -1,7 +1,59 @@
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap');
 
-@tailwind base;
-@tailwind utilities;
+/*
+ * v4 fix: @tailwind base; @tailwind utilities; (the old v3 directives) are
+ * only a legacy compatibility path in Tailwind v4, and @theme registration
+ * is unreliable alongside them — it can compile with no errors while
+ * silently failing to generate the custom color/font/radius utilities
+ * below. @import "tailwindcss" is v4's actual entry point (it already
+ * includes preflight/base + utilities in one import) and is what @theme
+ * is designed to sit next to.
+ */
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 doesn't read tailwind.config.ts automatically (that was a v3
+ * behavior) — it needs either an explicit @config import or a native @theme
+ * block. Without this, none of the color/font/radius names below generated
+ * any utility classes, which is why every component in this app fell back
+ * to inline styles with raw var(--color-*) references instead.
+ *
+ * @theme *inline* (as opposed to plain @theme) makes each generated utility
+ * reference the existing runtime CSS variable rather than baking in a
+ * literal value — so bg-bg, text-primary, etc. still respond correctly to
+ * the [data-theme="dark"|"light"] overrides declared further down.
+ */
+@theme inline {
+  --color-brand:        var(--color-brand);
+  --color-brand-hover:  var(--color-brand-hover);
+  --color-brand-dim:    var(--color-brand-dim);
+  --color-brand-muted:  var(--color-brand-muted);
+  --color-gold:         var(--color-gold);
+  --color-error:        var(--color-error);
+  --color-success:      var(--color-success);
+
+  --color-bg:               var(--color-bg);
+  --color-surface:          var(--color-surface);
+  --color-surface-2:        var(--color-surface-2);
+  --color-surface-3:        var(--color-surface-3);
+  --color-surface-raised:   var(--color-surface-raised);
+
+  --color-border:       var(--color-border);
+  --color-border-light: var(--color-border-light);
+
+  --color-primary:   var(--color-text-primary);
+  --color-secondary: var(--color-text-secondary);
+  --color-muted:     var(--color-text-muted);
+  --color-faint:     var(--color-text-faint);
+
+  --font-display: 'Syne', sans-serif;
+  --font-body:    'DM Sans', sans-serif;
+
+  --radius-card: 16px;
+  --radius-btn:  10px;
+
+  --breakpoint-xs: 375px;
+}
 
 /* ── Brand constants (theme-invariant) ───────────────────────── */
 :root {

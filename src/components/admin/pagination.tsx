@@ -1,22 +1,27 @@
 // src/components/admin/pagination.tsx
+import Link from 'next/link'
+
 export function AdminPagination({ page, totalPages, basePath, extraParams = '' }: {
   page: number; totalPages: number; basePath: string; extraParams?: string
 }) {
   if (totalPages <= 1) return null
   const sep = extraParams ? '&' : ''
 
+  const btnClass =
+    'rounded-lg border border-border bg-surface px-4 py-2.5 text-[13px] text-secondary no-underline transition-colors hover:text-primary'
+
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 20 }}>
+    <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
       {page > 1 && (
-        <a href={`${basePath}?page=${page - 1}${sep}${extraParams}`} style={{ padding: '8px 16px', background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 8, color: '#8A8A85', textDecoration: 'none', fontSize: 13 }}>
+        <Link href={`${basePath}?page=${page - 1}${sep}${extraParams}`} className={btnClass}>
           ← Previous
-        </a>
+        </Link>
       )}
-      <span style={{ padding: '8px 16px', fontSize: 13, color: '#44444A' }}>Page {page} of {totalPages}</span>
+      <span className="px-3 py-2.5 text-[13px] text-faint">Page {page} of {totalPages}</span>
       {page < totalPages && (
-        <a href={`${basePath}?page=${page + 1}${sep}${extraParams}`} style={{ padding: '8px 16px', background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 8, color: '#8A8A85', textDecoration: 'none', fontSize: 13 }}>
+        <Link href={`${basePath}?page=${page + 1}${sep}${extraParams}`} className={btnClass}>
           Next →
-        </a>
+        </Link>
       )}
     </div>
   )

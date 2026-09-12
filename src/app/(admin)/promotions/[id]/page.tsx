@@ -80,47 +80,43 @@ export default async function PromotionDetailPage({ params }: { params: Promise<
     : '0.00'
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: 880 }}>
-      <Link href="/promotions" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#6A6A60', textDecoration: 'none', fontSize: 13, marginBottom: 20 }}>
+    <div className="mx-auto max-w-[880px] px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <Link href="/promotions" className="mb-5 inline-flex items-center gap-1.5 text-[13px] text-faint no-underline">
         <ArrowLeft size={14} /> Back to promotions
       </Link>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">
             Promotion detail
           </h1>
-          <p style={{ fontSize: 13, color: '#44444A', marginTop: 2, fontFamily: 'monospace' }}>{promotion.id}</p>
+          <p className="mt-0.5 truncate font-mono text-[13px] text-faint">{promotion.id}</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="flex items-center gap-3">
           <StatusBadge status={promotion.status} />
           {promotion.status === 'active' && <PromotionActions promotionId={promotion.id} />}
         </div>
       </div>
 
       {/* Post preview */}
-      <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, padding: 20, marginBottom: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: '#44444A', marginBottom: 12 }}>PROMOTED POST</div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-            background: '#1E1E26', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: "'Syne', sans-serif", fontWeight: 700, color: '#6A6A60', fontSize: 15,
-          }}>
+      <div className="mb-5 rounded-2xl border border-border bg-surface p-4 sm:p-5">
+        <div className="mb-3 text-[11px] font-bold tracking-wide text-faint">PROMOTED POST</div>
+        <div className="flex gap-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[color:var(--color-surface-3)] font-display text-[15px] font-bold text-secondary">
             {promotion.user?.display_name?.[0]?.toUpperCase() || '?'}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: '#F0F0EC', fontFamily: "'Syne', sans-serif" }}>{promotion.user?.display_name}</span>
-              <Link href={`/users/${promotion.user?.id}`} style={{ fontSize: 13, color: '#44444A', textDecoration: 'none' }}>@{promotion.user?.username}</Link>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-1.5">
+              <span className="font-display text-sm font-bold text-primary">{promotion.user?.display_name}</span>
+              <Link href={`/users/${promotion.user?.id}`} className="text-[13px] text-faint no-underline">@{promotion.user?.username}</Link>
             </div>
-            <p style={{ fontSize: 14, color: '#D0D0C8', marginTop: 6, lineHeight: 1.5 }}>{promotion.post?.body || '(no text)'}</p>
-            <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: '#44444A' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Heart size={13} /> {formatNumber(promotion.post?.likes_count || 0)}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MessageCircle size={13} /> {formatNumber(promotion.post?.comments_count || 0)}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Repeat2 size={13} /> {formatNumber(promotion.post?.reposts_count || 0)}</span>
+            <p className="mt-1.5 text-sm leading-relaxed text-[#D0D0C8]">{promotion.post?.body || '(no text)'}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-faint">
+              <span className="flex items-center gap-1"><Heart size={13} /> {formatNumber(promotion.post?.likes_count || 0)}</span>
+              <span className="flex items-center gap-1"><MessageCircle size={13} /> {formatNumber(promotion.post?.comments_count || 0)}</span>
+              <span className="flex items-center gap-1"><Repeat2 size={13} /> {formatNumber(promotion.post?.reposts_count || 0)}</span>
               {promotion.post?.id && (
-                <Link href={`/post/${promotion.post.id}`} style={{ color: '#378ADD', textDecoration: 'none', marginLeft: 'auto' }}>View live post →</Link>
+                <Link href={`/post/${promotion.post.id}`} className="ml-auto text-[#378ADD] no-underline">View live post →</Link>
               )}
             </div>
           </div>
@@ -128,23 +124,23 @@ export default async function PromotionDetailPage({ params }: { params: Promise<
       </div>
 
       {/* Performance stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 20 }}>
+      <div className="mb-5 grid grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3.5">
         <StatCard icon={Eye} label="Impressions" value={formatNumber(promotion.impressions_count)} color="#378ADD" />
         <StatCard icon={MousePointerClick} label="Clicks" value={formatNumber(promotion.clicks_count)} color="#D4A017" />
         <StatCard icon={MousePointerClick} label="Click-through rate" value={`${ctr}%`} />
       </div>
 
       {/* Package + timeline */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, padding: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: '#44444A', marginBottom: 14 }}>PACKAGE</div>
-          <DetailRow label="Tier" value={<span style={{ textTransform: 'capitalize' }}>{promotion.tier}</span>} />
-          <DetailRow label="Price paid" value={<span style={{ color: '#1A9E5F', fontWeight: 700 }}>{formatNaira(promotion.price_kobo)}</span>} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
+        <div className="rounded-2xl border border-border bg-surface p-4 sm:p-5">
+          <div className="mb-3.5 text-[11px] font-bold tracking-wide text-faint">PACKAGE</div>
+          <DetailRow label="Tier" value={<span className="capitalize">{promotion.tier}</span>} />
+          <DetailRow label="Price paid" value={<span className="font-bold text-brand">{formatNaira(promotion.price_kobo)}</span>} />
           <DetailRow label="Duration" value={`${promotion.duration_hours} hours`} />
         </div>
 
-        <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, padding: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: '#44444A', marginBottom: 14 }}>TIMELINE</div>
+        <div className="rounded-2xl border border-border bg-surface p-4 sm:p-5">
+          <div className="mb-3.5 text-[11px] font-bold tracking-wide text-faint">TIMELINE</div>
           <DetailRow label="Requested" value={formatRelativeTime(promotion.created_at)} />
           <DetailRow label="Started" value={promotion.starts_at ? formatRelativeTime(promotion.starts_at) : '—'} />
           <DetailRow label="Ends / ended" value={promotion.ends_at ? formatRelativeTime(promotion.ends_at) : '—'} />
@@ -152,25 +148,25 @@ export default async function PromotionDetailPage({ params }: { params: Promise<
       </div>
 
       {/* Linked payment */}
-      <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: '#44444A', marginBottom: 14 }}>LINKED PAYMENT</div>
+      <div className="mt-4 rounded-2xl border border-border bg-surface p-4 sm:mt-5 sm:p-5">
+        <div className="mb-3.5 text-[11px] font-bold tracking-wide text-faint">LINKED PAYMENT</div>
         {linkedTxn ? (
-          <Link href={`/finance/${linkedTxn.id}`} style={{ textDecoration: 'none' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 13, color: '#F0F0EC', fontFamily: 'monospace' }}>{linkedTxn.reference}</div>
-                <div style={{ fontSize: 12, color: '#44444A', marginTop: 2 }}>
+          <Link href={`/finance/${linkedTxn.id}`} className="block no-underline">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="truncate font-mono text-[13px] text-primary">{linkedTxn.reference}</div>
+                <div className="mt-0.5 text-xs text-faint">
                   {linkedTxn.completed_at ? formatRelativeTime(linkedTxn.completed_at) : 'Not completed yet'}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="flex items-center gap-3">
                 <StatusBadge status={linkedTxn.status} />
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#1A9E5F', fontFamily: "'Syne', sans-serif" }}>{formatNaira(linkedTxn.amount_kobo)}</span>
+                <span className="font-display text-sm font-bold text-brand">{formatNaira(linkedTxn.amount_kobo)}</span>
               </div>
             </div>
           </Link>
         ) : (
-          <p style={{ fontSize: 13, color: '#44444A' }}>No completed payment found for this promotion yet.</p>
+          <p className="text-[13px] text-faint">No completed payment found for this promotion yet.</p>
         )}
       </div>
     </div>
@@ -179,9 +175,9 @@ export default async function PromotionDetailPage({ params }: { params: Promise<
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #141418', fontSize: 13 }}>
-      <span style={{ color: '#6A6A60' }}>{label}</span>
-      <span style={{ color: '#D0D0C8' }}>{value}</span>
+    <div className="flex justify-between border-b border-[#141418] py-1.5 text-[13px] last:border-b-0">
+      <span className="text-secondary">{label}</span>
+      <span className="text-[#D0D0C8]">{value}</span>
     </div>
   )
 }

@@ -28,6 +28,7 @@ import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import type { FeedPost } from '@/lib/actions/feed'
 import { useToast } from '@/components/layout/toast'
 import MediaViewer from '@/components/feed/media-viewer'
+import PayVendorButton from '@/components/escrow/pay-vendor-button'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -458,6 +459,7 @@ export function PostActions({
   onReplyClick?: () => void
 }) {
   const [, startTransition] = useTransition()
+  const isOwnPost = !!currentUserId && post.author?.id === currentUserId
   const [liked, setLiked] = useState(post.is_liked)
   const [likeCount, setLikeCount] = useState(post.likes_count)
   const [reposted, setReposted] = useState(post.is_reposted)
@@ -568,6 +570,21 @@ export function PostActions({
             label="Impressions"
           />
         </div>
+
+        {/* Escrow pay button — hidden on your own posts. Any post's author
+            can be paid this way, not just ones explicitly tagged "for sale";
+            keeps this shippable without a separate listings/marketplace
+            layer. See lib/actions/escrow.ts for the payment + hold logic. */}
+        {!isOwnPost && post.author?.username && (
+          <div style={{ marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
+            <PayVendorButton
+              sellerUsername={post.author.username}
+              sellerDisplayName={post.author.display_name || post.author.username}
+              postId={post.id}
+              compact
+            />
+          </div>
+        )}
       </div>
 
       {showQuoteModal && <QuoteModal post={post} onClose={() => setShowQuoteModal(false)} />}

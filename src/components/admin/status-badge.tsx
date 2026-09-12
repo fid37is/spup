@@ -16,11 +16,10 @@ function paletteFor(status: string): { bg: string; color: string } {
 export function StatusBadge({ status, label }: { status: string; label?: string }) {
   const { bg, color } = paletteFor(status)
   return (
-    <span style={{
-      display: 'inline-block', fontSize: 11, fontWeight: 700,
-      letterSpacing: '0.03em', background: bg, color,
-      padding: '3px 9px', borderRadius: 6, whiteSpace: 'nowrap',
-    }}>
+    <span
+      className="inline-block whitespace-nowrap rounded-md px-2 py-[3px] text-[11px] font-bold tracking-wide"
+      style={{ background: bg, color }}
+    >
       {(label || status).replace(/_/g, ' ').toUpperCase()}
     </span>
   )

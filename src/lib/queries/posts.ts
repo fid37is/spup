@@ -147,10 +147,11 @@ export async function getPostLikers(
   return likers.map((u: any) => ({ ...u, is_following: followingSet.has(u.id) }))
 }
 
-// ─── Post Activity: who quoted a post ───────────────────────────────────────
-// Companion to getPostLikers — public, matches X/Threads showing who quoted.
+// ─── Post Activity: who reposted a post ─────────────────────────────────────
+// Companion to getPostLikers/getPostQuoters — public, matches X/Threads
+// showing who reposted. Reposts carry no body of their own (unlike quotes).
 
-export async function getPostQuoters(
+export async function getPostReposters(
   postId: string,
   viewerId: string | null,
   sort: 'recent' | 'top' = 'recent',
@@ -161,38 +162,37 @@ export async function getPostQuoters(
   const { data: rows } = await supabase
     .from('posts')
     .select(`
-      id, body, created_at, likes_count,
+      created_at,
       author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, followers_count)
     `)
     .eq('quoted_post_id', postId)
-    .eq('post_type', 'quote')
+    .eq('post_type', 'repost')
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  let quoters = (rows || []).filter((r: any) => r.author)
+  let reposters = (rows || []).map((r: any) => r.author).filter(Boolean)
 
   if (sort === 'top') {
-    quoters = [...quoters].sort((a: any, b: any) => (b.likes_count || 0) - (a.likes_count || 0))
+    reposters = [...reposters].sort((a: any, b: any) => (b.followers_count || 0) - (a.followers_count || 0))
   }
 
-  if (!viewerId || quoters.length === 0) {
-    return quoters.map((q: any) => ({ ...q, author: { ...q.author, is_following: false } }))
+  if (!viewerId || reposters.length === 0) {
+    return reposters.map((u: any) => ({ ...u, is_following: false }))
   }
 
   const { data: viewer } = await supabase
     .from('users').select('id').eq('auth_id', viewerId).maybeSingle()
 
-  if (!viewer) return quoters.map((q: any) => ({ ...q, author: { ...q.author, is_following: false } }))
+  if (!viewer) return reposters.map((u: any) => ({ ...u, is_following: false }))
 
-  const authorIds = quoters.map((q: any) => q.author.id)
   const { data: followRows } = await supabase
     .from('follows')
     .select('following_id')
     .eq('follower_id', viewer.id)
-    .in('following_id', authorIds)
+    .in('following_id', reposters.map((u: any) => u.id))
 
   const followingSet = new Set((followRows || []).map((f: any) => f.following_id))
 
-  return quoters.map((q: any) => ({ ...q, author: { ...q.author, is_following: followingSet.has(q.author.id) } }))
+  return reposters.map((u: any) => ({ ...u, is_following: followingSet.has(u.id) }))
 }

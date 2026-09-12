@@ -1,10 +1,11 @@
-// src/app/(admin)/admin/verification/page.tsx
+// src/app/(admin)/verification/page.tsx
+import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatRelativeTime } from '@/lib/utils'
 import { BadgeCheck, Clock } from 'lucide-react'
 import { StatCard } from '@/components/admin/stat-card'
 import { StatusBadge } from '@/components/admin/status-badge'
-import { DataTable, Column } from '@/components/admin/data-table'
+import { DataTable, type Column } from '@/components/admin/data-table'
 import VerificationActions from './verification-actions'
 
 interface SearchParams { status?: string }
@@ -60,27 +61,31 @@ export default async function AdminVerificationPage({ searchParams }: { searchPa
   const columns: Column<RequestRow>[] = [
     {
       key: 'user', header: 'User', width: '26%',
+      // This links to the request detail page below — previously nothing
+      // in the admin UI linked there at all, even though it exists and
+      // shows useful account context (followers, bio, submitted note) for
+      // making the review decision.
       render: r => (
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#F0F0EC' }}>{r.user?.display_name}</div>
-          <div style={{ fontSize: 12, color: '#44444A' }}>@{r.user?.username}</div>
-        </div>
+        <Link href={`/verification/${r.id}`} className="block no-underline">
+          <div className="font-display text-[13px] font-semibold text-primary">{r.user?.display_name}</div>
+          <div className="text-xs text-faint">@{r.user?.username}</div>
+        </Link>
       ),
     },
     {
-      key: 'current', header: 'Current tier',
-      render: r => <span style={{ fontSize: 13, color: '#8A8A85', textTransform: 'capitalize' }}>{r.user?.verification_tier || 'none'}</span>,
+      key: 'current', header: 'Current tier', mobileHidden: true,
+      render: r => <span className="text-[13px] capitalize text-secondary">{r.user?.verification_tier || 'none'}</span>,
     },
     {
       key: 'requested', header: 'Requesting',
-      render: r => <span style={{ fontSize: 13, fontWeight: 700, color: '#378ADD', textTransform: 'capitalize' }}>{r.requested_tier}</span>,
+      render: r => <span className="text-[13px] font-bold capitalize text-[#378ADD]">{r.requested_tier}</span>,
     },
     {
-      key: 'note', header: 'Note', width: '26%',
-      render: r => <span style={{ fontSize: 13, color: '#8A8A85' }}>{r.note || '-'}</span>,
+      key: 'note', header: 'Note', width: '26%', mobileHidden: true,
+      render: r => <span className="max-w-[220px] truncate text-[13px] text-secondary">{r.note || '-'}</span>,
     },
     { key: 'status', header: 'Status', render: r => <StatusBadge status={r.status} /> },
-    { key: 'date', header: 'Submitted', render: r => <span style={{ fontSize: 12, color: '#44444A' }}>{formatRelativeTime(r.created_at)}</span> },
+    { key: 'date', header: 'Submitted', mobileHidden: true, render: r => <span className="text-xs text-faint">{formatRelativeTime(r.created_at)}</span> },
     {
       key: 'actions', header: '', align: 'right',
       render: r => r.status === 'pending' ? <VerificationActions requestId={r.id} /> : null,
@@ -88,41 +93,41 @@ export default async function AdminVerificationPage({ searchParams }: { searchPa
   ]
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Verification</h1>
-        <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>Review requests for standard, creator, and organisation status</p>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Verification</h1>
+        <p className="mt-0.5 text-sm text-faint">Review requests for standard, creator, and organisation status</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 28 }}>
+      <div className="mb-7 grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3.5">
         <StatCard icon={Clock} label="Awaiting review" value={String(counts.pending)} color="#D4A017" danger={counts.pending > 0} />
         <StatCard icon={BadgeCheck} label="Approved" value={String(counts.approved)} color="#1A9E5F" />
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #1E1E26' }}>
+      <div className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {TABS.map(tab => (
-          <a
+          <Link
             key={tab.key}
             href={`?status=${tab.key}`}
+            className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 font-display text-[13px] font-semibold no-underline sm:px-4"
             style={{
-              padding: '10px 16px', textDecoration: 'none', fontSize: 13,
-              fontFamily: "'Syne', sans-serif", fontWeight: 600,
-              color: activeStatus === tab.key ? '#F0F0EC' : '#44444A',
-              borderBottom: activeStatus === tab.key ? '2px solid #1A9E5F' : '2px solid transparent',
-              display: 'flex', alignItems: 'center', gap: 6,
+              color: activeStatus === tab.key ? 'var(--color-text-primary)' : 'var(--color-text-faint)',
+              borderBottomColor: activeStatus === tab.key ? 'var(--color-brand)' : 'transparent',
             }}
           >
             {tab.label}
             {counts[tab.key] > 0 && (
-              <span style={{
-                background: tab.key === 'pending' && counts[tab.key] > 0 ? '#D4A017' : '#1E1E26',
-                color: tab.key === 'pending' && counts[tab.key] > 0 ? '#000' : '#6A6A60',
-                fontSize: 10, fontWeight: 800, borderRadius: 8, padding: '1px 6px',
-              }}>
+              <span
+                className="rounded-lg px-1.5 py-0.5 text-[10px] font-extrabold"
+                style={{
+                  background: tab.key === 'pending' ? 'var(--color-gold)' : 'var(--color-surface-3)',
+                  color: tab.key === 'pending' ? '#000' : 'var(--color-text-secondary)',
+                }}
+              >
                 {counts[tab.key]}
               </span>
             )}
-          </a>
+          </Link>
         ))}
       </div>
 
