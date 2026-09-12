@@ -1,57 +1,70 @@
-// src/app/(admin)/admin/verification/verification-actions.tsx
+// src/app/(admin)/verification/verification-actions.tsx
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { adminReviewVerificationAction } from '@/lib/actions/admin'
 import { CheckCircle, XCircle } from 'lucide-react'
 
 export default function VerificationActions({ requestId }: { requestId: string }) {
   const [rejecting, setRejecting] = useState(false)
   const [notes, setNotes] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const router = useRouter()
 
   function approve() {
+    setError(null)
     startTransition(async () => {
-      await adminReviewVerificationAction(requestId, 'approved')
-      window.location.reload()
+      const result = await adminReviewVerificationAction(requestId, 'approved')
+      if (result?.error) { setError(result.error); return }
+      router.refresh()
     })
   }
 
   function reject() {
+    setError(null)
     startTransition(async () => {
-      await adminReviewVerificationAction(requestId, 'rejected', notes || 'Did not meet criteria')
-      window.location.reload()
+      const result = await adminReviewVerificationAction(requestId, 'rejected', notes || 'Did not meet criteria')
+      if (result?.error) { setError(result.error); return }
+      router.refresh()
     })
   }
 
   if (rejecting) {
     return (
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
-        <input
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="Reason"
-          autoFocus
-          style={{ background: '#131318', border: '1px solid #1E1E26', borderRadius: 7, padding: '6px 10px', color: '#F0F0EC', fontSize: 12, outline: 'none', width: 140 }}
-        />
-        <button onClick={reject} disabled={isPending} style={{ background: '#E53935', color: '#fff', border: 'none', borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-          {isPending ? '…' : 'Confirm'}
-        </button>
-        <button onClick={() => setRejecting(false)} style={{ background: 'transparent', color: '#6A6A60', border: '1px solid #2A2A30', borderRadius: 7, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
-          Cancel
-        </button>
+      <div className="flex flex-col items-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <input
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Reason"
+            autoFocus
+            className="w-[130px] rounded-[7px] border border-border bg-[color:var(--color-surface-2)] px-2.5 py-1.5 text-xs text-primary outline-none"
+          />
+          <button onClick={reject} disabled={isPending} className="rounded-[7px] bg-error px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60">
+            {isPending ? '…' : 'Confirm'}
+          </button>
+          <button onClick={() => { setRejecting(false); setError(null) }} className="rounded-[7px] border border-[#2A2A30] bg-transparent px-3 py-1.5 text-xs text-secondary">
+            Cancel
+          </button>
+        </div>
+        {error && <span className="text-[11px] text-error">{error}</span>}
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-      <button onClick={() => setRejecting(true)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(229,57,53,0.1)', border: '1px solid rgba(229,57,53,0.25)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', color: '#E53935', fontSize: 12, fontWeight: 600 }}>
-        <XCircle size={13} /> Reject
-      </button>
-      <button onClick={approve} disabled={isPending} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(26,158,95,0.12)', border: '1px solid rgba(26,158,95,0.25)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', color: '#1A9E5F', fontSize: 12, fontWeight: 600 }}>
-        <CheckCircle size={13} /> {isPending ? '…' : 'Approve'}
-      </button>
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex justify-end gap-1.5">
+        <button onClick={() => setRejecting(true)} className="flex items-center gap-1 rounded-[7px] border border-error/25 bg-error/10 px-3 py-1.5 text-xs font-semibold text-error">
+          <XCircle size={13} /> Reject
+        </button>
+        <button onClick={approve} disabled={isPending} className="flex items-center gap-1 rounded-[7px] border border-brand/25 bg-brand-muted px-3 py-1.5 text-xs font-semibold text-brand disabled:opacity-60">
+          <CheckCircle size={13} /> {isPending ? '…' : 'Approve'}
+        </button>
+      </div>
+      {error && <span className="text-[11px] text-error">{error}</span>}
     </div>
   )
 }

@@ -1,7 +1,9 @@
-// src/app/(admin)/admin/page.tsx
+// src/app/(admin)/dashboard/page.tsx
+import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatNaira, formatNumber } from '@/lib/utils'
-import { Users, FileText, Flag, DollarSign, TrendingUp, UserCheck, Clock, Megaphone } from 'lucide-react'
+import { Users, FileText, Flag, DollarSign, Clock, Megaphone } from 'lucide-react'
+import { StatCard } from '@/components/admin/stat-card'
 
 async function getPlatformStats() {
   const admin = createAdminClient()
@@ -49,32 +51,6 @@ async function getPlatformStats() {
   }
 }
 
-function StatCard({ icon: Icon, label, value, sub, color = '#1A9E5F', danger = false }: {
-  icon: React.ElementType; label: string; value: string; sub?: string; color?: string; danger?: boolean
-}) {
-  return (
-    <div style={{
-      background: '#0D0D12', border: `1px solid ${danger ? 'rgba(229,57,53,0.2)' : '#1E1E26'}`,
-      borderRadius: 14, padding: 20,
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-        <div style={{ fontSize: 12, color: '#6A6A60', fontWeight: 500, letterSpacing: '0.04em' }}>{label}</div>
-        <div style={{
-          width: 34, height: 34, borderRadius: 9,
-          background: danger ? 'rgba(229,57,53,0.1)' : `${color}18`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <Icon size={16} color={danger ? '#E53935' : color} />
-        </div>
-      </div>
-      <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 28, color: '#F0F0EC', letterSpacing: '-0.02em' }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 12, color: danger ? '#E53935' : '#44444A', marginTop: 4 }}>{sub}</div>}
-    </div>
-  )
-}
-
 const STATUS_COLORS: Record<string, string> = {
   active: '#1A9E5F', suspended: '#D4A017', banned: '#E53935', pending_verification: '#378ADD',
 }
@@ -83,19 +59,19 @@ export default async function AdminDashboard() {
   const stats = await getPlatformStats()
 
   return (
-    <div style={{ padding: '28px 32px' }}>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 26, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 4 }}>
+      <div className="mb-6 sm:mb-7">
+        <h1 className="mb-1 font-display text-2xl font-extrabold tracking-tight text-primary sm:text-[26px]">
           Dashboard
         </h1>
-        <p style={{ fontSize: 14, color: '#44444A' }}>
+        <p className="text-sm text-faint">
           {new Date().toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
       </div>
 
       {/* Stats grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 32 }}>
+      <div className="mb-7 grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3.5 xl:grid-cols-6">
         <StatCard icon={Users} label="Total users" value={formatNumber(stats.totalUsers)} sub={`+${stats.newUsersToday} today`} />
         <StatCard icon={FileText} label="Total posts" value={formatNumber(stats.totalPosts)} sub={`+${stats.postsToday} today`} />
         <StatCard icon={Clock} label="Waitlist" value={formatNumber(stats.waitlistCount)} sub="Awaiting invite" color="#D4A017" />
@@ -104,36 +80,29 @@ export default async function AdminDashboard() {
         <StatCard icon={DollarSign} label="Platform revenue" value={formatNaira(stats.monthlyPlatformRevenue)} sub="This month (30%)" color="#D4A017" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
         {/* Recent signups */}
-        <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 16, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1A1A20', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: '#F0F0EC' }}>Recent signups</h2>
-            <a href="/admin/users" style={{ fontSize: 13, color: '#1A9E5F', textDecoration: 'none', fontWeight: 600 }}>View all</a>
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+          <div className="flex items-center justify-between border-b border-[#1A1A20] px-4 py-3.5 sm:px-5">
+            <h2 className="font-display text-[15px] font-bold text-primary">Recent signups</h2>
+            <Link href="/users" className="text-[13px] font-semibold text-brand no-underline">View all</Link>
           </div>
           {stats.recentUsers.map((u: any, i: number) => (
-            <div key={u.id} style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 20px', borderBottom: i < stats.recentUsers.length - 1 ? '1px solid #141418' : 'none',
-            }}>
-              <div style={{
-                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-                background: '#1A7A4A', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', fontFamily: "'Syne', sans-serif",
-                fontWeight: 800, fontSize: 13, color: 'white',
-              }}>
+            <div
+              key={u.id}
+              className={`flex items-center gap-3 px-4 py-3 sm:px-5 ${i < stats.recentUsers.length - 1 ? 'border-b border-[#141418]' : ''}`}
+            >
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#1A7A4A] font-display text-xs font-extrabold text-white">
                 {u.display_name?.slice(0, 2).toUpperCase()}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif" }}>{u.display_name}</div>
-                <div style={{ fontSize: 11, color: '#44444A' }}>@{u.username}</div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-display text-[13px] font-semibold text-primary">{u.display_name}</div>
+                <div className="text-[11px] text-faint">@{u.username}</div>
               </div>
-              <div style={{
-                fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
-                color: STATUS_COLORS[u.status] || '#555',
-                background: `${STATUS_COLORS[u.status] || '#555'}15`,
-                padding: '2px 7px', borderRadius: 4,
-              }}>
+              <div
+                className="flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide"
+                style={{ color: STATUS_COLORS[u.status] || '#555', background: `${STATUS_COLORS[u.status] || '#555'}15` }}
+              >
                 {u.status?.toUpperCase()}
               </div>
             </div>
@@ -141,42 +110,44 @@ export default async function AdminDashboard() {
         </div>
 
         {/* Pending reports */}
-        <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 16, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1A1A20', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: '#F0F0EC' }}>
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+          <div className="flex items-center justify-between border-b border-[#1A1A20] px-4 py-3.5 sm:px-5">
+            <h2 className="font-display text-[15px] font-bold text-primary">
               Pending reports
               {stats.pendingReports > 0 && (
-                <span style={{ marginLeft: 8, background: '#E53935', color: 'white', fontSize: 11, fontWeight: 800, borderRadius: 10, padding: '1px 7px' }}>
+                <span className="ml-2 rounded-full bg-error px-1.5 py-0.5 text-[11px] font-extrabold text-white">
                   {stats.pendingReports}
                 </span>
               )}
             </h2>
-            <a href="/admin/reports" style={{ fontSize: 13, color: '#1A9E5F', textDecoration: 'none', fontWeight: 600 }}>View all</a>
+            <Link href="/reports" className="text-[13px] font-semibold text-brand no-underline">View all</Link>
           </div>
           {stats.recentReports.length === 0 ? (
-            <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-              <p style={{ fontSize: 14, color: '#44444A' }}>No pending reports</p>
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm text-faint">No pending reports</p>
             </div>
           ) : stats.recentReports.map((r: any, i: number) => (
-            <div key={r.id} style={{
-              padding: '12px 20px', borderBottom: i < stats.recentReports.length - 1 ? '1px solid #141418' : 'none',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <div>
-                <div style={{ fontSize: 13, color: '#D0D0C8', fontWeight: 500 }}>
+            <div
+              key={r.id}
+              className={`flex items-center justify-between gap-3 px-4 py-3 sm:px-5 ${i < stats.recentReports.length - 1 ? 'border-b border-[#141418]' : ''}`}
+            >
+              <div className="min-w-0">
+                <div className="truncate text-[13px] font-medium text-[#D0D0C8]">
                   {r.reason?.replace(/_/g, ' ')}
-                  <span style={{ marginLeft: 6, fontSize: 11, color: '#44444A' }}>({r.entity_type})</span>
+                  <span className="ml-1.5 text-[11px] text-faint">({r.entity_type})</span>
                 </div>
-                <div style={{ fontSize: 11, color: '#44444A', marginTop: 2 }}>
+                <div className="mt-0.5 text-[11px] text-faint">
                   by @{r.reporter?.username} · {new Date(r.created_at).toLocaleDateString('en-NG')}
                 </div>
               </div>
-              <a href={`/admin/reports/${r.id}`} style={{
-                fontSize: 12, color: '#F0F0EC', background: '#1E1E26',
-                padding: '5px 12px', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
-              }}>
+              {/* There's no single-report detail route — send admins to the
+                  reports list, where each report can be resolved inline. */}
+              <Link
+                href="/reports"
+                className="flex-shrink-0 rounded-lg bg-[color:var(--color-surface-3)] px-3 py-1.5 text-xs font-semibold text-primary no-underline"
+              >
                 Review
-              </a>
+              </Link>
             </div>
           ))}
         </div>

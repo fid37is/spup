@@ -1,4 +1,4 @@
-import { TrendingUp, Users, Zap, Shield, Globe, Mic } from 'lucide-react'
+import { TrendingUp, Users, Zap, Shield, Globe, Mic, Lock, MessageCircle } from 'lucide-react'
 import LandingCTA from '@/components/landing/landing-cta'
 import LandingFooter from '@/components/landing/landing-footer'
 import LandingNav from '@/components/landing/landing-nav'
@@ -7,6 +7,11 @@ import { getWaitlistCountAction } from '@/lib/actions/waitlist'
 import LandingMobileSection from '@/components/landing/landing-mobile-section'
 import OrbitSection from '@/components/landing/orbit-section'
 import { formatCreatorCount } from '@/lib/utils/format-creator-count'
+
+// The waitlist count needs to be fresh, not baked into a static build — this
+// page has no other dynamic APIs, so Next would otherwise statically render
+// it once at build time and freeze this number until the next deploy.
+export const revalidate = 60
 
 /* ─── Data ─────────────────────────────────────────────────────────────── */
 
@@ -46,6 +51,12 @@ const FEATURES = [
     title: 'Spaces & Live',
     body: 'Audio rooms in Pidgin, Yoruba, Igbo, Hausa. Tips in real-time.',
     wide: true,
+  },
+  {
+    icon: Lock,
+    title: 'Built-in escrow',
+    body: 'Payment stays locked until the buyer confirms delivery. No blind trust, no wahala.',
+    wide: false,
   },
 ]
 
@@ -197,10 +208,27 @@ export default async function LandingPage() {
           <p style={{
             fontSize: 'clamp(16px, 1.6vw, 19px)',
             color: 'var(--color-text-secondary)',
-            lineHeight: 1.7, maxWidth: 440, marginBottom: 40,
+            lineHeight: 1.7, maxWidth: 440, marginBottom: 24,
           }}>
             Nigeria&apos;s social platform where your voice earns real money - 70% of ad revenue paid directly to your bank account in Naira.
           </p>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 40 }}>
+            {[
+              { icon: TrendingUp, label: '70% ad revenue' },
+              { icon: Lock,       label: 'Built-in escrow' },
+              { icon: Users,      label: 'Naira payouts' },
+            ].map((item, i) => (
+              <div key={i} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+                borderRadius: 100, padding: '6px 12px',
+              }}>
+                <item.icon size={13} color="var(--color-brand)" />
+                <span style={{ fontSize: 12.5, color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.label}</span>
+              </div>
+            ))}
+          </div>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 48 }}>
             <LandingCTA label="Join the waitlist" variant="primary" opensModal={true} />
@@ -289,7 +317,8 @@ export default async function LandingPage() {
             <FeatureCard f={FEATURES[2]} span={1} />
             <FeatureCard f={FEATURES[3]} span={1} />
             <FeatureCard f={FEATURES[4]} span={1} />
-            <FeatureCard f={FEATURES[5]} span={3} />
+            <FeatureCard f={FEATURES[5]} span={2} />
+            <FeatureCard f={FEATURES[6]} span={1} />
           </div>
         </div>
       </section>
@@ -342,6 +371,74 @@ export default async function LandingPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── ESCROW ── */}
+      <section className="section-pad-b">
+        <div className="section-inner">
+          <div style={{ marginBottom: 56 }}>
+            <p style={{ fontSize: 12, color: 'var(--color-brand)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: 10 }}>
+              DEALS, WITHOUT THE DRAMA
+            </p>
+            <h2 style={{
+              fontFamily: "'Syne', sans-serif", fontWeight: 800,
+              fontSize: 'clamp(34px, 4.5vw, 54px)', letterSpacing: '-0.03em', lineHeight: 1.0,
+              color: 'var(--color-text-primary)', marginBottom: 20,
+            }}>
+              Nobody&rsquo;s money disappears on Spup
+            </h2>
+            <p style={{ fontSize: 17, color: 'var(--color-text-secondary)', lineHeight: 1.7, maxWidth: 580 }}>
+              You&rsquo;ve heard the stories — money sent, seller gone, no trace. Spup escrow holds every payment safely until the buyer actually gets what they paid for. No side app, no wiring money to a stranger. Just your Spup wallet, doing more.
+            </p>
+          </div>
+
+          <div className="paid-grid">
+            {[
+              { step: '01', title: 'Agree the deal',   desc: 'Hash out price and details right in chat, before any money moves.' },
+              { step: '02', title: 'Buyer pays',        desc: "Payment goes into Spup, not the seller's pocket — held safe from the first tap." },
+              { step: '03', title: 'Seller delivers',   desc: 'The seller ships the item or delivers the service, exactly as promised.' },
+              { step: '04', title: 'Buyer confirms',    desc: 'One tap, and the money unlocks — straight into the seller\u2019s withdrawable balance.' },
+            ].map((s, i) => (
+              <div key={i} style={{
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 20, padding: '36px 32px',
+              }}>
+                <div style={{
+                  fontFamily: "'Syne', sans-serif", fontWeight: 800,
+                  fontSize: 72, color: 'var(--color-brand-muted)',
+                  letterSpacing: '-0.05em', lineHeight: 1, marginBottom: 28,
+                }}>
+                  {s.step}
+                </div>
+                <div style={{
+                  fontFamily: "'Syne', sans-serif", fontWeight: 700,
+                  fontSize: 20, marginBottom: 14, color: 'var(--color-text-primary)',
+                }}>
+                  {s.title}
+                </div>
+                <div style={{ fontSize: 15, color: 'var(--color-text-secondary)', lineHeight: 1.75 }}>
+                  {s.desc}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 48, maxWidth: 640 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 20 }}>
+              <MessageCircle size={20} color="var(--color-brand)" style={{ flexShrink: 0, marginTop: 2 }} />
+              <p style={{ fontSize: 16, color: 'var(--color-text-secondary)', lineHeight: 1.7 }}>
+                Something feels off? Sort it out in chat first. Still can&rsquo;t agree? Spup steps in and settles it — fair to both sides, every time.
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <Shield size={20} color="var(--color-brand)" style={{ flexShrink: 0, marginTop: 2 }} />
+              <p style={{ fontSize: 16, color: 'var(--color-text-secondary)', lineHeight: 1.7 }}>
+                No extra app to download, no random bank account to trust. It&rsquo;s all inside the wallet you already have.
+              </p>
+            </div>
           </div>
         </div>
       </section>

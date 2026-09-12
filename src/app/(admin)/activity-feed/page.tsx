@@ -1,4 +1,5 @@
-// src/app/(admin)/admin/activity-feed/page.tsx
+// src/app/(admin)/activity-feed/page.tsx
+import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatNaira, formatRelativeTime } from '@/lib/utils'
 import { UserPlus, FileText, Wallet, Megaphone, Flag } from 'lucide-react'
@@ -21,7 +22,7 @@ async function getActivityFeed(): Promise<FeedEvent[]> {
 
   const [{ data: signups }, { data: posts }, { data: txns }, { data: promos }, { data: reports }] = await Promise.all([
     admin.from('users').select('id, username, display_name, created_at').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
-    admin.from('posts').select('id, body, created_at, author:users!posts_user_id_fkey(username)').is('deleted_at', null).order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
+    admin.from('posts').select('id, body, post_type, created_at, author:users!posts_user_id_fkey(username)').is('deleted_at', null).order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('transactions').select('id, type, amount_kobo, status, created_at, wallet:wallets(user:users(username))').eq('status', 'completed').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('post_promotions').select('id, tier, price_kobo, status, created_at, user:users(username)').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('reports').select('id, reason, entity_type, created_at, reporter:users!reports_reporter_id_fkey(username)').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
@@ -33,7 +34,18 @@ async function getActivityFeed(): Promise<FeedEvent[]> {
     events.push({ id: `signup-${u.id}`, type: 'signup', created_at: u.created_at, actor: `@${u.username}`, detail: `joined Spup as ${u.display_name}`, color: '#378ADD', icon: UserPlus })
   }
   for (const p of (posts || []) as any[]) {
-    events.push({ id: `post-${p.id}`, type: 'post', created_at: p.created_at, actor: `@${p.author?.username || 'unknown'}`, detail: `posted: "${(p.body || '').slice(0, 60)}${(p.body || '').length > 60 ? '…' : ''}"`, color: '#8A8A85', icon: FileText })
+    // Reposts intentionally carry no body text (they're a pointer to the
+    // original post via quoted_post_id) — rendering them through the same
+    // `posted: "..."` template as original posts made every repost look
+    // like an empty post in this feed. Label by post_type instead.
+    const bodyPreview = `"${(p.body || '').slice(0, 60)}${(p.body || '').length > 60 ? '…' : ''}"`
+    const detail =
+      p.post_type === 'repost' ? 'reposted a post' :
+      p.post_type === 'quote'  ? `quoted a post: ${bodyPreview}` :
+      p.post_type === 'reply'  ? `replied: ${bodyPreview}` :
+      `posted: ${bodyPreview}`
+
+    events.push({ id: `post-${p.id}`, type: 'post', created_at: p.created_at, actor: `@${p.author?.username || 'unknown'}`, detail, color: '#8A8A85', icon: FileText })
   }
   for (const t of (txns || []) as any[]) {
     const label = t.type.replace(/_/g, ' ')
@@ -65,52 +77,54 @@ export default async function AdminActivityFeedPage({ searchParams }: { searchPa
   const filtered = activeType === 'all' ? events : events.filter(e => e.type === activeType)
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Live activity</h1>
-          <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>Real-time platform activity — signups, posts, payments, and reports</p>
+          <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Live activity</h1>
+          <p className="mt-0.5 text-sm text-faint">Real-time platform activity — signups, posts, payments, and reports</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#44444A' }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#1A9E5F' }} />
+        <div className="flex items-center gap-1.5 text-xs text-faint">
+          <span className="h-1.5 w-1.5 rounded-full bg-brand" />
           Auto-refresh on reload
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #1E1E26', overflowX: 'auto' }}>
+      <div className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {FILTERS.map(f => (
-          <a
+          <Link
             key={f.key}
             href={`?type=${f.key}`}
+            className="flex-shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 font-display text-[13px] font-semibold no-underline sm:px-4"
             style={{
-              padding: '10px 16px', textDecoration: 'none', fontSize: 13, whiteSpace: 'nowrap',
-              fontFamily: "'Syne', sans-serif", fontWeight: 600,
-              color: activeType === f.key ? '#F0F0EC' : '#44444A',
-              borderBottom: activeType === f.key ? '2px solid #1A9E5F' : '2px solid transparent',
+              color: activeType === f.key ? 'var(--color-text-primary)' : 'var(--color-text-faint)',
+              borderBottomColor: activeType === f.key ? 'var(--color-brand)' : 'transparent',
             }}
           >
             {f.label}
-          </a>
+          </Link>
         ))}
       </div>
 
-      <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, overflow: 'hidden' }}>
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface">
         {filtered.length === 0 ? (
-          <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-            <p style={{ fontSize: 14, color: '#44444A' }}>No activity yet</p>
+          <div className="px-5 py-16 text-center">
+            <p className="text-sm text-faint">No activity yet</p>
           </div>
         ) : filtered.map((e, i) => {
           const Icon = e.icon
           return (
-            <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 20px', borderBottom: i < filtered.length - 1 ? '1px solid #141418' : 'none' }}>
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: `${e.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <div
+              key={e.id}
+              className={`flex flex-wrap items-center gap-x-3.5 gap-y-1 px-4 py-3.5 sm:px-5 ${i < filtered.length - 1 ? 'border-b border-[#141418]' : ''}`}
+            >
+              <div className="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded-lg" style={{ background: `${e.color}18` }}>
                 <Icon size={14} color={e.color} />
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif", marginRight: 6 }}>{e.actor}</span>
-                <span style={{ fontSize: 13, color: '#8A8A85' }}>{e.detail}</span>
+              <div className="min-w-0 flex-1 basis-full sm:basis-0">
+                <span className="mr-1.5 font-display text-[13px] font-semibold text-primary">{e.actor}</span>
+                <span className="text-[13px] text-secondary">{e.detail}</span>
               </div>
-              <span style={{ fontSize: 12, color: '#3A3A40', flexShrink: 0 }}>{formatRelativeTime(e.created_at)}</span>
+              <span className="flex-shrink-0 pl-[42px] text-xs text-[#3A3A40] sm:pl-0">{formatRelativeTime(e.created_at)}</span>
             </div>
           )
         })}

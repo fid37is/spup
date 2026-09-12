@@ -1,8 +1,11 @@
 // src/app/(admin)/users/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
-import { formatNumber } from '@/lib/utils'
+import { formatNumber, sanitizeFilterTerm } from '@/lib/utils'
 import { Users, Search } from 'lucide-react'
+import Link from 'next/link'
 import AdminUserActions from './user-actions'
+import { DataTable, type Column } from '@/components/admin/data-table'
+import { AdminPagination } from '@/components/admin/pagination'
 
 const STATUS_COLORS: Record<string, string> = {
   active:               '#1A9E5F',
@@ -21,6 +24,20 @@ interface PageProps {
   searchParams: { q?: string; status?: string; page?: string }
 }
 
+type UserRow = {
+  id: string
+  username: string
+  display_name: string
+  status: string
+  role: string
+  verification_tier: string
+  followers_count: number
+  posts_count: number
+  bvn_verified: boolean
+  is_monetised: boolean
+  created_at: string
+}
+
 async function getUsers(query: string, status: string, page: number) {
   const admin  = createAdminClient()
   const limit  = 20
@@ -36,11 +53,16 @@ async function getUsers(query: string, status: string, page: number) {
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
-  if (query)  req = req.or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
+  // Sanitize before building the PostgREST `or()` filter — raw user input
+  // here previously let someone inject extra filter clauses via `,`, `(`, `)`.
+  if (query) {
+    const term = sanitizeFilterTerm(query)
+    req = req.or(`username.ilike.%${term}%,display_name.ilike.%${term}%`)
+  }
   if (status) req = req.eq('status', status)
 
   const { data, count } = await req
-  return { users: data || [], total: count || 0 }
+  return { users: (data || []) as UserRow[], total: count || 0 }
 }
 
 export default async function AdminUsersPage({ searchParams }: PageProps) {
@@ -50,222 +72,161 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
 
   const { users, total } = await getUsers(query, status, page)
   const totalPages = Math.ceil(total / 20)
+  const extraParams = new URLSearchParams({ ...(query && { q: query }), ...(status && { status }) }).toString()
+
+  const columns: Column<UserRow>[] = [
+    {
+      key: 'user',
+      header: 'User',
+      render: u => (
+        <Link href={`/users/${u.id}`} className="flex min-w-0 items-center gap-3 no-underline">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[#1A7A4A] font-display text-[13px] font-extrabold text-white">
+            {u.display_name?.slice(0, 2).toUpperCase() || '??'}
+          </div>
+          <div className="min-w-0">
+            <div className="truncate font-display text-[13px] font-semibold text-primary">{u.display_name}</div>
+            <div className="text-[11px] text-faint">@{u.username}</div>
+          </div>
+        </Link>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status / role',
+      render: u => (
+        <div className="flex flex-col items-start gap-1">
+          <span
+            className="self-start rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide"
+            style={{ color: STATUS_COLORS[u.status] || '#555', background: `${STATUS_COLORS[u.status] || '#555'}18` }}
+          >
+            {u.status?.replace(/_/g, ' ').toUpperCase()}
+          </span>
+          <span className="text-[10px] font-semibold" style={{ color: ROLE_COLORS[u.role] || '#44444A' }}>
+            {u.role}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'posts',
+      header: 'Posts',
+      align: 'right',
+      mobileHidden: true,
+      render: u => <span className="text-[13px] text-secondary">{formatNumber(u.posts_count || 0)}</span>,
+    },
+    {
+      key: 'followers',
+      header: 'Followers',
+      align: 'right',
+      render: u => <span className="text-[13px] text-secondary">{formatNumber(u.followers_count || 0)}</span>,
+    },
+    {
+      key: 'bvn',
+      header: 'BVN',
+      align: 'center',
+      mobileHidden: true,
+      render: u => (
+        <span
+          className="rounded px-1.5 py-0.5 text-[10px] font-bold"
+          style={{
+            color: u.bvn_verified ? '#1A9E5F' : '#44444A',
+            background: u.bvn_verified ? '#1A9E5F18' : 'var(--color-surface-3)',
+          }}
+        >
+          {u.bvn_verified ? 'VERIFIED' : 'NO'}
+        </span>
+      ),
+    },
+    {
+      key: 'monetised',
+      header: 'Monetised',
+      align: 'center',
+      render: u => (
+        <span
+          className="rounded px-1.5 py-0.5 text-[10px] font-bold"
+          style={{
+            color: u.is_monetised ? '#D4A017' : '#44444A',
+            background: u.is_monetised ? '#D4A01718' : 'var(--color-surface-3)',
+          }}
+        >
+          {u.is_monetised ? 'YES' : 'NO'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: u => (
+        <div className="flex justify-end">
+          <AdminUserActions userId={u.id} currentStatus={u.status} currentRole={u.role} />
+        </div>
+      ),
+    },
+  ]
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 26, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 4 }}>
+      <div className="mb-6">
+        <h1 className="mb-1 font-display text-2xl font-extrabold tracking-tight text-primary sm:text-[26px]">
           Users
         </h1>
-        <p style={{ fontSize: 14, color: '#44444A' }}>
+        <p className="text-sm text-faint">
           {formatNumber(total)} total{status ? ` · filtered by ${status}` : ''}
         </p>
       </div>
 
       {/* Filters */}
-      <form method="GET" style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
-          <Search size={14} color="#44444A" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+      <form method="GET" className="mb-5 flex flex-col gap-2.5 sm:flex-row">
+        <div className="relative flex-1 sm:max-w-[360px]">
+          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
           <input
             name="q"
             defaultValue={query}
             placeholder="Search by name or username…"
-            style={{
-              width: '100%', background: '#0D0D12', border: '1px solid #1E1E26',
-              borderRadius: 9, padding: '9px 12px 9px 34px', fontSize: 13,
-              color: '#F0F0EC', outline: 'none', boxSizing: 'border-box',
-            }}
+            className="w-full rounded-[9px] border border-border bg-surface py-2.5 pl-9 pr-3 text-sm text-primary outline-none"
           />
         </div>
-        <select
-          name="status"
-          defaultValue={status}
-          style={{
-            background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 9,
-            padding: '9px 12px', fontSize: 13, color: status ? '#F0F0EC' : '#44444A',
-            outline: 'none', cursor: 'pointer',
-          }}
-        >
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="suspended">Suspended</option>
-          <option value="banned">Banned</option>
-          <option value="pending_verification">Pending verification</option>
-        </select>
-        <button
-          type="submit"
-          style={{
-            background: '#1A9E5F', border: 'none', borderRadius: 9,
-            padding: '9px 18px', fontSize: 13, fontWeight: 700,
-            color: '#fff', cursor: 'pointer',
-          }}
-        >
-          Filter
-        </button>
-        {(query || status) && (
-          <a
-            href="/users"
-            style={{
-              background: '#1E1E26', borderRadius: 9, padding: '9px 14px',
-              fontSize: 13, color: '#A0A09A', textDecoration: 'none',
-              display: 'flex', alignItems: 'center',
-            }}
+        <div className="flex gap-2.5">
+          <select
+            name="status"
+            defaultValue={status}
+            className="flex-1 rounded-[9px] border border-border bg-surface px-3 py-2.5 text-sm text-primary outline-none sm:flex-none"
           >
-            Clear
-          </a>
-        )}
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+            <option value="banned">Banned</option>
+            <option value="pending_verification">Pending verification</option>
+          </select>
+          <button
+            type="submit"
+            className="rounded-[9px] bg-brand px-4 py-2.5 text-sm font-bold text-white"
+          >
+            Filter
+          </button>
+          {(query || status) && (
+            <Link
+              href="/users"
+              className="flex items-center rounded-[9px] bg-[color:var(--color-surface-3)] px-3.5 py-2.5 text-sm text-secondary no-underline"
+            >
+              Clear
+            </Link>
+          )}
+        </div>
       </form>
 
-      {/* Table */}
-      <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 16, overflow: 'hidden' }}>
-
-        {/* Head */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '2fr 1fr 80px 80px 90px 90px 44px',
-          padding: '10px 20px',
-          borderBottom: '1px solid #1A1A20',
-          fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: '#44444A',
-        }}>
-          <span>USER</span>
-          <span>STATUS / ROLE</span>
-          <span style={{ textAlign: 'right' }}>POSTS</span>
-          <span style={{ textAlign: 'right' }}>FOLLOWERS</span>
-          <span style={{ textAlign: 'center' }}>BVN</span>
-          <span style={{ textAlign: 'center' }}>MONETISED</span>
-          <span />
+      {users.length === 0 ? (
+        <div className="rounded-2xl border border-border bg-surface px-5 py-12 text-center">
+          <Users size={28} className="mx-auto mb-2.5 text-[#2A2A32]" />
+          <p className="text-sm text-faint">No users found</p>
         </div>
-
-        {users.length === 0 && (
-          <div style={{ padding: '48px 20px', textAlign: 'center' }}>
-            <Users size={28} color="#2A2A32" style={{ marginBottom: 10 }} />
-            <p style={{ fontSize: 14, color: '#44444A' }}>No users found</p>
-          </div>
-        )}
-
-        {users.map((u: any, i: number) => (
-          <div
-            key={u.id}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '2fr 1fr 80px 80px 90px 90px 44px',
-              alignItems: 'center',
-              padding: '14px 20px',
-              borderBottom: i < users.length - 1 ? '1px solid #141418' : 'none',
-            }}
-          >
-            {/* User */}
-            <a
-              href={`/users/${u.id}`}
-              style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, textDecoration: 'none' }}
-            >
-              <div style={{
-                width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                background: '#1A7A4A', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', fontFamily: "'Syne', sans-serif",
-                fontWeight: 800, fontSize: 13, color: 'white',
-              }}>
-                {u.display_name?.slice(0, 2).toUpperCase() || '??'}
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{
-                  fontSize: 13, fontWeight: 600, color: '#F0F0EC',
-                  fontFamily: "'Syne', sans-serif",
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>
-                  {u.display_name}
-                </div>
-                <div style={{ fontSize: 11, color: '#44444A' }}>@{u.username}</div>
-              </div>
-            </a>
-
-            {/* Status / Role */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
-                color: STATUS_COLORS[u.status] || '#555',
-                background: `${STATUS_COLORS[u.status] || '#555'}18`,
-                padding: '2px 7px', borderRadius: 4, alignSelf: 'flex-start',
-              }}>
-                {u.status?.replace(/_/g, ' ').toUpperCase()}
-              </span>
-              <span style={{ fontSize: 10, fontWeight: 600, color: ROLE_COLORS[u.role] || '#44444A' }}>
-                {u.role}
-              </span>
-            </div>
-
-            {/* Posts */}
-            <div style={{ fontSize: 13, color: '#A0A09A', textAlign: 'right' }}>
-              {formatNumber(u.posts_count || 0)}
-            </div>
-
-            {/* Followers */}
-            <div style={{ fontSize: 13, color: '#A0A09A', textAlign: 'right' }}>
-              {formatNumber(u.followers_count || 0)}
-            </div>
-
-            {/* BVN */}
-            <div style={{ textAlign: 'center' }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700,
-                color: u.bvn_verified ? '#1A9E5F' : '#44444A',
-                background: u.bvn_verified ? '#1A9E5F18' : '#1E1E26',
-                padding: '2px 7px', borderRadius: 4,
-              }}>
-                {u.bvn_verified ? 'VERIFIED' : 'NO'}
-              </span>
-            </div>
-
-            {/* Monetised */}
-            <div style={{ textAlign: 'center' }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700,
-                color: u.is_monetised ? '#D4A017' : '#44444A',
-                background: u.is_monetised ? '#D4A01718' : '#1E1E26',
-                padding: '2px 7px', borderRadius: 4,
-              }}>
-                {u.is_monetised ? 'YES' : 'NO'}
-              </span>
-            </div>
-
-            {/* Actions — reuses existing AdminUserActions dropdown */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <AdminUserActions
-                userId={u.id}
-                currentStatus={u.status}
-                currentRole={u.role}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-          <span style={{ fontSize: 13, color: '#44444A' }}>Page {page} of {totalPages}</span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {page > 1 && (
-              <a
-                href={`/users?q=${query}&status=${status}&page=${page - 1}`}
-                style={{ background: '#1E1E26', borderRadius: 9, padding: '8px 16px', fontSize: 13, color: '#F0F0EC', textDecoration: 'none' }}
-              >
-                ← Prev
-              </a>
-            )}
-            {page < totalPages && (
-              <a
-                href={`/users?q=${query}&status=${status}&page=${page + 1}`}
-                style={{ background: '#1E1E26', borderRadius: 9, padding: '8px 16px', fontSize: 13, color: '#F0F0EC', textDecoration: 'none' }}
-              >
-                Next →
-              </a>
-            )}
-          </div>
-        </div>
+      ) : (
+        <DataTable columns={columns} rows={users} keyField="id" />
       )}
+
+      <AdminPagination page={page} totalPages={totalPages} basePath="/users" extraParams={extraParams} />
     </div>
   )
 }

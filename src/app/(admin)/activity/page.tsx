@@ -1,6 +1,7 @@
-// src/app/(admin)/admin/activity/page.tsx
+// src/app/(admin)/activity/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatRelativeTime } from '@/lib/utils'
+import { AdminPagination } from '@/components/admin/pagination'
 
 const ACTION_STYLE: Record<string, { color: string; label: string }> = {
   ban:                  { color: '#E53935', label: 'Banned user' },
@@ -41,45 +42,44 @@ export default async function AdminActivityPage({ searchParams }: { searchParams
   const totalPages = Math.ceil(total / limit)
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Activity log</h1>
-        <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>{total} actions recorded</p>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Activity log</h1>
+        <p className="mt-0.5 text-sm text-faint">{total} actions recorded</p>
       </div>
 
-      <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, overflow: 'hidden' }}>
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface">
         {logs.length === 0 ? (
-          <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-            <p style={{ fontSize: 14, color: '#44444A' }}>No activity yet</p>
+          <div className="px-5 py-16 text-center">
+            <p className="text-sm text-faint">No activity yet</p>
           </div>
         ) : logs.map((log: any, i: number) => {
           const style = ACTION_STYLE[log.action] || { color: '#8A8A85', label: log.action }
           return (
-            <div key={log.id} style={{
-              display: 'flex', alignItems: 'center', gap: 16,
-              padding: '13px 20px',
-              borderBottom: i < logs.length - 1 ? '1px solid #141418' : 'none',
-            }}>
+            <div
+              key={log.id}
+              className={`flex items-start gap-3 px-4 py-3.5 sm:items-center sm:gap-4 sm:px-5 ${i < logs.length - 1 ? 'border-b border-[#141418]' : ''}`}
+            >
               {/* Action dot */}
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: style.color, flexShrink: 0 }} />
+              <div className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full sm:mt-0" style={{ background: style.color }} />
 
               {/* Content */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif" }}>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-display text-[13px] font-semibold text-primary">
                     {log.admin?.username || 'system'}
                   </span>
-                  <span style={{ fontSize: 13, color: style.color, fontWeight: 500 }}>
+                  <span className="text-[13px] font-medium" style={{ color: style.color }}>
                     {style.label}
                   </span>
                   {log.target_type && (
-                    <span style={{ fontSize: 12, color: '#44444A' }}>
+                    <span className="text-xs text-faint">
                       ({log.target_type} · {(log.target_id as string)?.slice(0, 8)}…)
                     </span>
                   )}
                 </div>
                 {log.metadata && Object.keys(log.metadata).length > 0 && (
-                  <div style={{ fontSize: 12, color: '#44444A', marginTop: 3 }}>
+                  <div className="mt-0.5 text-xs text-faint">
                     {log.metadata.reason && `Reason: ${log.metadata.reason}`}
                     {log.metadata.notes && `Notes: ${log.metadata.notes}`}
                     {log.metadata.message && log.metadata.message}
@@ -87,7 +87,7 @@ export default async function AdminActivityPage({ searchParams }: { searchParams
                 )}
               </div>
 
-              <span style={{ fontSize: 12, color: '#3A3A40', flexShrink: 0 }}>
+              <span className="flex-shrink-0 text-xs text-[#3A3A40]">
                 {formatRelativeTime(log.created_at)}
               </span>
             </div>
@@ -95,21 +95,7 @@ export default async function AdminActivityPage({ searchParams }: { searchParams
         })}
       </div>
 
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 20 }}>
-          {page > 1 && (
-            <a href={`?page=${page - 1}`} style={{ padding: '8px 16px', background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 8, color: '#8A8A85', textDecoration: 'none', fontSize: 13 }}>
-              ← Previous
-            </a>
-          )}
-          <span style={{ padding: '8px 16px', fontSize: 13, color: '#44444A' }}>Page {page} of {totalPages}</span>
-          {page < totalPages && (
-            <a href={`?page=${page + 1}`} style={{ padding: '8px 16px', background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 8, color: '#8A8A85', textDecoration: 'none', fontSize: 13 }}>
-              Next →
-            </a>
-          )}
-        </div>
-      )}
+      <AdminPagination page={page} totalPages={totalPages} basePath="/activity" />
     </div>
   )
 }

@@ -6,6 +6,8 @@ import { getMonetisationEligibility } from '@/lib/actions/monetisation'
 import { formatNaira, formatNumber } from '@/lib/utils'
 import { TrendingUp, ArrowDownToLine, CheckCircle, ArrowUpRight, Shield } from 'lucide-react'
 import WithdrawButton from './withdraw-button'
+import SendButton from './send-button'
+import TopUpButton from './topup-button'
 import AcceptMonetisationButton from './accept-monetisation-button'
 import Link from 'next/link'
 
@@ -85,13 +87,19 @@ function MonetisationChecklist({
 
 /* ── Transaction row ─────────────────────────────────────────────────────── */
 function TransactionRow({ tx }: { tx: any }) {
-  const isCredit = ['earning_ad', 'earning_tip', 'earning_subscription'].includes(tx.type)
+  const isCredit = ['earning_ad', 'earning_tip', 'earning_subscription', 'wallet_topup', 'escrow_release', 'refund', 'transfer_received'].includes(tx.type)
   const typeLabel: Record<string, string> = {
     earning_ad: 'Ad revenue',
     earning_tip: 'Tip received',
     earning_subscription: 'Subscription',
     withdrawal: 'Withdrawal',
     refund: 'Refund',
+    wallet_topup: 'Wallet top-up',
+    escrow_hold: 'Payment to vendor (held)',
+    escrow_release: 'Escrow payment received',
+    promotion_spend: 'Post promotion',
+    transfer_sent: tx.description || 'Sent',
+    transfer_received: tx.description || 'Received',
   }
   const statusColor: Record<string, string> = {
     pending: 'var(--color-gold)',
@@ -227,6 +235,13 @@ export default async function WalletPage() {
           </div>
 
           <WithdrawButton canWithdraw={canWithdraw} balance={balance} bvnVerified={profile.bvn_verified} savedBank={savedBank} nextEligibleAt={nextPayout.next_eligible_at} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <TopUpButton />
+            <SendButton balance={balance} />
+            <Link href="/wallet/orders" style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
+              Orders
+            </Link>
+          </div>
         </div>
 
         {/* Phone/BVN banners — shown in dependency order; BVN verification

@@ -39,6 +39,18 @@ export function truncate(str: string, length: number): string {
   return str.length > length ? str.slice(0, length) + '...' : str
 }
 
+/**
+ * Escapes a user-supplied search term for safe use inside a PostgREST
+ * `.or('col.ilike.%term%,...')` filter string. PostgREST treats
+ * `,`, `(`, `)`, and `.` as filter syntax — passing raw user input there
+ * lets someone append extra filter clauses (e.g. searching
+ * `x,role.eq.admin` would inject a second condition). Strip those
+ * characters and cap the length before interpolating.
+ */
+export function sanitizeFilterTerm(term: string, maxLength = 100): string {
+  return term.replace(/[,().]/g, ' ').trim().slice(0, maxLength)
+}
+
 export function generateUsername(displayName: string): string {
   return displayName
     .toLowerCase()

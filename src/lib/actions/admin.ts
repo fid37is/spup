@@ -67,7 +67,8 @@ export async function adminUpdateUserAction({ userId, action }: { userId: string
   }
 
   await auditLog(profile.id, action, 'user', userId)
-  revalidatePath('/admin/users')
+  revalidatePath('/users')
+  revalidatePath(`/users/${userId}`)
   return { success: true }
 }
 
@@ -77,7 +78,12 @@ export async function adminDeletePostAction(postId: string, reason: string) {
   const { error, admin, profile } = await requireAdmin()
   if (error || !admin || !profile) return { error: error || 'Forbidden' }
 
-  await admin.from('posts').update({ deleted_at: new Date().toISOString() }).eq('id', postId)
+  const { error: deleteError } = await admin
+    .from('posts')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', postId)
+
+  if (deleteError) return { error: 'Delete failed' }
 
   // Notify author
   const { data: post } = await admin.from('posts').select('user_id').eq('id', postId).single()
@@ -90,7 +96,7 @@ export async function adminDeletePostAction(postId: string, reason: string) {
   }
 
   await auditLog(profile.id, 'delete_post', 'post', postId, { reason })
-  revalidatePath('/admin/posts')
+  revalidatePath('/posts')
   return { success: true }
 }
 
@@ -102,15 +108,17 @@ export async function adminResolveReportAction(reportId: string, decision: Repor
   const { error, admin, profile } = await requireAdmin()
   if (error || !admin || !profile) return { error: error || 'Forbidden' }
 
-  await admin.from('reports').update({
+  const { error: reportError } = await admin.from('reports').update({
     status: decision === 'dismiss' ? 'dismissed' : 'actioned',
     reviewer_id: profile.id,
     reviewed_at: new Date().toISOString(),
     ...(notes && { details: notes }),
   }).eq('id', reportId)
 
+  if (reportError) return { error: 'Update failed' }
+
   await auditLog(profile.id, `report_${decision}`, 'report', reportId)
-  revalidatePath('/admin/reports')
+  revalidatePath('/reports')
   return { success: true }
 }
 
@@ -120,13 +128,15 @@ export async function adminUpdateAdAction(adId: string, status: 'active' | 'reje
   const { error, admin, profile } = await requireAdmin()
   if (error || !admin || !profile) return { error: error || 'Forbidden' }
 
-  await admin.from('ads').update({
+  const { error: adError } = await admin.from('ads').update({
     status,
     review_notes: notes || null,
   }).eq('id', adId)
 
+  if (adError) return { error: 'Update failed' }
+
   await auditLog(profile.id, `ad_${status}`, 'ad', adId, { notes })
-  revalidatePath('/admin/ads')
+  revalidatePath('/ads')
   return { success: true }
 }
 
@@ -136,13 +146,15 @@ export async function adminInviteWaitlistAction(waitlistId: string) {
   const { error, admin, profile } = await requireAdmin(false) // admin only
   if (error || !admin || !profile) return { error: error || 'Forbidden' }
 
-  await admin.from('waitlist').update({
+  const { error: inviteError } = await admin.from('waitlist').update({
     status: 'invited',
     invited_at: new Date().toISOString(),
   }).eq('id', waitlistId)
 
+  if (inviteError) return { error: 'Invite failed' }
+
   await auditLog(profile.id, 'waitlist_invite', 'waitlist', waitlistId)
-  revalidatePath('/admin/users')
+  revalidatePath('/waitlist')
   return { success: true }
 }
 
@@ -179,10 +191,13 @@ export async function adminCancelPromotionAction(promotionId: string, reason: st
   const { error, admin, profile } = await requireAdmin()
   if (error || !admin || !profile) return { error: error || 'Forbidden' }
 
-  await admin.from('post_promotions').update({ status: 'cancelled' }).eq('id', promotionId)
+  const { error: cancelError } = await admin.from('post_promotions').update({ status: 'cancelled' }).eq('id', promotionId)
+
+  if (cancelError) return { error: 'Cancel failed' }
 
   await auditLog(profile.id, 'cancel_promotion', 'post_promotion', promotionId, { reason })
-  revalidatePath('/admin/promotions')
+  revalidatePath('/promotions')
+  revalidatePath(`/promotions/${promotionId}`)
   return { success: true }
 }
 
@@ -204,7 +219,7 @@ export async function adminReviewVerificationAction(
 
   if (!reqRow) return { error: 'Request not found' }
 
-  await admin
+  const { error: reviewError } = await admin
     .from('verification_requests')
     .update({
       status: decision,
@@ -214,15 +229,21 @@ export async function adminReviewVerificationAction(
     })
     .eq('id', requestId)
 
+  if (reviewError) return { error: 'Update failed' }
+
   if (decision === 'approved') {
-    await admin
+    const { error: tierError } = await admin
       .from('users')
       .update({ verification_tier: reqRow.requested_tier })
       .eq('id', reqRow.user_id)
+
+    if (tierError) return { error: 'Verification approved but tier update failed — check the user record' }
   }
 
   await auditLog(profile.id, `verification_${decision}`, 'user', reqRow.user_id, { requested_tier: reqRow.requested_tier, notes })
-  revalidatePath('/admin/verification')
+  revalidatePath('/verification')
+  revalidatePath(`/verification/${requestId}`)
+  revalidatePath(`/users/${reqRow.user_id}`)
   return { success: true }
 }
 

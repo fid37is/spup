@@ -23,9 +23,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100dvh', background: '#050508', fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="flex min-h-[100dvh] flex-col bg-bg font-body text-primary md:flex-row">
       <AdminNav profile={profile} />
-      <main style={{ flex: 1, minWidth: 0, padding: '0 0 60px' }}>
+      <main className="min-w-0 flex-1">
         {children}
       </main>
     </div>

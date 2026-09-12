@@ -5,7 +5,7 @@ import { Wallet, TrendingUp, ArrowDownCircle, Megaphone } from 'lucide-react'
 import Link from 'next/link'
 import { StatCard } from '@/components/admin/stat-card'
 import { StatusBadge } from '@/components/admin/status-badge'
-import { DataTable, Column } from '@/components/admin/data-table'
+import { DataTable, type Column } from '@/components/admin/data-table'
 import { AdminPagination } from '@/components/admin/pagination'
 
 interface SearchParams { type?: string; page?: string }
@@ -93,59 +93,58 @@ export default async function AdminFinancePage({ searchParams }: { searchParams:
     {
       key: 'user', header: 'User',
       render: r => (
-        <Link href={`/finance/${r.id}`} style={{ fontSize: 13, color: '#F0F0EC', textDecoration: 'none' }}>
+        <Link href={`/finance/${r.id}`} className="text-[13px] text-primary no-underline">
           @{r.wallet?.user?.username || 'unknown'}
         </Link>
       ),
     },
     {
-      key: 'type', header: 'Type',
-      render: r => <span style={{ fontSize: 13, color: '#8A8A85' }}>{r.type.replace(/_/g, ' ')}</span>,
+      key: 'type', header: 'Type', mobileHidden: true,
+      render: r => <span className="text-[13px] text-secondary">{r.type.replace(/_/g, ' ')}</span>,
     },
     {
       key: 'amount', header: 'Amount', align: 'right',
       render: r => (
-        <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Syne', sans-serif", color: r.type === 'withdrawal' ? '#E53935' : '#1A9E5F' }}>
+        <span className="font-display text-[13px] font-bold" style={{ color: r.type === 'withdrawal' ? 'var(--color-error)' : 'var(--color-brand)' }}>
           {r.type === 'withdrawal' ? '-' : '+'}{formatNaira(r.amount_kobo)}
         </span>
       ),
     },
     { key: 'status', header: 'Status', render: r => <StatusBadge status={r.status} /> },
     {
-      key: 'reference', header: 'Reference',
-      render: r => <span style={{ fontSize: 12, color: '#44444A', fontFamily: 'monospace' }}>{r.reference || '—'}</span>,
+      key: 'reference', header: 'Reference', mobileHidden: true,
+      render: r => <span className="font-mono text-xs text-faint">{r.reference || '—'}</span>,
     },
-    { key: 'date', header: 'Date', render: r => <span style={{ fontSize: 12, color: '#44444A' }}>{formatRelativeTime(r.created_at)}</span> },
+    { key: 'date', header: 'Date', mobileHidden: true, render: r => <span className="text-xs text-faint">{formatRelativeTime(r.created_at)}</span> },
   ]
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Finance</h1>
-        <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>Platform revenue, wallets, and the full transactions ledger</p>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Finance</h1>
+        <p className="mt-0.5 text-sm text-faint">Platform revenue, wallets, and the full transactions ledger</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 28 }}>
+      <div className="mb-7 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3.5">
         <StatCard icon={TrendingUp} label="Platform revenue (month)" value={formatNaira(summary.platformRevenue)} color="#1A9E5F" />
         <StatCard icon={Megaphone} label="Promotion revenue (month)" value={formatNaira(summary.promotionRevenue)} color="#378ADD" />
         <StatCard icon={Wallet} label="Total held in creator wallets" value={formatNaira(summary.totalWalletBalance)} color="#D4A017" />
         <StatCard icon={ArrowDownCircle} label="Pending withdrawals" value={String(summary.pendingWithdrawals)} danger={summary.pendingWithdrawals > 0} />
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #1E1E26', overflowX: 'auto' }}>
+      <div className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
         {TYPE_TABS.map(tab => (
-          <a
+          <Link
             key={tab.key}
             href={`?type=${tab.key}`}
+            className="flex-shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 font-display text-[13px] font-semibold no-underline sm:px-4"
             style={{
-              padding: '10px 16px', textDecoration: 'none', fontSize: 13, whiteSpace: 'nowrap',
-              fontFamily: "'Syne', sans-serif", fontWeight: 600,
-              color: activeType === tab.key ? '#F0F0EC' : '#44444A',
-              borderBottom: activeType === tab.key ? '2px solid #1A9E5F' : '2px solid transparent',
+              color: activeType === tab.key ? 'var(--color-text-primary)' : 'var(--color-text-faint)',
+              borderBottomColor: activeType === tab.key ? 'var(--color-brand)' : 'transparent',
             }}
           >
             {tab.label}
-          </a>
+          </Link>
         ))}
       </div>
 

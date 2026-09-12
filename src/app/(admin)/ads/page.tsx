@@ -1,6 +1,7 @@
-// src/app/(admin)/admin/ads/page.tsx
+// src/app/(admin)/ads/page.tsx
+import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/server'
-import { formatNaira, formatNumber, formatRelativeTime } from '@/lib/utils'
+import { formatNaira, formatNumber } from '@/lib/utils'
 import AdReviewActions from './ad-review-actions'
 
 interface SearchParams { status?: string }
@@ -57,99 +58,105 @@ export default async function AdminAdsPage({ searchParams }: { searchParams: Pro
   ]
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Ads</h1>
-        <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>Campaign review and management</p>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Ads</h1>
+        <p className="mt-0.5 text-sm text-faint">Campaign review and management</p>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid #1E1E26' }}>
+      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-border">
         {TABS.map(tab => (
-          <a
+          <Link
             key={tab.key}
             href={`?status=${tab.key}`}
+            className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 font-display text-[13px] font-semibold no-underline sm:px-4"
             style={{
-              padding: '10px 16px', textDecoration: 'none', fontSize: 13,
-              fontFamily: "'Syne', sans-serif", fontWeight: 600,
-              color: activeStatus === tab.key ? '#F0F0EC' : '#44444A',
-              borderBottom: activeStatus === tab.key ? '2px solid #1A9E5F' : '2px solid transparent',
-              display: 'flex', alignItems: 'center', gap: 6,
+              color: activeStatus === tab.key ? 'var(--color-text-primary)' : 'var(--color-text-faint)',
+              borderBottomColor: activeStatus === tab.key ? 'var(--color-brand)' : 'transparent',
             }}
           >
             {tab.label}
             {counts[tab.key] > 0 && (
-              <span style={{
-                background: tab.key === 'pending_review' && counts[tab.key] > 0 ? '#D4A017' : '#1E1E26',
-                color: tab.key === 'pending_review' && counts[tab.key] > 0 ? '#000' : '#6A6A60',
-                fontSize: 10, fontWeight: 800, borderRadius: 8, padding: '1px 6px',
-              }}>
+              <span
+                className="rounded-lg px-1.5 py-0.5 text-[10px] font-extrabold"
+                style={{
+                  background: tab.key === 'pending_review' ? 'var(--color-gold)' : 'var(--color-surface-3)',
+                  color: tab.key === 'pending_review' ? '#000' : 'var(--color-text-secondary)',
+                }}
+              >
                 {counts[tab.key]}
               </span>
             )}
-          </a>
+          </Link>
         ))}
       </div>
 
       {ads.length === 0 ? (
-        <div style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, padding: '60px 20px', textAlign: 'center' }}>
-          <p style={{ fontSize: 15, color: '#44444A' }}>No {activeStatus.replace('_', ' ')} ads</p>
+        <div className="rounded-2xl border border-border bg-surface px-5 py-16 text-center">
+          <p className="text-[15px] text-faint">No {activeStatus.replace('_', ' ')} ads</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="flex flex-col gap-3.5">
           {ads.map((ad: any) => {
             const pill = STATUS_STYLE[ad.status] || STATUS_STYLE.pending_review
             const ctr = ad.impressions > 0 ? ((ad.clicks / ad.impressions) * 100).toFixed(2) : '0.00'
+            const metrics = [
+              { label: 'Budget', value: formatNaira(ad.budget_kobo) },
+              { label: 'Spent', value: formatNaira(ad.spent_kobo) },
+              { label: 'CPM', value: formatNaira(ad.cpm_kobo) },
+              { label: 'Impressions', value: formatNumber(ad.impressions) },
+              { label: 'Clicks', value: formatNumber(ad.clicks) },
+              { label: 'CTR', value: `${ctr}%` },
+            ]
             return (
-              <div key={ad.id} style={{ background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, overflow: 'hidden' }}>
+              <div key={ad.id} className="overflow-hidden rounded-2xl border border-border bg-surface">
                 {/* Ad header */}
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid #141418', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16, color: '#F0F0EC' }}>{ad.title}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, background: pill.bg, color: pill.color, padding: '2px 8px', borderRadius: 5 }}>
+                <div className="flex flex-col gap-3.5 border-b border-[#141418] p-4 sm:flex-row sm:items-start sm:gap-4 sm:p-5">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                      <span className="font-display text-base font-bold text-primary">{ad.title}</span>
+                      <span className="rounded px-2 py-0.5 text-[11px] font-bold" style={{ background: pill.bg, color: pill.color }}>
                         {ad.status.replace('_', ' ').toUpperCase()}
                       </span>
-                      <span style={{ fontSize: 11, color: '#44444A', background: '#1A1A20', padding: '2px 7px', borderRadius: 5 }}>
+                      <span className="rounded bg-[color:var(--color-surface-3)] px-1.5 py-0.5 text-[11px] text-faint">
                         {ad.source?.toUpperCase()}
                       </span>
                     </div>
-                    {ad.body && <p style={{ fontSize: 14, color: '#8A8A85', lineHeight: 1.5, margin: 0, marginBottom: 8 }}>{ad.body}</p>}
-                    <div style={{ fontSize: 12, color: '#44444A' }}>
-                      <strong style={{ color: '#6A6A60' }}>{ad.advertiser?.business_name}</strong>
+                    {ad.body && <p className="mb-2 text-sm leading-relaxed text-secondary">{ad.body}</p>}
+                    <div className="break-words text-xs text-faint">
+                      <strong className="text-secondary">{ad.advertiser?.business_name}</strong>
                       {' · '}{ad.advertiser?.contact_email}
-                      {ad.advertiser?.verified && <span style={{ marginLeft: 6, color: '#1A9E5F' }}>✓ verified</span>}
+                      {ad.advertiser?.verified && <span className="ml-1.5 text-brand">✓ verified</span>}
                     </div>
                   </div>
                   {ad.image_url && (
-                    <img src={ad.image_url} alt="" style={{ width: 80, height: 60, borderRadius: 8, objectFit: 'cover', flexShrink: 0, border: '1px solid #1E1E26' }} />
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={ad.image_url}
+                      alt=""
+                      className="h-[60px] w-20 flex-shrink-0 self-start rounded-lg border border-border object-cover sm:self-auto"
+                    />
                   )}
                 </div>
 
                 {/* Metrics row */}
-                <div style={{ display: 'flex', gap: 0, borderBottom: ad.status === 'pending_review' ? '1px solid #141418' : 'none' }}>
-                  {[
-                    { label: 'Budget', value: formatNaira(ad.budget_kobo) },
-                    { label: 'Spent', value: formatNaira(ad.spent_kobo) },
-                    { label: 'CPM', value: formatNaira(ad.cpm_kobo) },
-                    { label: 'Impressions', value: formatNumber(ad.impressions) },
-                    { label: 'Clicks', value: formatNumber(ad.clicks) },
-                    { label: 'CTR', value: `${ctr}%` },
-                  ].map((m, i, arr) => (
-                    <div key={m.label} style={{ flex: 1, padding: '12px 16px', borderRight: i < arr.length - 1 ? '1px solid #141418' : 'none' }}>
-                      <div style={{ fontSize: 11, color: '#44444A', marginBottom: 3, letterSpacing: '0.04em' }}>{m.label.toUpperCase()}</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#D0D0C8', fontFamily: "'Syne', sans-serif" }}>{m.value}</div>
+                <div className={`grid grid-cols-3 sm:grid-cols-6 ${ad.status === 'pending_review' ? 'border-b border-[#141418]' : ''}`}>
+                  {metrics.map(m => (
+                    <div key={m.label} className="border-b border-r border-[#141418] p-3 last:border-r-0 sm:border-b-0 sm:p-4">
+                      <div className="mb-1 text-[11px] tracking-wide text-faint">{m.label.toUpperCase()}</div>
+                      <div className="font-display text-sm font-bold text-[#D0D0C8]">{m.value}</div>
                     </div>
                   ))}
                 </div>
 
                 {/* Review actions */}
                 {ad.status === 'pending_review' && (
-                  <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <a href={ad.destination_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: '#1A9E5F', textDecoration: 'none' }}>
+                  <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:p-5">
+                    <a href={ad.destination_url} target="_blank" rel="noopener noreferrer" className="text-[13px] text-brand no-underline">
                       Preview destination →
                     </a>
-                    <div style={{ marginLeft: 'auto' }}>
+                    <div className="sm:ml-auto">
                       <AdReviewActions adId={ad.id} />
                     </div>
                   </div>

@@ -1,9 +1,10 @@
-// src/app/(admin)/admin/moderation/page.tsx
+// src/app/(admin)/moderation/page.tsx
+import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatRelativeTime } from '@/lib/utils'
 import AdminPostActions from '../posts/post-actions'
 
-// Shows posts that are sensitive-flagged OR have 3+ reports — the active moderation queue
+// Shows posts that are sensitive-flagged OR have 2+ pending reports — the active moderation queue
 async function getModerationQueue() {
   const admin = createAdminClient()
 
@@ -69,6 +70,57 @@ async function getSuspendedUsers() {
   return data || []
 }
 
+function QueueCard({
+  title, count, countColor, borderColor, emptyLabel, items,
+}: {
+  title: string; count: number; countColor: string; borderColor: string; emptyLabel: string
+  items: { id: string; badge: string; badgeColor: string; author?: string; created_at: string; body: string | null }[]
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border bg-surface" style={{ borderColor }}>
+      <div className="flex items-center gap-2 border-b border-[#141418] px-4 py-3.5 sm:px-[18px]">
+        <h2 className="font-display text-[15px] font-bold text-primary">{title}</h2>
+        {count > 0 && (
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[11px] font-extrabold"
+            style={{ background: countColor, color: countColor === '#D4A017' ? '#000' : '#fff' }}
+          >
+            {count}
+          </span>
+        )}
+      </div>
+      {items.length === 0 ? (
+        <div className="px-[18px] py-10 text-center">
+          <p className="text-sm text-faint">{emptyLabel}</p>
+        </div>
+      ) : items.map((post, i) => (
+        <div key={post.id} className={`px-4 py-3.5 sm:px-[18px] ${i < items.length - 1 ? 'border-b border-[#141418]' : ''}`}>
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                <span
+                  className="rounded px-2 py-0.5 text-[11px] font-bold"
+                  style={{ background: `${post.badgeColor}1F`, color: post.badgeColor }}
+                >
+                  {post.badge}
+                </span>
+                <span className="text-xs text-faint">@{post.author}</span>
+                <span className="text-[11px] text-[#3A3A40]">{formatRelativeTime(post.created_at)}</span>
+              </div>
+              <p className="line-clamp-2 text-[13px] leading-relaxed text-[#C0C0B8]">
+                {post.body || <em className="text-faint">[media only]</em>}
+              </p>
+            </div>
+            <div className="flex-shrink-0 self-end sm:self-start">
+              <AdminPostActions postId={post.id} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default async function AdminModerationPage() {
   const [{ sensitive, hotPosts }, suspended] = await Promise.all([
     getModerationQueue(),
@@ -76,97 +128,60 @@ export default async function AdminModerationPage() {
   ])
 
   return (
-    <div style={{ padding: '28px 32px' }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em' }}>Moderation</h1>
-        <p style={{ fontSize: 14, color: '#44444A', marginTop: 2 }}>Active content requiring human review</p>
+    <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
+      <div className="mb-6 sm:mb-7">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Moderation</h1>
+        <p className="mt-0.5 text-sm text-faint">Active content requiring human review</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-
-        {/* Hot reported posts */}
-        <div style={{ background: '#0D0D12', border: '1px solid rgba(229,57,53,0.2)', borderRadius: 14, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #141418', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: '#F0F0EC' }}>Multiple reports</h2>
-            {hotPosts.length > 0 && (
-              <span style={{ background: '#E53935', color: 'white', fontSize: 11, fontWeight: 800, borderRadius: 10, padding: '1px 7px' }}>{hotPosts.length}</span>
-            )}
-          </div>
-          {hotPosts.length === 0 ? (
-            <div style={{ padding: '40px 18px', textAlign: 'center' }}>
-              <p style={{ fontSize: 14, color: '#44444A' }}>No posts with multiple reports</p>
-            </div>
-          ) : hotPosts.map((post: any, i: number) => (
-            <div key={post.id} style={{ padding: '14px 18px', borderBottom: i < hotPosts.length - 1 ? '1px solid #141418' : 'none' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, background: 'rgba(229,57,53,0.12)', color: '#E53935', padding: '2px 8px', borderRadius: 5, fontWeight: 700 }}>
-                      {post.reportCount} REPORTS
-                    </span>
-                    <span style={{ fontSize: 12, color: '#44444A' }}>@{post.author?.username}</span>
-                    <span style={{ fontSize: 11, color: '#3A3A40' }}>{formatRelativeTime(post.created_at)}</span>
-                  </div>
-                  <p style={{ fontSize: 13, color: '#C0C0B8', lineHeight: 1.5, margin: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
-                    {post.body || <em style={{ color: '#44444A' }}>[media only]</em>}
-                  </p>
-                </div>
-                <AdminPostActions postId={post.id} />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Sensitive flagged posts */}
-        <div style={{ background: '#0D0D12', border: '1px solid rgba(212,160,23,0.15)', borderRadius: 14, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #141418', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: '#F0F0EC' }}>Sensitive content</h2>
-            {sensitive.length > 0 && (
-              <span style={{ background: '#D4A017', color: '#000', fontSize: 11, fontWeight: 800, borderRadius: 10, padding: '1px 7px' }}>{sensitive.length}</span>
-            )}
-          </div>
-          {sensitive.length === 0 ? (
-            <div style={{ padding: '40px 18px', textAlign: 'center' }}>
-              <p style={{ fontSize: 14, color: '#44444A' }}>No sensitive posts pending review</p>
-            </div>
-          ) : sensitive.map((post: any, i: number) => (
-            <div key={post.id} style={{ padding: '14px 18px', borderBottom: i < sensitive.length - 1 ? '1px solid #141418' : 'none' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, background: 'rgba(212,160,23,0.12)', color: '#D4A017', padding: '2px 8px', borderRadius: 5, fontWeight: 700 }}>SENSITIVE</span>
-                    <span style={{ fontSize: 12, color: '#44444A' }}>@{post.author?.username}</span>
-                    <span style={{ fontSize: 11, color: '#3A3A40' }}>{formatRelativeTime(post.created_at)}</span>
-                  </div>
-                  <p style={{ fontSize: 13, color: '#C0C0B8', lineHeight: 1.5, margin: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
-                    {post.body || <em style={{ color: '#44444A' }}>[media only]</em>}
-                  </p>
-                </div>
-                <AdminPostActions postId={post.id} />
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
+        <QueueCard
+          title="Multiple reports"
+          count={hotPosts.length}
+          countColor="#E53935"
+          borderColor="rgba(229,57,53,0.2)"
+          emptyLabel="No posts with multiple reports"
+          items={hotPosts.map((p: any) => ({
+            id: p.id, badge: `${p.reportCount} REPORTS`, badgeColor: '#E53935',
+            author: p.author?.username, created_at: p.created_at, body: p.body,
+          }))}
+        />
+        <QueueCard
+          title="Sensitive content"
+          count={sensitive.length}
+          countColor="#D4A017"
+          borderColor="rgba(212,160,23,0.15)"
+          emptyLabel="No sensitive posts pending review"
+          items={sensitive.map((p: any) => ({
+            id: p.id, badge: 'SENSITIVE', badgeColor: '#D4A017',
+            author: p.author?.username, created_at: p.created_at, body: p.body,
+          }))}
+        />
       </div>
 
       {/* Suspended users */}
-      <div style={{ marginTop: 20, background: '#0D0D12', border: '1px solid #1E1E26', borderRadius: 14, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid #141418' }}>
-          <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: '#F0F0EC' }}>Currently suspended users</h2>
+      <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-surface sm:mt-5">
+        <div className="border-b border-[#141418] px-4 py-3.5 sm:px-[18px]">
+          <h2 className="font-display text-[15px] font-bold text-primary">Currently suspended users</h2>
         </div>
         {suspended.length === 0 ? (
-          <div style={{ padding: '32px 18px', textAlign: 'center' }}>
-            <p style={{ fontSize: 14, color: '#44444A' }}>No suspended users</p>
+          <div className="px-[18px] py-8 text-center">
+            <p className="text-sm text-faint">No suspended users</p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 1, background: '#141418' }}>
+          <div className="grid grid-cols-1 gap-px bg-[#141418] sm:grid-cols-2 lg:grid-cols-3">
             {suspended.map((u: any) => (
-              <div key={u.id} style={{ background: '#0D0D12', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif" }}>{u.display_name}</div>
-                  <div style={{ fontSize: 11, color: '#44444A' }}>@{u.username}</div>
+              <div key={u.id} className="flex items-center justify-between gap-3 bg-surface px-4 py-3">
+                <div className="min-w-0">
+                  <div className="truncate font-display text-[13px] font-semibold text-primary">{u.display_name}</div>
+                  <div className="text-[11px] text-faint">@{u.username}</div>
                 </div>
-                <a href={`/admin/users?q=${u.username}`} style={{ fontSize: 11, color: '#1A9E5F', textDecoration: 'none', fontWeight: 600 }}>Manage</a>
+                <Link
+                  href={`/users?q=${encodeURIComponent(u.username)}`}
+                  className="flex-shrink-0 text-[11px] font-semibold text-brand no-underline"
+                >
+                  Manage
+                </Link>
               </div>
             ))}
           </div>

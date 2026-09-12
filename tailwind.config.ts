@@ -1,5 +1,13 @@
 import type { Config } from 'tailwindcss'
 
+// NOTE: Tailwind v4 (this project uses ^4) does not read this file
+// automatically — that was v3 behavior. It needs an explicit `@config`
+// import or a native `@theme` block in CSS. This project now defines the
+// same tokens natively via `@theme inline` in src/app/globals.css, which is
+// what actually generates the bg-brand / text-primary / rounded-btn /
+// font-display utility classes used across the app. This file is kept for
+// reference but has no effect on the build — edit globals.css instead.
+
 const config: Config = {
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',

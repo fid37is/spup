@@ -5,10 +5,7 @@ import {
   Eye, Video, MousePointerClick, Maximize2, UserCircle2, Zap, Bookmark,
 } from 'lucide-react'
 import Link from 'next/link'
-import { getPostLikers, getPostQuoters } from '@/lib/queries/posts'
 import { formatNumber } from '@/lib/utils'
-import SidebarFollowBtn from '@/components/layout/sidebar-follow-btn'
-import SortMenu from './sort-menu'
 
 function Avatar({ name, avatarUrl, size = 40 }: { name: string; avatarUrl?: string | null; size?: number }) {
   if (avatarUrl) {
@@ -27,15 +24,11 @@ function Avatar({ name, avatarUrl, size = 40 }: { name: string; avatarUrl?: stri
 }
 
 export default async function PostActivityPage({
-  params, searchParams,
+  params,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ sort?: string; tab?: string }>
 }) {
   const { id } = await params
-  const { sort: sortParam, tab: tabParam } = await searchParams
-  const sort: 'recent' | 'top' = sortParam === 'top' ? 'top' : 'recent'
-  const tab: 'likes' | 'quotes' = tabParam === 'quotes' ? 'quotes' : 'likes'
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -56,37 +49,32 @@ export default async function PostActivityPage({
   if (!post) notFound()
 
   const author = Array.isArray(post.author) ? post.author[0] : post.author
-  const isOwner = viewerProfile?.id === author?.id
+
+  // Hardened: both ids must exist AND match — a silent fetch failure on either
+  // side (both resolving to undefined) must never accidentally evaluate true.
+  const isOwner = !!viewerProfile?.id && !!author?.id && viewerProfile.id === author.id
 
   const engagementsCount =
     post.likes_count + post.reposts_count + post.quotes_count +
     post.bookmarks_count + post.link_clicks_count + post.detail_expands_count +
     post.profile_visits_count
 
-  const [likers, quoters] = await Promise.all([
-    tab === 'likes' ? getPostLikers(id, user.id, sort) : Promise.resolve([]),
-    tab === 'quotes' ? getPostQuoters(id, user.id, sort) : Promise.resolve([]),
-  ])
-
   return (
-    <div style={{ paddingBottom: 60 }}>
+    <div style={{ paddingBottom: 40 }}>
       {/* Header */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
         backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
         borderBottom: '1px solid var(--color-border)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        display: 'flex', alignItems: 'center', gap: 16,
         padding: '14px 20px',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Link href={`/post/${id}`} style={{ color: 'var(--color-text-primary)', display: 'flex' }}>
-            <ArrowLeft size={20} />
-          </Link>
-          <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
-            Post activity
-          </h1>
-        </div>
-        <SortMenu postId={id} currentSort={sort} tab={tab} />
+        <Link href={`/post/${id}`} style={{ color: 'var(--color-text-primary)', display: 'flex' }}>
+          <ArrowLeft size={20} />
+        </Link>
+        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
+          Post activity
+        </h1>
       </div>
 
       {/* Post preview */}
@@ -129,131 +117,69 @@ export default async function PostActivityPage({
         </div>
       </div>
 
-      {/* Public summary rows — Likes/Quotes are tabs into the lists below; Reposts is count-only */}
+      {/* Who engaged — Likes and Quotes drill into their own dedicated screens;
+          Reposts has no list behind it, so no chevron and no navigation. */}
       <div>
-        <SummaryTab id={id} tab="likes" active={tab === 'likes'} icon={<Heart size={18} />} label="Likes" value={post.likes_count} sort={sort} />
-        <SummaryRow icon={<Repeat2 size={18} />} label="Reposts" value={post.reposts_count} />
-        <SummaryTab id={id} tab="quotes" active={tab === 'quotes'} icon={<MessageSquareQuote size={18} />} label="Quotes" value={post.quotes_count} sort={sort} />
+        <NavRow href={`/post/${id}/activity/likes`} icon={<Heart size={18} />} label="Likes" value={post.likes_count} />
+        <NavRow href={`/post/${id}/activity/reposts`} icon={<Repeat2 size={18} />} label="Reposts" value={post.reposts_count} />
+        <NavRow href={`/post/${id}/activity/quotes`} icon={<MessageSquareQuote size={18} />} label="Quotes" value={post.quotes_count} />
       </div>
 
-      {/* Likers / quoters list */}
-      {tab === 'likes' ? (
-        likers.length === 0 ? (
-          <EmptyState label="No likes yet." />
-        ) : (
-          likers.map((liker: any) => (
-            <PersonRow key={liker.id} person={liker} viewerId={viewerProfile?.id} />
-          ))
-        )
-      ) : (
-        quoters.length === 0 ? (
-          <EmptyState label="No quotes yet." />
-        ) : (
-          quoters.map((q: any) => (
-            <div key={q.id}>
-              <PersonRow person={q.author} viewerId={viewerProfile?.id} />
-              {q.body && (
-                <p style={{ padding: '0 20px 12px 76px', fontSize: 14, color: 'var(--color-text-secondary)', margin: 0 }}>
-                  {q.body}
-                </p>
-              )}
-            </div>
-          ))
-        )
-      )}
-
-      {/* Owner-only analytics — not shown to other viewers, same convention as X */}
+      {/* Owner-only analytics — a compact grid of static numbers, deliberately
+          NOT styled like the navigable rows above (no chevrons, not clickable)
+          so it doesn't read as another drill-down list. */}
       {isOwner && (
-        <div style={{ marginTop: 24, borderTop: '8px solid var(--color-surface-2)' }}>
-          <div style={{ padding: '16px 20px 4px' }}>
-            <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)' }}>
-              Analytics
-            </h2>
-            <p style={{ fontSize: 12, color: 'var(--color-text-faint)', margin: '2px 0 0' }}>
-              Only visible to you
-            </p>
+        <div style={{ marginTop: 8, borderTop: '8px solid var(--color-surface-2)', padding: '16px 20px' }}>
+          <p style={{ fontSize: 12, color: 'var(--color-text-faint)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Analytics · Only visible to you
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+            <StatTile icon={<Zap size={16} />} label="Engagements" value={engagementsCount} />
+            <StatTile icon={<Eye size={16} />} label="Impressions" value={post.impressions_count} />
+            <StatTile icon={<Bookmark size={16} />} label="Bookmarks" value={post.bookmarks_count} />
+            <StatTile icon={<Video size={16} />} label="Video views" value={post.video_views_count} />
+            <StatTile icon={<Maximize2 size={16} />} label="Post expands" value={post.detail_expands_count} />
+            <StatTile icon={<MousePointerClick size={16} />} label="Link clicks" value={post.link_clicks_count} />
+            <StatTile icon={<UserCircle2 size={16} />} label="Profile visits" value={post.profile_visits_count} />
           </div>
-          <SummaryRow icon={<Zap size={18} />} label="Engagements" value={engagementsCount} noChevron />
-          <SummaryRow icon={<Eye size={18} />} label="Impressions" value={post.impressions_count} noChevron />
-          <SummaryRow icon={<Bookmark size={18} />} label="Bookmarks" value={post.bookmarks_count} noChevron />
-          <SummaryRow icon={<Video size={18} />} label="Video views" value={post.video_views_count} noChevron />
-          <SummaryRow icon={<Maximize2 size={18} />} label="Post expands" value={post.detail_expands_count} noChevron />
-          <SummaryRow icon={<MousePointerClick size={18} />} label="Link clicks" value={post.link_clicks_count} noChevron />
-          <SummaryRow icon={<UserCircle2 size={18} />} label="Profile visits" value={post.profile_visits_count} noChevron last />
         </div>
       )}
     </div>
   )
 }
 
-function PersonRow({ person, viewerId }: { person: any; viewerId?: string }) {
+function StatTile({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '12px 20px', borderBottom: '1px solid var(--color-border)',
+      border: '1px solid var(--color-border)', borderRadius: 12,
+      padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4,
     }}>
-      <Link href={`/user/${person.username}`} style={{ flexShrink: 0 }}>
-        <Avatar name={person.display_name || person.username} avatarUrl={person.avatar_url} size={44} />
-      </Link>
-      <Link href={`/user/${person.username}`} style={{ flex: 1, minWidth: 0, textDecoration: 'none' }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {person.username}
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {person.display_name}
-        </div>
-        {person.followers_count > 0 && (
-          <div style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: 2 }}>
-            {formatNumber(person.followers_count)} followers
-          </div>
-        )}
-      </Link>
-      {person.id !== viewerId && (
-        <SidebarFollowBtn targetUserId={person.id} initialFollowing={person.is_following} />
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
+        {icon}
+        <span style={{ fontSize: 12 }}>{label}</span>
+      </div>
+      <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>
+        {formatNumber(value)}
+      </span>
     </div>
   )
 }
 
-function EmptyState({ label }: { label: string }) {
-  return (
-    <div style={{ padding: '48px 20px', textAlign: 'center' }}>
-      <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>{label}</p>
-    </div>
-  )
-}
-
-function SummaryRow({ icon, label, value, last, noChevron }: { icon: React.ReactNode; label: string; value: number; last?: boolean; noChevron?: boolean }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 14,
-      padding: '16px 20px',
-      borderBottom: '1px solid var(--color-border)',
-    }}>
-      <div style={{ color: 'var(--color-text-primary)' }}>{icon}</div>
-      <span style={{ flex: 1, fontSize: 16, color: 'var(--color-text-primary)', fontFamily: "'DM Sans',sans-serif" }}>{label}</span>
-      <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{formatNumber(value)}</span>
-      {!noChevron && <ChevronRight size={16} color="var(--color-text-faint)" />}
-    </div>
-  )
-}
-
-function SummaryTab({ id, tab, active, icon, label, value, sort }: { id: string; tab: 'likes' | 'quotes'; active: boolean; icon: React.ReactNode; label: string; value: number; sort: string }) {
+function NavRow({ href, icon, label, value }: { href: string; icon: React.ReactNode; label: string; value: number }) {
   return (
     <Link
-      href={`/post/${id}/activity?tab=${tab}&sort=${sort}`}
+      href={href}
       style={{
         display: 'flex', alignItems: 'center', gap: 14,
         padding: '16px 20px',
         borderBottom: '1px solid var(--color-border)',
-        background: active ? 'var(--color-surface-2)' : 'transparent',
         textDecoration: 'none',
       }}
     >
-      <div style={{ color: active ? 'var(--color-brand)' : 'var(--color-text-primary)' }}>{icon}</div>
-      <span style={{ flex: 1, fontSize: 16, color: active ? 'var(--color-brand)' : 'var(--color-text-primary)', fontFamily: "'DM Sans',sans-serif", fontWeight: active ? 700 : 400 }}>{label}</span>
-      <span style={{ fontSize: 16, fontWeight: 700, color: active ? 'var(--color-brand)' : 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{formatNumber(value)}</span>
-      <ChevronRight size={16} color={active ? 'var(--color-brand)' : 'var(--color-text-faint)'} />
+      <div style={{ color: 'var(--color-text-primary)' }}>{icon}</div>
+      <span style={{ flex: 1, fontSize: 16, color: 'var(--color-text-primary)', fontFamily: "'DM Sans',sans-serif" }}>{label}</span>
+      <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{formatNumber(value)}</span>
+      <ChevronRight size={16} color="var(--color-text-faint)" />
     </Link>
   )
 }
