@@ -55,8 +55,18 @@ export async function joinWaitlistAction(data: WaitlistInput) {
 }
 export async function getWaitlistCountAction(): Promise<number> {
   const admin = createAdminClient()
-  const { count } = await admin
+  const { count, error } = await admin
     .from('waitlist')
     .select('id', { count: 'exact', head: true })
+
+  if (error) {
+    // Previously swallowed silently, returning 0 with no way to tell the
+    // difference between "waitlist is actually empty" and "this query
+    // failed" — e.g. if this runs at build time and the service-role key
+    // isn't available in that environment, this would freeze a 0 into the
+    // static page until the next successful build. Log it so it's visible.
+    console.error('getWaitlistCountAction failed:', error.message)
+  }
+
   return count || 0
 }

@@ -40,6 +40,9 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)' }}>
           Orders
         </h1>
+        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>
+          Pay through Spup — funds stay locked until delivery is confirmed.
+        </p>
       </div>
 
       <div style={{ padding: '20px 16px', maxWidth: 600, margin: '0 auto' }}>

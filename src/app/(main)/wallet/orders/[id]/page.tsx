@@ -29,7 +29,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const { id } = await params
   const { order, dispute, viewer_role, error } = await getEscrowOrder(id)
 
-  if (error || !order) notFound()
+  if (error || !order || !viewer_role) notFound()
 
   const counterparty = viewer_role === 'buyer' ? order.seller : order.buyer
 

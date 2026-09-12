@@ -24,8 +24,7 @@ export async function getMyEscrowOrders(role: 'buyer' | 'seller' = 'buyer') {
     .select(`
       *,
       buyer:buyer_id ( id, username, display_name, avatar_url ),
-      seller:seller_id ( id, username, display_name, avatar_url ),
-      post:post_id ( id, content, media_urls )
+      seller:seller_id ( id, username, display_name, avatar_url )
     `)
     .eq(column, profile.id)
     .order('created_at', { ascending: false })
@@ -54,8 +53,7 @@ export async function getEscrowOrder(orderId: string) {
     .select(`
       *,
       buyer:buyer_id ( id, username, display_name, avatar_url ),
-      seller:seller_id ( id, username, display_name, avatar_url ),
-      post:post_id ( id, content, media_urls )
+      seller:seller_id ( id, username, display_name, avatar_url )
     `)
     .eq('id', orderId)
     .single()

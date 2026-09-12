@@ -77,7 +77,7 @@ export default function OrderActions({
   const [showDisputeForm, setShowDisputeForm] = useState(false)
   const [showProposeForm, setShowProposeForm] = useState(false)
 
-  function run(fn: () => Promise<{ error?: string | null }>) {
+  function run(fn: () => Promise<{ error?: string | null; success?: boolean }>) {
     setError('')
     startTransition(async () => {
       const result = await fn()
@@ -220,7 +220,7 @@ function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispu
   const pendingProposal = (dispute.proposals || []).find((p: any) => p.status === 'pending')
   const isMine = (uploaderOrProposerId: string, myId?: string) => false // resolved server-side; we just show both sides' items
 
-  function run(fn: () => Promise<{ error?: string | null }>) {
+  function run(fn: () => Promise<{ error?: string | null; success?: boolean; accepted?: boolean }>) {
     setError('')
     startTransition(async () => {
       const result = await fn()

@@ -327,11 +327,11 @@ export default function WithdrawButton({ canWithdraw, balance, bvnVerified, save
   const effectiveCanWithdraw = canWithdraw && !cycleActive
 
   return (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
       <button
         onClick={() => effectiveCanWithdraw && setOpen(true)}
         disabled={!effectiveCanWithdraw}
-        style={{ display: 'flex', alignItems: 'center', gap: 8, background: effectiveCanWithdraw ? 'var(--color-brand)' : 'var(--color-surface-2)', color: effectiveCanWithdraw ? 'white' : 'var(--color-text-muted)', border: 'none', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, cursor: effectiveCanWithdraw ? 'pointer' : 'not-allowed', transition: 'background 0.15s' }}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: effectiveCanWithdraw ? 'var(--color-brand)' : 'var(--color-surface-2)', color: effectiveCanWithdraw ? 'white' : 'var(--color-text-muted)', border: 'none', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, cursor: effectiveCanWithdraw ? 'pointer' : 'not-allowed', transition: 'background 0.15s', width: '100%' }}
       >
         <ArrowDownToLine size={16} />
         Withdraw
@@ -345,7 +345,7 @@ export default function WithdrawButton({ canWithdraw, balance, bvnVerified, save
         <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>Minimum withdrawal is ₦1,000</p>
       )}
       {mounted && open && createPortal(modal, document.body)}
-    </>
+    </div>
   )
 }
 
