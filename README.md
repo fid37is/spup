@@ -7,6 +7,7 @@ src/
 ├── app/                          # UI only — pages & layouts
 │   ├── (auth)/                   # login, signup, verify-otp, onboarding, forgot-password
 │   ├── (main)/                   # feed, profile, notifications, wallet, explore, settings
+│   │   └── layout.tsx             # Auth route protection — redirects to /login, /banned, or /onboarding as needed
 │   │   └── post/[id]/            # post detail + replies
 │   ├── api/                      # REST endpoints (webhooks + media upload only)
 │   │   ├── upload/               # Cloudinary media upload
@@ -36,9 +37,8 @@ src/
 │   │   ├── notifications.ts      # getNotifications, getUnreadCount
 │   │   ├── wallet.ts             # getWallet, getTransactions, checkEligibility
 │   │   └── index.ts              # barrel — import anything from '@/lib/queries'
-│   ├── validations/schemas.ts    # Zod schemas (Nigerian phone, password, etc.)
+│   ├── validations/schemas.ts    # Zod schemas — signup is email/OTP + password; Nigerian phone is used only for settings KYC/2FA
 │   └── utils/index.ts            # formatNaira, formatRelativeTime, etc.
-├── middleware.ts                  # Auth route protection
 └── types/index.ts                 # All TypeScript interfaces + Nigerian interests
 ```
 

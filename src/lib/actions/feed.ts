@@ -68,7 +68,7 @@ export interface FeedPost {
   }>
   quoted_post_id: string | null
   quoted_post?: {
-    is_selling: import("react/jsx-runtime").JSX.Element
+    is_selling: boolean
     id: string
     body: string | null
     created_at: string
@@ -232,7 +232,8 @@ export async function getSellingFeedAction(cursor?: string): Promise<{
     query = query.lt('created_at', cursor)
   }
 
-  const { data: posts } = await query
+  const { data: posts, error: sellingErr } = await query
+  if (sellingErr) console.error('[getSellingFeedAction] posts query failed:', sellingErr.message)
   const rawPosts = posts || []
 
   const hasMore = rawPosts.length > PAGE_SIZE
@@ -312,16 +313,18 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
   if (!profile) return { posts: [], nextCursor: null }
 
   // People I follow
-  const { data: following } = await supabase
+  const { data: following, error: followingErr } = await supabase
     .from('follows').select('following_id').eq('follower_id', profile.id)
+  if (followingErr) console.error('[getMutualsFeedAction] following query failed:', followingErr.message)
   if (!following?.length) return { posts: [], nextCursor: null }
 
   const followingIds = following.map((f: {following_id: string}) => f.following_id)
 
   // Of those, who also follows me back? (mutuals)
-  const { data: followers } = await supabase
+  const { data: followers, error: followersErr } = await supabase
     .from('follows').select('follower_id').eq('following_id', profile.id)
     .in('follower_id', followingIds)
+  if (followersErr) console.error('[getMutualsFeedAction] followers query failed:', followersErr.message)
 
   const mutualIds = (followers || []).map((f: {follower_id: string}) => f.follower_id)
   if (!mutualIds.length) return { posts: [], nextCursor: null }
@@ -345,7 +348,8 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
 
   if (cursor) query = query.lt('created_at', cursor)
 
-  const { data: posts } = await query
+  const { data: posts, error: postsErr } = await query
+  if (postsErr) console.error('[getMutualsFeedAction] posts query failed:', postsErr.message)
   if (!posts?.length) return { posts: [], nextCursor: null }
 
   const hasMore = posts.length > PAGE_SIZE
