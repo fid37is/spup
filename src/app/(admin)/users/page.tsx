@@ -1,9 +1,10 @@
 // src/app/(admin)/users/page.tsx
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatNumber, sanitizeFilterTerm } from '@/lib/utils'
-import { Users, Search } from 'lucide-react'
+import { Users } from 'lucide-react'
 import Link from 'next/link'
 import AdminUserActions from './user-actions'
+import { AdminUserFilters } from './filters'
 import { DataTable, type Column } from '@/components/admin/data-table'
 import { AdminPagination } from '@/components/admin/pagination'
 
@@ -21,7 +22,7 @@ const ROLE_COLORS: Record<string, string> = {
 }
 
 interface PageProps {
-  searchParams: { q?: string; status?: string; page?: string }
+  searchParams: Promise<{ q?: string; status?: string; page?: string }>
 }
 
 type UserRow = {
@@ -53,7 +54,7 @@ async function getUsers(query: string, status: string, page: number) {
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
-  // Sanitize before building the PostgREST `or()` filter — raw user input
+  // Sanitize before building the PostgREST `or()` filter - raw user input
   // here previously let someone inject extra filter clauses via `,`, `(`, `)`.
   if (query) {
     const term = sanitizeFilterTerm(query)
@@ -66,9 +67,10 @@ async function getUsers(query: string, status: string, page: number) {
 }
 
 export default async function AdminUsersPage({ searchParams }: PageProps) {
-  const query  = searchParams.q      || ''
-  const status = searchParams.status || ''
-  const page   = Number(searchParams.page) || 1
+  const sp     = await searchParams
+  const query  = sp.q      || ''
+  const status = sp.status || ''
+  const page   = Number(sp.page) || 1
 
   const { users, total } = await getUsers(query, status, page)
   const totalPages = Math.ceil(total / 20)
@@ -177,45 +179,8 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
         </p>
       </div>
 
-      {/* Filters */}
-      <form method="GET" className="mb-5 flex flex-col gap-2.5 sm:flex-row">
-        <div className="relative flex-1 sm:max-w-[360px]">
-          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-          <input
-            name="q"
-            defaultValue={query}
-            placeholder="Search by name or username…"
-            className="w-full rounded-[9px] border border-border bg-surface py-2.5 pl-9 pr-3 text-sm text-primary outline-none"
-          />
-        </div>
-        <div className="flex gap-2.5">
-          <select
-            name="status"
-            defaultValue={status}
-            className="flex-1 rounded-[9px] border border-border bg-surface px-3 py-2.5 text-sm text-primary outline-none sm:flex-none"
-          >
-            <option value="">All statuses</option>
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
-            <option value="banned">Banned</option>
-            <option value="pending_verification">Pending verification</option>
-          </select>
-          <button
-            type="submit"
-            className="rounded-[9px] bg-brand px-4 py-2.5 text-sm font-bold text-white"
-          >
-            Filter
-          </button>
-          {(query || status) && (
-            <Link
-              href="/users"
-              className="flex items-center rounded-[9px] bg-[color:var(--color-surface-3)] px-3.5 py-2.5 text-sm text-secondary no-underline"
-            >
-              Clear
-            </Link>
-          )}
-        </div>
-      </form>
+      {/* Filters - live search + instant status filter */}
+      <AdminUserFilters initialQuery={query} initialStatus={status} />
 
       {users.length === 0 ? (
         <div className="rounded-2xl border border-border bg-surface px-5 py-12 text-center">
