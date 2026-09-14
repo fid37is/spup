@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useTransition } from 'react'
-import { X, ImageIcon, VideoIcon, BarChart2, MapPin } from 'lucide-react'
+import { X, ImageIcon, VideoIcon, BarChart2, MapPin, Tag } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
@@ -47,6 +47,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
   const [showMedia, setShowMedia] = useState(false)
+  const [isSelling, setIsSelling] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
@@ -56,7 +57,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
   const isOverLimit = charsLeft < 0
   const isWarning = charsLeft <= 30
   const hasContent = body.trim().length > 0 || media.length > 0
-  const canPost = hasContent && !isOverLimit && !isPending && !uploading
+  const canPost = hasContent && !isOverLimit && !isPending && !uploading && (!isSelling || body.trim().length > 0)
 
   const radius = 11
   const circumference = 2 * Math.PI * radius
@@ -75,6 +76,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
       const result = await createPostAction({
         body: body.trim() || undefined,
         parent_post_id: parentPostId,
+        is_selling: isSelling || undefined,
         media: readyMedia.length > 0 ? readyMedia.map(m => ({
           url: m.url,
           thumbnail_url: m.thumbnail_url || undefined,
@@ -87,7 +89,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
         })) : undefined,
       })
       if ('error' in result && result.error) { setError(result.error); return }
-      clear(); onClose(); router.refresh()
+      clear(); setIsSelling(false); onClose(); router.refresh()
     })
   }
 
@@ -229,6 +231,45 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
                   media={media} uploading={uploading} progress={progress}
                   error={uploadError} onUpload={upload} onRemove={remove}
                 />
+              </div>
+            )}
+
+            {/* Selling toggle — only for original posts, not replies. No
+                separate item field: the post's own text is the description,
+                and it auto-fills the buyer's payment note (still editable
+                by the buyer) — see pay-vendor-button.tsx. */}
+            {!parentPostId && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Tag size={16} color={isSelling ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                      I&rsquo;m selling something
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsSelling(v => !v)}
+                    aria-pressed={isSelling}
+                    style={{
+                      width: 42, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                      background: isSelling ? 'var(--color-brand)' : 'var(--color-surface-3)',
+                      position: 'relative', transition: 'background 0.15s', flexShrink: 0, padding: 0,
+                    }}
+                  >
+                    <span style={{
+                      position: 'absolute', top: 3, left: isSelling ? 21 : 3,
+                      width: 18, height: 18, borderRadius: '50%', background: 'white',
+                      transition: 'left 0.15s',
+                    }} />
+                  </button>
+                </div>
+
+                {isSelling && (
+                  <p style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: 8 }}>
+                    Buyers will see a Pay button on this post — write what you&rsquo;re selling in your post above, it&rsquo;ll pre-fill their payment note.
+                  </p>
+                )}
               </div>
             )}
           </div>

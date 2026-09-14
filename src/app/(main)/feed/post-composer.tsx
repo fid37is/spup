@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useTransition, useCallback, useImperativeHandle, forwardRef, useEffect } from 'react'
-import { ImageIcon, X, Loader2, Globe, BarChart2, MapPin, Camera, Mic } from 'lucide-react'
+import { ImageIcon, X, Loader2, Globe, BarChart2, MapPin, Camera, Mic, Tag } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 import { useToast } from '@/components/layout/toast'
 
@@ -27,7 +27,7 @@ interface PostComposerProps {
   onPosted?: (post: unknown) => void
   authorName?: string
   authorAvatarUrl?: string | null
-  // 'fullscreen' hides this component's own footer Post button/char-ring —
+  // 'fullscreen' hides this component's own footer Post button/char-ring -
   // used on mobile, where the header (owned by the parent) renders Post
   // instead, matching X's layout. 'modal' (default) keeps everything here,
   // used for the desktop centered dialog.
@@ -45,6 +45,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 ) {
   const [body, setBody] = useState('')
   const [media, setMedia] = useState<MediaItem[]>([])
+  const [isSelling, setIsSelling] = useState(false)
   const [isPending, startTransition] = useTransition()
   const { success: toastSuccess } = useToast()
   const [error, setError] = useState('')
@@ -57,7 +58,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const isWarning = charsLeft <= 30
   const hasUploading = media.some(m => m.uploading)
   const canPost = (body.trim().length > 0 || media.filter(m => !m.uploading && !m.error).length > 0)
-    && !isOverLimit && !isPending && !hasUploading
+    && !isOverLimit && !isPending && !hasUploading && (!isSelling || body.trim().length > 0)
 
   useEffect(() => {
     onStateChange?.({ canPost, isPending, hasUploading })
@@ -151,6 +152,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     startTransition(async () => {
       const result = await createPostAction({
         body: body.trim() || undefined,
+        is_selling: isSelling || undefined,
         media: readyMedia.length > 0 ? readyMedia.map(m => ({
           url: m.url,
           thumbnail_url: m.thumbnail_url,
@@ -167,6 +169,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       media.forEach(m => { if (m.localPreview) URL.revokeObjectURL(m.localPreview) })
       setBody('')
       setMedia([])
+      setIsSelling(false)
       setError('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
       toastSuccess('Your post is live')
@@ -326,14 +329,14 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       </div>
       </div>
 
-      {/* Spacer — pushes audience line + toolbar to the very bottom of the
+      {/* Spacer - pushes audience line + toolbar to the very bottom of the
           screen in fullscreen mode, so the compose area actually stretches
           instead of everything bunching up at the top. No-op in modal
           variant (flex: 1 has nothing to grow within there). */}
       {variant === 'fullscreen' && <div style={{ flex: 1 }} />}
 
       <div style={variant === 'fullscreen' ? undefined : { marginLeft: 54 }}>
-        {/* Audience — display-only for now, reply-permission settings aren't built yet */}
+        {/* Audience - display-only for now, reply-permission settings aren't built yet */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 13, color: 'var(--color-brand)', fontWeight: 600 }}>
           <Globe size={14} />
           Everyone can reply
@@ -341,10 +344,43 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
         <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
 
+        {/* Selling toggle — no separate item field: the post's own text is
+            the description, and it auto-fills the buyer's payment note
+            (still editable by the buyer) — see pay-vendor-button.tsx. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Tag size={15} color={isSelling ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+              I&rsquo;m selling something
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsSelling(v => !v)}
+            aria-pressed={isSelling}
+            style={{
+              width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+              background: isSelling ? 'var(--color-brand)' : 'var(--color-surface-3)',
+              position: 'relative', transition: 'background 0.15s', flexShrink: 0, padding: 0,
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: 3, left: isSelling ? 19 : 3,
+              width: 16, height: 16, borderRadius: '50%', background: 'white',
+              transition: 'left 0.15s',
+            }} />
+          </button>
+        </div>
+        {isSelling && (
+          <p style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: -4, marginBottom: 10 }}>
+            Buyers will see a Pay button on this post — write what you&rsquo;re selling above.
+          </p>
+        )}
+
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="composer-toolbar-icons" style={{ display: 'flex', gap: 2, overflowX: 'auto', WebkitOverflowScrolling: 'touch', minWidth: 0 }}>
-            {/* Media upload — one button, accepts photos and videos together */}
+            {/* Media upload - one button, accepts photos and videos together */}
             <input
               ref={mediaInputRef}
               type="file"
@@ -428,7 +464,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
               </button>
             </div>
           ) : (
-            // fullscreen — header owns the Post button; just show the char ring here when it matters
+            // fullscreen - header owns the Post button; just show the char ring here when it matters
             body.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <svg width={26} height={26} style={{ transform: 'rotate(-90deg)' }}>

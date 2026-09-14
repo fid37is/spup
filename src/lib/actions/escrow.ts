@@ -3,6 +3,7 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { createNotification } from '@/lib/notifications'
 
 // ============================================================
 // P2P escrow: buyer pays seller from wallet balance. Money leaves
@@ -46,13 +47,12 @@ async function getCallerProfile() {
 }
 
 async function notify(recipientId: string, actorId: string, type: string, entityId: string, entityType = 'escrow_order') {
-  const admin = createAdminClient()
-  void admin.from('notifications').insert({
-    recipient_id: recipientId,
-    actor_id: actorId,
-    type,
-    entity_id: entityId,
-    entity_type: entityType,
+  await createNotification({
+    recipientId,
+    actorId,
+    type: type as any,
+    entityId,
+    entityType,
   })
 }
 
@@ -119,12 +119,15 @@ export async function payVendorAction({
   const now = new Date().toISOString()
 
   // Debit buyer immediately — this is what makes it "held" rather than
-  // merely "authorized". A crashed request after this point still leaves
-  // an accurate, auditable transaction row; nothing is lost silently.
-  const { error: debitError } = await admin
-    .from('wallets')
-    .update({ balance_kobo: buyerWallet.balance_kobo - amountKobo })
-    .eq('id', buyerWallet.id)
+  // merely "authorized". Uses adjust_wallet_balance (a single atomic SQL
+  // UPDATE) rather than reading balance_kobo and writing back a computed
+  // value, which would race against any other concurrent change to this
+  // wallet. The wallet's own CHECK (balance_kobo >= 0) constraint rejects
+  // this if the balance dropped between our check above and now.
+  const { error: debitError } = await admin.rpc('adjust_wallet_balance', {
+    p_wallet_id: buyerWallet.id,
+    p_delta: -amountKobo,
+  })
 
   if (debitError) return { error: 'Could not process payment. Please try again.' }
 
@@ -145,7 +148,10 @@ export async function payVendorAction({
 
   if (txnError || !holdTxn) {
     // Roll back the debit — better to fail the payment than lose the money.
-    await admin.from('wallets').update({ balance_kobo: buyerWallet.balance_kobo }).eq('id', buyerWallet.id)
+    // Credits back the exact amount rather than resetting to the balance we
+    // read earlier, which could otherwise overwrite an unrelated change
+    // (e.g. a tip landing) that happened in between.
+    await admin.rpc('adjust_wallet_balance', { p_wallet_id: buyerWallet.id, p_delta: amountKobo })
     return { error: 'Could not record payment. Please try again.' }
   }
 
@@ -166,7 +172,7 @@ export async function payVendorAction({
     .single()
 
   if (orderError || !order) {
-    await admin.from('wallets').update({ balance_kobo: buyerWallet.balance_kobo }).eq('id', buyerWallet.id)
+    await admin.rpc('adjust_wallet_balance', { p_wallet_id: buyerWallet.id, p_delta: amountKobo })
     await admin.from('transactions').update({ status: 'failed' }).eq('id', holdTxn.id)
     return { error: 'Could not create order. Please try again.' }
   }
@@ -220,26 +226,41 @@ export async function markDeliveredAction({ orderId }: { orderId: string }) {
 async function releaseEscrow(orderId: string, resolvedVia: 'buyer_confirmed' | 'auto_release' | 'mutual' | 'admin') {
   const admin = createAdminClient()
 
-  const { data: order } = await admin
-    .from('escrow_orders')
-    .select('id, seller_id, amount_kobo, status')
-    .eq('id', orderId)
-    .single()
+  const now = new Date().toISOString()
 
-  if (!order) return { error: 'Order not found' }
-  if (!['held', 'delivered_by_seller', 'disputed'].includes(order.status)) {
-    return { error: 'This order cannot be released in its current state' }
-  }
+  // The status transition IS the concurrency guard: this UPDATE only
+  // matches a row if it's still in a releasable state, and only one
+  // concurrent caller can win that race — Postgres serializes it at the
+  // row level. A second caller (e.g. a double-tap on "Confirm receipt",
+  // or the auto-release cron firing at the same moment) finds zero rows
+  // matched and bails out here, before any wallet is touched. Previously
+  // the status was only checked with a SELECT well before the eventual
+  // UPDATE, with wallet-crediting in between — two concurrent calls could
+  // both pass that check and both credit the seller.
+  const { data: order, error: orderError } = await admin
+    .from('escrow_orders')
+    .update({ status: 'released', released_at: now, auto_release_at: null })
+    .eq('id', orderId)
+    .in('status', ['held', 'delivered_by_seller', 'disputed'])
+    .select('id, seller_id, amount_kobo')
+    .maybeSingle()
+
+  if (orderError) return { error: 'Could not release funds' }
+  if (!order) return { error: 'This order cannot be released in its current state' }
 
   const { data: sellerWallet } = await admin
     .from('wallets')
-    .select('id, balance_kobo')
+    .select('id')
     .eq('user_id', order.seller_id)
     .single()
 
-  if (!sellerWallet) return { error: "Seller's wallet not found" }
-
-  const now = new Date().toISOString()
+  if (!sellerWallet) {
+    // Wallet genuinely missing (not a race — we already own the status
+    // transition) — revert so the order isn't stuck claiming 'released'
+    // with no money having actually moved.
+    await admin.from('escrow_orders').update({ status: 'held', released_at: null }).eq('id', orderId)
+    return { error: "Seller's wallet not found" }
+  }
 
   const { data: releaseTxn, error: txnError } = await admin
     .from('transactions')
@@ -256,42 +277,48 @@ async function releaseEscrow(orderId: string, resolvedVia: 'buyer_confirmed' | '
     .select('id')
     .single()
 
-  if (txnError || !releaseTxn) return { error: 'Could not release funds' }
+  if (txnError || !releaseTxn) {
+    await admin.from('escrow_orders').update({ status: 'held', released_at: null }).eq('id', orderId)
+    return { error: 'Could not release funds' }
+  }
 
-  await admin.from('wallets').update({ balance_kobo: sellerWallet.balance_kobo + order.amount_kobo }).eq('id', sellerWallet.id)
+  await admin.rpc('adjust_wallet_balance', { p_wallet_id: sellerWallet.id, p_delta: order.amount_kobo })
+  await admin.from('escrow_orders').update({ release_txn_id: releaseTxn.id }).eq('id', orderId)
 
-  await admin
-    .from('escrow_orders')
-    .update({ status: 'released', released_at: now, release_txn_id: releaseTxn.id, auto_release_at: null })
-    .eq('id', orderId)
-
+  // NOTE: this notifies the seller with themselves as the actor — pre-existing,
+  // not something this fix touches. Worth revisiting: actorId here should
+  // probably be the buyer (or a system actor) rather than the seller notifying
+  // themselves, but that needs a look at what the notifications schema expects
+  // for actor_id before changing it.
   await notify(order.seller_id, order.seller_id, 'escrow_released', orderId)
   return { success: true }
 }
 
 async function refundEscrow(orderId: string) {
   const admin = createAdminClient()
+  const now = new Date().toISOString()
 
-  const { data: order } = await admin
+  const { data: order, error: orderError } = await admin
     .from('escrow_orders')
-    .select('id, buyer_id, amount_kobo, hold_txn_id, status')
+    .update({ status: 'refunded', auto_release_at: null })
     .eq('id', orderId)
-    .single()
+    .in('status', ['held', 'delivered_by_seller', 'disputed'])
+    .select('id, buyer_id, amount_kobo')
+    .maybeSingle()
 
-  if (!order) return { error: 'Order not found' }
-  if (!['held', 'delivered_by_seller', 'disputed'].includes(order.status)) {
-    return { error: 'This order cannot be refunded in its current state' }
-  }
+  if (orderError) return { error: 'Could not process refund' }
+  if (!order) return { error: 'This order cannot be refunded in its current state' }
 
   const { data: buyerWallet } = await admin
     .from('wallets')
-    .select('id, balance_kobo')
+    .select('id')
     .eq('user_id', order.buyer_id)
     .single()
 
-  if (!buyerWallet) return { error: "Buyer's wallet not found" }
-
-  const now = new Date().toISOString()
+  if (!buyerWallet) {
+    await admin.from('escrow_orders').update({ status: 'held' }).eq('id', orderId)
+    return { error: "Buyer's wallet not found" }
+  }
 
   const { data: refundTxn, error: txnError } = await admin
     .from('transactions')
@@ -308,14 +335,13 @@ async function refundEscrow(orderId: string) {
     .select('id')
     .single()
 
-  if (txnError || !refundTxn) return { error: 'Could not process refund' }
+  if (txnError || !refundTxn) {
+    await admin.from('escrow_orders').update({ status: 'held' }).eq('id', orderId)
+    return { error: 'Could not process refund' }
+  }
 
-  await admin.from('wallets').update({ balance_kobo: buyerWallet.balance_kobo + order.amount_kobo }).eq('id', buyerWallet.id)
-
-  await admin
-    .from('escrow_orders')
-    .update({ status: 'refunded', release_txn_id: refundTxn.id, auto_release_at: null })
-    .eq('id', orderId)
+  await admin.rpc('adjust_wallet_balance', { p_wallet_id: buyerWallet.id, p_delta: order.amount_kobo })
+  await admin.from('escrow_orders').update({ release_txn_id: refundTxn.id }).eq('id', orderId)
 
   return { success: true }
 }
@@ -324,36 +350,50 @@ async function refundEscrow(orderId: string) {
 // refund). Reuses the two primitives above rather than a third code path.
 async function splitEscrow(orderId: string, sellerKobo: number, buyerKobo: number) {
   const admin = createAdminClient()
-  const { data: order } = await admin.from('escrow_orders').select('amount_kobo, seller_id, buyer_id, status').eq('id', orderId).single()
-  if (!order) return { error: 'Order not found' }
-  if (sellerKobo + buyerKobo !== order.amount_kobo) return { error: 'Split amounts must add up to the full order amount' }
+
+  // Read-only check first since we need amount_kobo to validate the split
+  // before attempting the transition — the transition below is still the
+  // real concurrency guard.
+  const { data: preCheck } = await admin.from('escrow_orders').select('amount_kobo').eq('id', orderId).single()
+  if (!preCheck) return { error: 'Order not found' }
+  if (sellerKobo + buyerKobo !== preCheck.amount_kobo) return { error: 'Split amounts must add up to the full order amount' }
 
   const now = new Date().toISOString()
 
+  const { data: order, error: orderError } = await admin
+    .from('escrow_orders')
+    .update({ status: 'released', released_at: now, auto_release_at: null })
+    .eq('id', orderId)
+    .in('status', ['held', 'delivered_by_seller', 'disputed'])
+    .select('seller_id, buyer_id')
+    .maybeSingle()
+
+  if (orderError) return { error: 'Could not process split' }
+  if (!order) return { error: 'This order cannot be split in its current state' }
+
   if (sellerKobo > 0) {
-    const { data: sellerWallet } = await admin.from('wallets').select('id, balance_kobo').eq('user_id', order.seller_id).single()
+    const { data: sellerWallet } = await admin.from('wallets').select('id').eq('user_id', order.seller_id).single()
     if (sellerWallet) {
       const { data: txn } = await admin.from('transactions').insert({
         wallet_id: sellerWallet.id, type: 'escrow_release', amount_kobo: sellerKobo,
         status: 'completed', reference: generateReference('ESCSPL'), description: 'Escrow split resolution', entity_id: orderId, completed_at: now,
       }).select('id').single()
-      await admin.from('wallets').update({ balance_kobo: sellerWallet.balance_kobo + sellerKobo }).eq('id', sellerWallet.id)
+      await admin.rpc('adjust_wallet_balance', { p_wallet_id: sellerWallet.id, p_delta: sellerKobo })
       if (txn) await admin.from('escrow_orders').update({ release_txn_id: txn.id }).eq('id', orderId)
     }
   }
 
   if (buyerKobo > 0) {
-    const { data: buyerWallet } = await admin.from('wallets').select('id, balance_kobo').eq('user_id', order.buyer_id).single()
+    const { data: buyerWallet } = await admin.from('wallets').select('id').eq('user_id', order.buyer_id).single()
     if (buyerWallet) {
       await admin.from('transactions').insert({
         wallet_id: buyerWallet.id, type: 'refund', amount_kobo: buyerKobo,
         status: 'completed', reference: generateReference('ESCSPL'), description: 'Escrow split resolution', entity_id: orderId, completed_at: now,
       })
-      await admin.from('wallets').update({ balance_kobo: buyerWallet.balance_kobo + buyerKobo }).eq('id', buyerWallet.id)
+      await admin.rpc('adjust_wallet_balance', { p_wallet_id: buyerWallet.id, p_delta: buyerKobo })
     }
   }
 
-  await admin.from('escrow_orders').update({ status: 'released', released_at: now, auto_release_at: null }).eq('id', orderId)
   return { success: true }
 }
 

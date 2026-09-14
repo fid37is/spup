@@ -13,6 +13,25 @@ import { createClient } from '@/lib/supabase/server'
 
 const PAGE_SIZE = 20
 
+// ─── Space out selling posts so the feed doesn't read like a marketplace ─────
+// Keeps every post, but re-sorts within the page so no two selling posts sit
+// closer than `gap` positions apart — same "merge every N" technique already
+// used above for interest-based interleaving, just splitting one page into
+// two pools instead of merging two separate queries.
+function spaceOutSellingPosts<T extends { is_selling?: boolean }>(posts: T[], gap = 4): T[] {
+  const selling = posts.filter(p => p.is_selling)
+  const regular = posts.filter(p => !p.is_selling)
+  if (selling.length === 0) return posts
+
+  const result: T[] = []
+  let ri = 0, si = 0
+  while (ri < regular.length || si < selling.length) {
+    for (let i = 0; i < gap && ri < regular.length; i++) result.push(regular[ri++])
+    if (si < selling.length) result.push(selling[si++])
+  }
+  return result
+}
+
 // Shape of a fully-hydrated feed post
 export interface FeedPost {
   id: string
@@ -49,6 +68,7 @@ export interface FeedPost {
   }>
   quoted_post_id: string | null
   quoted_post?: {
+    is_selling: import("react/jsx-runtime").JSX.Element
     id: string
     body: string | null
     created_at: string
@@ -59,6 +79,7 @@ export interface FeedPost {
   is_reposted: boolean
   is_bookmarked: boolean
   is_pinned: boolean
+  is_selling: boolean
 }
 
 // ─── "For you" feed — algorithmic ────────────────────────────────────────────
@@ -94,7 +115,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -159,8 +180,69 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   }
 
   if (!finalPage.length) return { posts: [], nextCursor: null }
-  return { posts: await hydrateEngagement(supabase, profile.id, finalPage), nextCursor }
+  return { posts: await hydrateEngagement(supabase, profile.id, spaceOutSellingPosts(finalPage)), nextCursor }
 }
+
+// ─── "Selling" feed — only posts marked as selling something ────────────────
+// Powers the dedicated Selling tab. No spacing applied here — spacing exists
+// to keep selling posts from dominating the OTHER feeds; this tab's entire
+// purpose is to show them, so they run chronologically like any other feed.
+
+export async function getSellingFeedAction(cursor?: string): Promise<{
+  posts: FeedPost[]
+  nextCursor: string | null
+}> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { posts: [], nextCursor: null }
+
+  const { data: profile } = await supabase
+    .from('users').select('id').eq('auth_id', user.id).single()
+  if (!profile) return { posts: [], nextCursor: null }
+
+  const [{ data: blocks }, { data: mutes }] = await Promise.all([
+    supabase.from('user_blocks').select('blocked_id').eq('blocker_id', profile.id),
+    supabase.from('user_mutes').select('muted_id').eq('muter_id', profile.id),
+  ])
+  const excludeIds = [
+    ...(blocks || []).map((b: {blocked_id: string}) => b.blocked_id),
+    ...(mutes || []).map((m: {muted_id: string}) => m.muted_id),
+  ]
+
+  let query = supabase
+    .from('posts')
+    .select(`
+      id, body, post_type, likes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `)
+    .is('deleted_at', null)
+    .is('parent_post_id', null)
+    .eq('is_selling', true)
+    .order('created_at', { ascending: false })
+    .limit(PAGE_SIZE + 1)
+
+  if (excludeIds.length) {
+    query = query.not('user_id', 'in', `(${excludeIds.join(',')})`)
+  }
+  if (cursor) {
+    query = query.lt('created_at', cursor)
+  }
+
+  const { data: posts } = await query
+  const rawPosts = posts || []
+
+  const hasMore = rawPosts.length > PAGE_SIZE
+  const page = hasMore ? rawPosts.slice(0, PAGE_SIZE) : rawPosts
+  const nextCursor = hasMore ? page[page.length - 1].created_at : null
+
+  if (!page.length) return { posts: [], nextCursor: null }
+  return { posts: await hydrateEngagement(supabase, profile.id, page), nextCursor }
+}
+
 
 // ─── "Following" feed — chronological ────────────────────────────────────────
 
@@ -189,7 +271,7 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -211,7 +293,7 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
   const page = hasMore ? posts.slice(0, PAGE_SIZE) : posts
   const nextCursor = hasMore ? page[page.length - 1].created_at : null
 
-  return { posts: await hydrateEngagement(supabase, profile.id, page), nextCursor }
+  return { posts: await hydrateEngagement(supabase, profile.id, spaceOutSellingPosts(page)), nextCursor }
 }
 
 
@@ -248,7 +330,7 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
     .from('posts')
     .select(`
       id, body, post_type, likes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -270,7 +352,7 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
   const page = hasMore ? posts.slice(0, PAGE_SIZE) : posts
   const nextCursor = hasMore ? page[page.length - 1].created_at : null
 
-  return { posts: await hydrateEngagement(supabase, profile.id, page), nextCursor }
+  return { posts: await hydrateEngagement(supabase, profile.id, spaceOutSellingPosts(page)), nextCursor }
 }
 
 // ─── Replies for a post ───────────────────────────────────────────────────────
@@ -287,7 +369,7 @@ export async function getPostRepliesAction(postId: string, cursor?: string) {
     .from('posts')
     .select(`
       id, body, post_type, likes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
       author:users!posts_user_id_fkey(
         id, username, display_name, avatar_url, verification_tier, is_monetised
       ),
@@ -330,7 +412,7 @@ export async function getBookmarkedPostsAction(cursor?: string) {
     .select(`
       post:posts(
         id, body, post_type, likes_count, comments_count, reposts_count,
-        bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
+        bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
         author:users!posts_user_id_fkey(
           id, username, display_name, avatar_url, verification_tier, is_monetised
         ),
@@ -374,7 +456,7 @@ export async function getProfileTabAction(
 
   const BASE_SELECT = `
     id, body, post_type, likes_count, comments_count, reposts_count,
-    bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
+    bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
     author:users!posts_user_id_fkey(
       id, username, display_name, avatar_url, verification_tier, is_monetised
     ),
@@ -384,7 +466,7 @@ export async function getProfileTabAction(
   // media tab uses !inner to only return posts that have at least one media row
   const MEDIA_SELECT = `
     id, body, post_type, likes_count, comments_count, reposts_count,
-    bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id,
+    bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
     author:users!posts_user_id_fkey(
       id, username, display_name, avatar_url, verification_tier, is_monetised
     ),

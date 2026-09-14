@@ -7,14 +7,14 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, FileText, Megaphone,
   Flag, ShieldAlert, LogOut, Activity, Radio,
-  Wallet, BadgeCheck, UserPlus, Menu, X,
+  Wallet, BadgeCheck, UserPlus, Menu, X, Quote, Scale,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { cn } from '@/lib/utils'
 
 // NOTE: these hrefs are intentionally NOT prefixed with /dashboard.
 // proxy.ts rewrites every request on the admin.* subdomain to /dashboard/*
-// internally, so the visible URL (and these links) should stay clean —
+// internally, so the visible URL (and these links) should stay clean -
 // e.g. admin.spup.live/users, not admin.spup.live/dashboard/users.
 const NAV_GROUPS = [
   {
@@ -35,9 +35,10 @@ const NAV_GROUPS = [
   {
     label: 'Content',
     items: [
-      { href: '/posts',       icon: FileText,  label: 'Posts' },
-      { href: '/ads',         icon: Megaphone, label: 'Ads' },
-      { href: '/promotions',  icon: Megaphone, label: 'Promotions' },
+      { href: '/posts',        icon: FileText,  label: 'Posts' },
+      { href: '/ads',          icon: Megaphone, label: 'Ads' },
+      { href: '/promotions',   icon: Megaphone, label: 'Promotions' },
+      { href: '/testimonials', icon: Quote,     label: 'Testimonials' },
     ],
   },
   {
@@ -45,6 +46,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/reports',     icon: Flag,        label: 'Reports' },
       { href: '/moderation',  icon: ShieldAlert, label: 'Moderation' },
+      { href: '/disputes',    icon: Scale,       label: 'Disputes' },
     ],
   },
   {
@@ -154,7 +156,7 @@ export default function AdminNav({ profile }: { profile: Profile }) {
       </div>
 
       {/*
-        Rendered inline, NOT via createPortal(..., document.body) — globals.css
+        Rendered inline, NOT via createPortal(..., document.body) - globals.css
         has `body > * { position: relative; z-index: 1; }` to keep page
         content above a decorative background grid. That rule was overriding
         `fixed` on anything portaled directly into body (unlayered CSS always

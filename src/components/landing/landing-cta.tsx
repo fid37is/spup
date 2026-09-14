@@ -21,19 +21,19 @@ export default function LandingCTA({
   const { openModal } = useWaitlist()
 
   const primaryStyle: React.CSSProperties = {
-    display: 'inline-flex', alignItems: 'center', gap: 10,
-    background: '#1A9E5F', color: 'white', border: 'none',
-    padding: '14px 28px', borderRadius: 10,
-    fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+    background: '#1A9E5F', color: 'white', border: '1px solid transparent',
+    padding: '14px 28px', minHeight: 52, boxSizing: 'border-box', borderRadius: 10,
+    fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16, lineHeight: 1.2,
     cursor: 'pointer', textDecoration: 'none',
     transition: 'background 0.18s, transform 0.15s, box-shadow 0.18s',
   }
 
   const ghostStyle: React.CSSProperties = {
-    display: 'inline-flex', alignItems: 'center', gap: 8,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
     border: '1px solid rgba(255,255,255,0.12)', color: '#8A8A85',
-    background: 'none', padding: '14px 28px', borderRadius: 10,
-    fontSize: 15, cursor: 'pointer',
+    background: 'none', padding: '14px 28px', minHeight: 52, boxSizing: 'border-box', borderRadius: 10,
+    fontSize: 15, lineHeight: 1.2, cursor: 'pointer',
     fontFamily: "'DM Sans', sans-serif", textDecoration: 'none',
     transition: 'border-color 0.18s, color 0.18s',
   }
@@ -66,7 +66,7 @@ export default function LandingCTA({
 
   if (!opensModal) {
     return (
-      <Link href={href} style={style} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
+      <Link className="landing-cta-btn" href={href} style={style} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
         {label}
         {variant === 'primary' && <ArrowRight size={18} />}
       </Link>
@@ -74,7 +74,7 @@ export default function LandingCTA({
   }
 
   return (
-    <button onClick={openModal} style={style} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
+    <button className="landing-cta-btn" onClick={openModal} style={style} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
       {label}
       {variant === 'primary' && <ArrowRight size={18} />}
     </button>

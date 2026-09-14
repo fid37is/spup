@@ -4,11 +4,13 @@ import LandingFooter from '@/components/landing/landing-footer'
 import LandingNav from '@/components/landing/landing-nav'
 import LandingHeroCards from '@/components/landing/landing-hero-cards'
 import { getWaitlistCountAction } from '@/lib/actions/waitlist'
+import { getApprovedTestimonials } from '@/lib/actions/testimonials'
 import LandingMobileSection from '@/components/landing/landing-mobile-section'
 import OrbitSection from '@/components/landing/orbit-section'
 import { formatCreatorCount } from '@/lib/utils/format-creator-count'
+import { ReactElement, JSXElementConstructor, ReactNode, ReactPortal, Key } from 'react'
 
-// The waitlist count needs to be fresh, not baked into a static build — this
+// The waitlist count needs to be fresh, not baked into a static build - this
 // page has no other dynamic APIs, so Next would otherwise statically render
 // it once at build time and freeze this number until the next deploy.
 export const revalidate = 60
@@ -60,28 +62,11 @@ const FEATURES = [
   },
 ]
 
-const TESTIMONIALS = [
-  {
-    name: 'Chioma Obi', handle: '@chioma_creates', location: 'Lagos', initials: 'CO',
-    quote: "I made ₦45,000 in my first month just from ad revenue. My old platform paid in dollars I couldn't access.",
-    earned: '₦45K / mo',
-  },
-  {
-    name: 'Emeka Eze', handle: '@emekaeze', location: 'Abuja', initials: 'EE',
-    quote: 'I know my audience is 22–28 yr olds in Lagos active at 7pm. My engagement doubled.',
-    earned: '2× engagement',
-  },
-  {
-    name: 'Fatima Bello', handle: '@fatimab', location: 'Kano', initials: 'FB',
-    quote: 'First platform where I write in Hausa and actually trend. My community is here.',
-    earned: '#1 in Hausa',
-  },
-]
-
 /* ─── Page ─────────────────────────────────────────────────────────────── */
 
 export default async function LandingPage() {
   const waitlistCount = await getWaitlistCountAction()
+  const testimonials = await getApprovedTestimonials()
 
   return (
     <div style={{
@@ -125,6 +110,7 @@ export default async function LandingPage() {
           }
           .hero-left  { flex: none; width: 100%; padding-right: 0; }
           .hero-right { flex: none; width: 100%; height: 400px; }
+          .landing-cta-btn { width: 100%; }
           .stats-grid { grid-template-columns: repeat(2,1fr); }
           .features-grid { grid-template-columns: 1fr !important; }
           .features-grid > div {
@@ -260,7 +246,7 @@ export default async function LandingPage() {
           </div>
         </div>
 
-        {/* Right — floating post cards */}
+        {/* Right - floating post cards */}
         <LandingHeroCards />
       </section>
 
@@ -343,9 +329,9 @@ export default async function LandingPage() {
           </div>
           <div className="paid-grid">
             {[
-              { step: '01', title: 'Post content',      desc: 'Share your thoughts, videos, hot takes — anything you want. In Pidgin, Yoruba, Igbo, Hausa, or English.' },
+              { step: '01', title: 'Post content',      desc: 'Share your thoughts, videos, hot takes - anything you want. In Pidgin, Yoruba, Igbo, Hausa, or English.' },
               { step: '02', title: 'Build followers',   desc: "Reach 500 followers in 90 days to unlock earnings. We'll help you grow with smart analytics." },
-              { step: '03', title: 'Ads run nearby',    desc: 'We sell ads to Nigerian brands. You keep 70% of what they pay — no hidden cuts, no surprises.' },
+              { step: '03', title: 'Ads run nearby',    desc: 'We sell ads to Nigerian brands. You keep 70% of what they pay - no hidden cuts, no surprises.' },
               { step: '04', title: 'Withdraw in Naira', desc: 'Hit ₦1,000 minimum? Transfer straight to your bank. Your money, your bank, no stress.' },
             ].map((s, i) => (
               <div key={i} style={{
@@ -390,16 +376,16 @@ export default async function LandingPage() {
               Nobody&rsquo;s money disappears on Spup
             </h2>
             <p style={{ fontSize: 17, color: 'var(--color-text-secondary)', lineHeight: 1.7, maxWidth: 580 }}>
-              You&rsquo;ve heard the stories — money sent, seller gone, no trace. Spup escrow holds every payment safely until the buyer actually gets what they paid for. No side app, no wiring money to a stranger. Just your Spup wallet, doing more.
+              You&rsquo;ve heard the stories - money sent, seller gone, no trace. Spup escrow holds every payment safely until the buyer actually gets what they paid for. No side app, no wiring money to a stranger. Just your Spup wallet, doing more.
             </p>
           </div>
 
           <div className="paid-grid">
             {[
               { step: '01', title: 'Agree the deal',   desc: 'Hash out price and details right in chat, before any money moves.' },
-              { step: '02', title: 'Buyer pays',        desc: "Payment goes into Spup, not the seller's pocket — held safe from the first tap." },
+              { step: '02', title: 'Buyer pays',        desc: "Payment goes into Spup, not the seller's pocket - held safe from the first tap." },
               { step: '03', title: 'Seller delivers',   desc: 'The seller ships the item or delivers the service, exactly as promised.' },
-              { step: '04', title: 'Buyer confirms',    desc: 'One tap, and the money unlocks — straight into the seller\u2019s withdrawable balance.' },
+              { step: '04', title: 'Buyer confirms',    desc: 'One tap, and the money unlocks - straight into the seller\u2019s withdrawable balance.' },
             ].map((s, i) => (
               <div key={i} style={{
                 background: 'var(--color-surface)',
@@ -430,7 +416,7 @@ export default async function LandingPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 20 }}>
               <MessageCircle size={20} color="var(--color-brand)" style={{ flexShrink: 0, marginTop: 2 }} />
               <p style={{ fontSize: 16, color: 'var(--color-text-secondary)', lineHeight: 1.7 }}>
-                Something feels off? Sort it out in chat first. Still can&rsquo;t agree? Spup steps in and settles it — fair to both sides, every time.
+                Something feels off? Sort it out in chat first. Still can&rsquo;t agree? Spup steps in and settles it - fair to both sides, every time.
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -444,6 +430,9 @@ export default async function LandingPage() {
       </section>
 
       {/* ── TESTIMONIALS ── */}
+      {/* Hidden entirely until there's at least one real, approved review -
+          no placeholder/fake testimonials shown. */}
+      {testimonials.length > 0 && (
       <section className="section-pad-b">
         <div className="section-inner">
           <div style={{ marginBottom: 56 }}>
@@ -459,22 +448,29 @@ export default async function LandingPage() {
             </h2>
           </div>
           <div className="testimonials-grid">
-            {TESTIMONIALS.map((t, i) => (
-              <div key={i} style={{
+            {testimonials.map((t: { name: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; id: Key | null | undefined; earned_label: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ReactPortal | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; quote: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ReactPortal | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; handle: any; location: any }) => {
+              const safeName = (t.name ?? '').toString().trim();
+              const initials = safeName
+                ? safeName.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
+                : 'A';
+              return (
+              <div key={t.id} style={{
                 background: 'var(--color-surface)',
                 border: '1px solid var(--color-border)',
                 borderRadius: 20, padding: 32,
                 display: 'flex', flexDirection: 'column',
               }}>
-                <div style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 20,
-                  background: 'var(--color-gold-muted)',
-                  border: '1px solid var(--color-gold-border)',
-                  borderRadius: 20, padding: '4px 12px', alignSelf: 'flex-start',
-                }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--color-gold)', display: 'block' }} />
-                  <span style={{ fontSize: 12, color: 'var(--color-gold)', fontWeight: 600 }}>{t.earned}</span>
-                </div>
+                {t.earned_label && (
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 20,
+                    background: 'var(--color-gold-muted)',
+                    border: '1px solid var(--color-gold-border)',
+                    borderRadius: 20, padding: '4px 12px', alignSelf: 'flex-start',
+                  }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--color-gold)', display: 'block' }} />
+                    <span style={{ fontSize: 12, color: 'var(--color-gold)', fontWeight: 600 }}>{t.earned_label}</span>
+                  </div>
+                )}
                 <p style={{
                   fontSize: 15, color: 'var(--color-text-secondary)',
                   lineHeight: 1.75, fontStyle: 'italic', flex: 1, marginBottom: 24,
@@ -488,7 +484,7 @@ export default async function LandingPage() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 13, color: 'white',
                   }}>
-                    {t.initials}
+                    {initials}
                   </div>
                   <div>
                     <div style={{
@@ -498,16 +494,20 @@ export default async function LandingPage() {
                     }}>
                       {t.name}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                      {t.handle} · {t.location}
-                    </div>
+                    {(t.handle || t.location) && (
+                      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                        {[t.handle, t.location].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </section>
+      )}
 
       <LandingMobileSection />
 
@@ -540,7 +540,7 @@ export default async function LandingPage() {
             Ready to<br />soro soke?
           </h2>
 
-          {/* FIX: was <p> containing <p> — changed outer to <div> to fix hydration error */}
+          {/* FIX: was <p> containing <p> - changed outer to <div> to fix hydration error */}
           <div style={{
             fontSize: 17, color: 'var(--color-text-secondary)',
             marginBottom: 40, lineHeight: 1.65, position: 'relative',

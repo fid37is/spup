@@ -3,7 +3,9 @@ import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/server'
 import { formatRelativeTime } from '@/lib/utils'
 import WaitlistInviteButton from './invite-button'
+import BulkInvitePanel from './bulk-invite-panel'
 import { DataTable, type Column } from '@/components/admin/data-table'
+import { getWaitlistOpenStatus } from '@/lib/queries/settings'
 
 interface SearchParams { status?: string }
 
@@ -45,7 +47,9 @@ async function getWaitlistCounts() {
 
 export default async function AdminWaitlistPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams
-  const [{ entries }, counts] = await Promise.all([getWaitlist(params), getWaitlistCounts()])
+  const [{ entries }, counts, waitlistOpen] = await Promise.all([
+    getWaitlist(params), getWaitlistCounts(), getWaitlistOpenStatus(),
+  ])
   const activeStatus = params.status || 'waiting'
 
   const TABS = [
@@ -107,6 +111,8 @@ export default async function AdminWaitlistPage({ searchParams }: { searchParams
           </div>
         ))}
       </div>
+
+      <BulkInvitePanel waitingCount={counts.waiting} waitlistOpen={waitlistOpen} />
 
       {/* Tabs */}
       <div className="mb-5 flex gap-1 overflow-x-auto border-b border-border">

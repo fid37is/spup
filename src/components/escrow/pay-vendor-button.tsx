@@ -15,16 +15,19 @@ interface PayVendorButtonProps {
   sellerUsername: string
   sellerDisplayName: string
   postId?: string
+  /** Item description from the post, if it was marked as selling something -
+      pre-fills the note field below, but the buyer can still freely edit it. */
+  itemDescription?: string | null
   /** Compact icon-only variant for embedding in a post's action bar. */
   compact?: boolean
 }
 
-export default function PayVendorButton({ sellerUsername, sellerDisplayName, postId, compact }: PayVendorButtonProps) {
+export default function PayVendorButton({ sellerUsername, sellerDisplayName, postId, itemDescription, compact }: PayVendorButtonProps) {
   const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
   const [amountKobo, setAmountKobo] = useState(0)
-  const [note, setNote] = useState('')
+  const [note, setNote] = useState(itemDescription || '')
   const [error, setError] = useState('')
   const [orderId, setOrderId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -34,7 +37,7 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
 
   function handleClose() {
     setOpen(false)
-    setTimeout(() => { setStep('form'); setAmountKobo(0); setNote(''); setError('') }, 300)
+    setTimeout(() => { setStep('form'); setAmountKobo(0); setNote(itemDescription || ''); setError('') }, 300)
   }
 
   function handlePay() {
@@ -112,7 +115,7 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'var(--color-surface-2)', borderRadius: 12, marginBottom: 20 }}>
                 <ShieldCheck size={16} color="var(--color-brand)" />
                 <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                  Held safely until you confirm delivery — {sellerDisplayName} can't withdraw it before then.
+                  Held safely until you confirm delivery - {sellerDisplayName} can't withdraw it before then.
                 </span>
               </div>
 

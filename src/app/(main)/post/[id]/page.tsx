@@ -10,7 +10,7 @@ import ReplySortMenu from './reply-sort-menu'
 const POST_SELECT = `
   id, body, post_type, likes_count, comments_count, reposts_count,
   bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
-  is_pinned, quoted_post_id,
+  is_pinned, quoted_post_id, is_selling,
   author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, is_monetised),
   media:post_media(id, media_type, url, thumbnail_url, width, height, position)
 `
@@ -126,7 +126,7 @@ export default async function PostDetailPage({
       {/* Main post */}
       <PostCard post={post} currentUserId={viewerUserId} />
 
-      {/* Reply sort + view activity — only shown once there's something to sort/view */}
+      {/* Reply sort + view activity - only shown once there's something to sort/view */}
       {(replies.length > 0 || post.likes_count > 0 || post.reposts_count > 0) && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -142,7 +142,7 @@ export default async function PostDetailPage({
         </div>
       )}
 
-      {/* Inline reply composer — always under the post, sticky at bottom */}
+      {/* Inline reply composer - always under the post, sticky at bottom */}
       <ReplyComposer
         parentPostId={id}
         viewerInitial={viewerInitial}
@@ -161,7 +161,7 @@ export default async function PostDetailPage({
       ) : (
         replies.map((reply: any) => (
           <div key={reply.id}>
-            {/* Reply card — clicking the reply button opens reply-to-reply modal/page */}
+            {/* Reply card - clicking the reply button opens reply-to-reply modal/page */}
             <ReplyToReply
               reply={reply}
               viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}

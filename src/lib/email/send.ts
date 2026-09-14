@@ -193,6 +193,34 @@ function weeklyDigestEmail(d: {
   }
 }
 
+// ─── Waitlist bulk-invite template ─────────────────────────────────────────────
+// Subject/body are admin-composed at send time (see adminBulkInviteWaitlistAction),
+// not a fixed template — this just drops that plain text into the standard layout
+// and adds a CTA. Plain newlines become paragraphs; no other formatting assumed.
+
+function waitlistInviteEmail(d: { name: string; subject: string; message: string }) {
+  const paragraphs = d.message
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .filter(Boolean)
+    .map(block => `<p>${block.replace(/\n/g, '<br />')}</p>`)
+    .join('')
+
+  return {
+    subject: d.subject,
+    html: wrap(`
+      <h1>Hey ${d.name.split(' ')[0]} 👋</h1>
+      ${paragraphs}
+      <a href="${APP_URL}/signup" class="btn">Get started on Spup</a>
+    `),
+  }
+}
+
+export async function sendWaitlistInviteEmail(to: string, data: { name: string; subject: string; message: string }): Promise<{ id?: string; error?: string }> {
+  const template = waitlistInviteEmail(data)
+  return sendEmail(to, template.subject, template.html)
+}
+
 // ─── Public dispatch function ─────────────────────────────────────────────────
 
 export async function sendNotificationEmail(opts: SendEmailOptions): Promise<{ id?: string; error?: string }> {

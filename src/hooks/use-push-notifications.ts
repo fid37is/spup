@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { createBrowserClient as createClient } from '@/lib/supabase/client'
+import { registerFcmTokenAction } from '@/lib/actions/push'
 
 // Dynamically import Capacitor only in native context
 async function setupPushNotifications(userId: string) {
@@ -18,16 +18,11 @@ async function setupPushNotifications(userId: string) {
   await PushNotifications.register()
 
   PushNotifications.addListener('registration', async token => {
-    const info = { platform: 'android' }
-    const supabase = createClient()
-
-    // Save token to user_devices table
-    await supabase.from('user_devices').upsert({
-      user_id: userId,
-      fcm_token: token.value,
-      platform: info.platform,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,fcm_token' })
+    // Was previously hardcoded to 'android' regardless of actual platform,
+    // which meant every iOS device silently got mislabeled in user_devices.
+    const info = await Device.getInfo()
+    const platform = info.platform === 'ios' ? 'ios' : 'android'
+    await registerFcmTokenAction(token.value, platform)
   })
 
   PushNotifications.addListener('pushNotificationReceived', notification => {

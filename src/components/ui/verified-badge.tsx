@@ -4,6 +4,7 @@
  *
  * Tiers:
  *   standard     — BVN verified user         → green BadgeCheck
+ *   pioneer      — One of first 200 accounts, phone+BVN verified → gold BadgeCheck (spup gradient)
  *   creator      — Verified creator           → brand BadgeCheck
  *   organisation — Verified organisation      → gold BadgeCheck
  *   spup         — Internal team (permanent)  → gold "S" badge
@@ -18,6 +19,7 @@ interface VerifiedBadgeProps {
 
 const CONFIG: Record<string, { bg: string; title: string }> = {
   standard:     { bg: '#22C55E',           title: 'BVN Verified'          },
+  pioneer:      { bg: 'linear-gradient(135deg, #D4A017, #F5C842)', title: 'Pioneer — among the first 200 on Spup' },
   creator:      { bg: 'var(--color-brand)', title: 'Verified Creator'      },
   organisation: { bg: '#D4A017',           title: 'Verified Organisation'  },
   spup:         { bg: '#D4A017',           title: 'Spup Team'              },

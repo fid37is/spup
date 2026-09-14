@@ -76,7 +76,7 @@ export async function verifyBvnAction(bvn: string) {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('id, phone_verified, bvn_verified, verification_tier, display_name')
+    .select('id, phone_verified, bvn_verified, verification_tier, is_pioneer, display_name')
     .eq('auth_id', user.id)
     .single()
 
@@ -117,8 +117,13 @@ export async function verifyBvnAction(bvn: string) {
   // automatically from a real BVN check, not require a separate manual
   // admin-approved verification_requests submission. Only bump from 'none':
   // never downgrade someone who already holds 'creator' or 'organisation'.
+  //
+  // One of the first 200 people to ever create a Spup account gets the
+  // gold "pioneer" tier instead of the ordinary green "standard" one, at
+  // this exact moment — completing phone + BVN verification — rather
+  // than at signup, so the badge also rewards actually finishing KYC.
   if (profile.verification_tier === 'none') {
-    updates.verification_tier = 'standard'
+    updates.verification_tier = profile.is_pioneer ? 'pioneer' : 'standard'
   }
 
   const { error: updateError } = await admin
