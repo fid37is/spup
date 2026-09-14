@@ -60,6 +60,7 @@ export interface Post {
   bookmarks_count: number
   impressions_count: number
   is_pinned: boolean
+  is_selling: boolean
   is_sensitive: boolean
   language: string
   location: string | null

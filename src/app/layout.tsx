@@ -3,6 +3,7 @@ import Script from 'next/script'
 import './globals.css'
 import PWAProvider from '@/components/layout/pwa-provider'
 import { WaitlistProvider } from '@/components/landing/waitlist-context'
+import { getWaitlistOpenStatus } from '@/lib/queries/settings'
 import { GoogleAnalytics } from '@next/third-parties/google'
 import { ToastProvider } from '@/components/layout/toast'
 
@@ -105,7 +106,8 @@ export const metadata: Metadata = {
   generator: 'Next.js',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const waitlistOpen = await getWaitlistOpenStatus()
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
@@ -164,7 +166,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <PWAProvider />
         <ToastProvider>
-          <WaitlistProvider>
+          <WaitlistProvider waitlistOpen={waitlistOpen}>
             {children}
           </WaitlistProvider>
         </ToastProvider>

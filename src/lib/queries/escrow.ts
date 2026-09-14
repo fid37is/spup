@@ -24,7 +24,8 @@ export async function getMyEscrowOrders(role: 'buyer' | 'seller' = 'buyer') {
     .select(`
       *,
       buyer:buyer_id ( id, username, display_name, avatar_url ),
-      seller:seller_id ( id, username, display_name, avatar_url )
+      seller:seller_id ( id, username, display_name, avatar_url ),
+      post:post_id ( id, content, media_urls )
     `)
     .eq(column, profile.id)
     .order('created_at', { ascending: false })
@@ -53,7 +54,8 @@ export async function getEscrowOrder(orderId: string) {
     .select(`
       *,
       buyer:buyer_id ( id, username, display_name, avatar_url ),
-      seller:seller_id ( id, username, display_name, avatar_url )
+      seller:seller_id ( id, username, display_name, avatar_url ),
+      post:post_id ( id, content, media_urls )
     `)
     .eq('id', orderId)
     .single()
@@ -85,13 +87,13 @@ export async function getEscrowOrder(orderId: string) {
   }
 }
 
-// ─── Admin: escalated disputes queue ────────────────────────────────────────
+// ─── Admin: dispute queue ───────────────────────────────────────────────────
 // Mirrors the shape of the existing reports moderation queue in
 // (admin)/reports. Access control is enforced by requireAdmin() in
 // the corresponding action file, not here — this uses the admin
 // client so it must only ever be called from an already-gated route.
 
-export async function getEscalatedDisputesAdmin() {
+export async function getDisputesAdmin(status: 'escalated' | 'open' | 'negotiating' | 'resolved_mutual' | 'resolved_admin' = 'escalated') {
   const { createAdminClient } = await import('@/lib/supabase/server')
   const admin = createAdminClient()
 
@@ -107,9 +109,50 @@ export async function getEscalatedDisputesAdmin() {
         seller:seller_id ( id, username, display_name )
       )
     `)
-    .eq('status', 'escalated')
+    .eq('status', status)
     .order('created_at', { ascending: true })
 
   if (error) return { error: 'Could not load dispute queue', disputes: null }
   return { error: null, disputes }
+}
+
+export async function getDisputeCountsAdmin() {
+  const { createAdminClient } = await import('@/lib/supabase/server')
+  const admin = createAdminClient()
+
+  const statuses = ['escalated', 'open', 'negotiating', 'resolved_mutual', 'resolved_admin'] as const
+  const counts: Record<string, number> = {}
+  await Promise.all(statuses.map(async s => {
+    const { count } = await admin.from('escrow_disputes').select('id', { count: 'exact', head: true }).eq('status', s)
+    counts[s] = count || 0
+  }))
+  return counts
+}
+
+// ─── Admin: single dispute detail ──────────────────────────────────────────
+
+export async function getDisputeAdmin(disputeId: string) {
+  const { createAdminClient } = await import('@/lib/supabase/server')
+  const admin = createAdminClient()
+
+  const { data: dispute, error } = await admin
+    .from('escrow_disputes')
+    .select(`
+      *,
+      evidence:escrow_dispute_evidence ( *, uploader:uploaded_by ( id, username, display_name ) ),
+      proposals:escrow_dispute_proposals ( *, proposer:proposed_by ( id, username, display_name ) ),
+      opener:opened_by ( id, username, display_name ),
+      resolver:resolved_by ( id, username, display_name ),
+      order:escrow_order_id (
+        *,
+        buyer:buyer_id ( id, username, display_name, avatar_url ),
+        seller:seller_id ( id, username, display_name, avatar_url ),
+        post:post_id ( id, content, media_urls )
+      )
+    `)
+    .eq('id', disputeId)
+    .single()
+
+  if (error || !dispute) return { error: 'Dispute not found', dispute: null }
+  return { error: null, dispute }
 }

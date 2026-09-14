@@ -3,10 +3,12 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { sendWaitlistInviteEmail } from '@/lib/email/send'
 
 // ─── Guard: caller must be admin or moderator ─────────────────────────────────
 
-async function requireAdmin(allowModerator = true) {
+export async function requireAdmin(allowModerator = true) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated', admin: null }
@@ -25,7 +27,7 @@ async function requireAdmin(allowModerator = true) {
   return { error: null, admin, profile }
 }
 
-async function auditLog(adminId: string, action: string, targetType: string, targetId: string, metadata = {}) {
+export async function auditLog(adminId: string, action: string, targetType: string, targetId: string, metadata = {}) {
   const db = createAdminClient()
   await db.from('admin_audit_log').insert({ admin_id: adminId, action, target_type: targetType, target_id: targetId, metadata })
 }
@@ -140,6 +142,35 @@ export async function adminUpdateAdAction(adId: string, status: 'active' | 'reje
   return { success: true }
 }
 
+// ─── Testimonial moderation ───────────────────────────────────────────────────
+// NOTE: `testimonials` has no migration anywhere in supabase/migrations, no
+// admin UI page exists for it, and the only other "testimonial" reference in
+// the codebase is a hardcoded static grid on the landing page (src/app/page.tsx).
+// This compiles fine (the Supabase client here is untyped) but will fail at
+// runtime with "relation does not exist" unless that table already exists in
+// the live DB outside of migrations, or gets created — flagging rather than
+// guessing at its schema.
+
+export async function adminUpdateTestimonialAction(
+  testimonialId: string,
+  status: 'approved' | 'rejected'
+) {
+  const { error, admin, profile } = await requireAdmin()
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  const { error: tError } = await admin.from('testimonials').update({
+    status,
+    reviewed_at: new Date().toISOString(),
+  }).eq('id', testimonialId)
+
+  if (tError) return { error: 'Update failed' }
+
+  await auditLog(profile.id, `testimonial_${status}`, 'testimonial', testimonialId)
+  revalidatePath('/testimonials')
+  revalidatePath('/') // the public landing page reads approved testimonials
+  return { success: true }
+}
+
 // ─── Waitlist management ──────────────────────────────────────────────────────
 
 export async function adminInviteWaitlistAction(waitlistId: string) {
@@ -155,6 +186,108 @@ export async function adminInviteWaitlistAction(waitlistId: string) {
 
   await auditLog(profile.id, 'waitlist_invite', 'waitlist', waitlistId)
   revalidatePath('/waitlist')
+  return { success: true }
+}
+
+// ─── Bulk-invite everyone currently waiting ─────────────────────────────────
+// Sends the admin-composed message to every 'waiting' entry that has an
+// email on file (phone-only entries have no send channel wired up yet —
+// there's no SMS provider in this codebase — and are reported back as
+// skipped rather than silently dropped).
+//
+// Sending happens in an after() callback so the action returns immediately
+// instead of holding the request open for however long N Resend calls take
+// — at waitlist sizes in the hundreds this would otherwise risk hitting the
+// platform's function timeout. Each row only flips to 'invited' once its
+// own email actually succeeds, in small batches with a short pause between
+// them to stay under Resend's rate limit; a failure just leaves that row
+// 'waiting' so it's obvious (and re-sendable) which ones didn't go out.
+export async function adminBulkInviteWaitlistAction({
+  subject,
+  message,
+  closeWaitlistAfter,
+}: {
+  subject: string
+  message: string
+  closeWaitlistAfter: boolean
+}) {
+  const { error, admin, profile } = await requireAdmin(false) // admin only
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  if (!subject.trim() || !message.trim()) {
+    return { error: 'Subject and message are required' }
+  }
+
+  const { data: entries, error: fetchError } = await admin
+    .from('waitlist')
+    .select('id, full_name, email')
+    .eq('status', 'waiting')
+
+  if (fetchError) return { error: 'Could not load waitlist' }
+
+  type WaitlistEntry = { id: string; full_name: string; email: string | null }
+  const all = (entries || []) as WaitlistEntry[]
+  const recipients = all.filter((e: WaitlistEntry): e is WaitlistEntry & { email: string } => !!e.email)
+  const skippedNoEmail = all.length - recipients.length
+
+  if (recipients.length === 0) {
+    return { error: 'No waiting entries have an email address to send to' }
+  }
+
+  await auditLog(profile.id, 'waitlist_bulk_invite', 'waitlist', 'bulk', {
+    count: recipients.length, skippedNoEmail, subject,
+  })
+
+  if (closeWaitlistAfter) {
+    await admin.from('platform_settings').upsert({
+      key: 'waitlist_open', value: false, updated_at: new Date().toISOString(),
+    })
+  }
+
+  after(async () => {
+    const BATCH_SIZE = 5
+    for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+      const batch = recipients.slice(i, i + BATCH_SIZE)
+      await Promise.allSettled(batch.map(async entry => {
+        const result = await sendWaitlistInviteEmail(entry.email, {
+          name: entry.full_name, subject, message,
+        })
+        if (result.error) {
+          console.error(`[waitlist bulk invite] failed for ${entry.email}:`, result.error)
+          return
+        }
+        await admin.from('waitlist').update({
+          status: 'invited', invited_at: new Date().toISOString(),
+        }).eq('id', entry.id)
+      }))
+      // Brief pause between batches — keeps this well under Resend's
+      // per-second rate limit even at a few hundred recipients.
+      if (i + BATCH_SIZE < recipients.length) {
+        await new Promise(r => setTimeout(r, 400))
+      }
+    }
+    revalidatePath('/waitlist')
+  })
+
+  return { success: true, sending: recipients.length, skippedNoEmail }
+}
+
+// ─── Waitlist form visibility (landing page) ────────────────────────────────
+// Independent of sending — lets an admin close/reopen the public join form
+// without necessarily sending mail at the same moment.
+
+export async function adminSetWaitlistOpenAction(open: boolean) {
+  const { error, admin, profile } = await requireAdmin(false)
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  const { error: upsertError } = await admin.from('platform_settings').upsert({
+    key: 'waitlist_open', value: open, updated_at: new Date().toISOString(),
+  })
+  if (upsertError) return { error: 'Could not update setting' }
+
+  await auditLog(profile.id, open ? 'waitlist_reopen' : 'waitlist_close', 'platform_settings', 'waitlist_open')
+  revalidatePath('/waitlist')
+  revalidatePath('/')
   return { success: true }
 }
 

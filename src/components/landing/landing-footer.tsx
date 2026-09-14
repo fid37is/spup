@@ -6,6 +6,7 @@ const LINKS = [
   { label: 'Terms',          href: '/terms' },
   { label: 'Content Policy', href: '/content-policy' },
   { label: 'Contact',        href: '/contact' },
+  { label: 'Share a review', href: '/reviews' },
 ]
 
 export default function LandingFooter() {

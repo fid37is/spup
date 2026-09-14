@@ -7,9 +7,10 @@ import { joinWaitlistAction } from '@/lib/actions/waitlist'
 
 interface WaitlistModalProps {
   onClose: () => void
+  waitlistOpen: boolean
 }
 
-export default function WaitlistModal({ onClose }: WaitlistModalProps) {
+export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalProps) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
@@ -154,7 +155,40 @@ export default function WaitlistModal({ onClose }: WaitlistModalProps) {
             <X size={14} />
           </button>
 
-          {result ? (
+          {!waitlistOpen ? (
+            // ── Waitlist closed — we've already invited everyone in and
+            // moved past the pre-launch phase ──
+            <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
+              <div
+                style={{
+                  width: 60, height: 60, borderRadius: '50%',
+                  background: 'rgba(26,158,95,0.1)',
+                  border: '1px solid rgba(26,158,95,0.25)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 18px',
+                }}
+              >
+                <CheckCircle size={26} color="#1A9E5F" />
+              </div>
+              <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#EDEDEA', letterSpacing: '-0.02em', marginBottom: 8 }}>
+                We&apos;re live
+              </h2>
+              <p style={{ fontSize: 14, color: '#5A5A58', lineHeight: 1.65, marginBottom: 20 }}>
+                Spup is open now — no more waiting. Create your account and jump in.
+              </p>
+              <a
+                href="/signup"
+                style={{
+                  display: 'block', width: '100%', boxSizing: 'border-box',
+                  background: '#1A9E5F', border: 'none', borderRadius: 10, padding: '12px',
+                  fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: 'white',
+                  textAlign: 'center', textDecoration: 'none',
+                }}
+              >
+                Create your account
+              </a>
+            </div>
+          ) : result ? (
             // ── Success state ──
             <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
               <div

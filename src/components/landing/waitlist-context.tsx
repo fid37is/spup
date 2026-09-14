@@ -13,14 +13,14 @@ export function useWaitlist() {
   return useContext(WaitlistContext)
 }
 
-export function WaitlistProvider({ children }: { children: React.ReactNode }) {
+export function WaitlistProvider({ children, waitlistOpen }: { children: React.ReactNode; waitlistOpen: boolean }) {
   const [open, setOpen] = useState(false)
   const openModal = useCallback(() => setOpen(true), [])
 
   return (
     <WaitlistContext.Provider value={{ openModal }}>
       {children}
-      {open && <WaitlistModal onClose={() => setOpen(false)} />}
+      {open && <WaitlistModal onClose={() => setOpen(false)} waitlistOpen={waitlistOpen} />}
     </WaitlistContext.Provider>
   )
 }

@@ -5,7 +5,7 @@ import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   MessageCircle, Repeat2, Heart, Send, BarChart2,
-  Bookmark, MoreHorizontal, Trash2, Quote, Flag, Pin, PinOff, Megaphone, Link2,
+  Bookmark, MoreHorizontal, Trash2, Quote, Flag, Pin, PinOff, Megaphone, Link2, Tag,
   Play, Volume2, VolumeX,
 } from 'lucide-react'
 import PromoteModal from './promote-modal'
@@ -571,16 +571,17 @@ export function PostActions({
           />
         </div>
 
-        {/* Escrow pay button — hidden on your own posts. Any post's author
-            can be paid this way, not just ones explicitly tagged "for sale";
-            keeps this shippable without a separate listings/marketplace
-            layer. See lib/actions/escrow.ts for the payment + hold logic. */}
-        {!isOwnPost && post.author?.username && (
+        {/* Escrow pay button — only shown when the author explicitly marked
+            this post as selling something (post.is_selling), set via the
+            composer toggle. See lib/actions/escrow.ts for the payment +
+            hold logic, and post-modal.tsx for where the toggle lives. */}
+        {!isOwnPost && post.author?.username && post.is_selling && (
           <div style={{ marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
             <PayVendorButton
               sellerUsername={post.author.username}
               sellerDisplayName={post.author.display_name || post.author.username}
               postId={post.id}
+              itemDescription={post.body}
               compact
             />
           </div>
@@ -711,6 +712,9 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
             <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{original.author.username}</span>
             <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
             <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(original.created_at)}</span>
+            {original.is_selling && (
+              <Tag size={13} color="var(--color-brand)" aria-label="Selling" style={{ marginLeft: 2 }} />
+            )}
           </div>
           {original.body && (
             <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap', marginBottom: original.media?.length ? 10 : 0 }}>
@@ -930,8 +934,12 @@ export default function PostCard({
               {post.edited_at && <span style={{ fontSize: 11, color: 'var(--color-text-faint)' }}>· edited</span>}
             </div>
 
-            {/* More menu */}
-            <div style={{ position: 'relative', flexShrink: 0 }}>
+            {/* More menu (+ small selling indicator, right next to it) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              {post.is_selling && (
+                <Tag size={14} color="var(--color-brand)" aria-label="Selling" />
+              )}
+              <div style={{ position: 'relative' }}>
               <button
                 onClick={e => { e.stopPropagation(); setShowMenu(v => !v) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '4px 6px', borderRadius: 6 }}
@@ -986,6 +994,7 @@ export default function PostCard({
                   </div>
                 </>
               ))}
+              </div>
             </div>
           </div>
 

@@ -43,9 +43,29 @@ export async function proxy(request: NextRequest) {
 
   // Carries the refreshed session cookies (if any were reissued above) onto
   // whatever final response this request ends up producing.
+  //
+  // BUG FIXED HERE: this used to do
+  //   response.cookies.set(cookie.name, cookie.value)
+  // which drops every attribute except name/value — domain, secure,
+  // sameSite, httpOnly, maxAge all silently fall back to Next's raw
+  // defaults (no domain, NOT secure, NOT httpOnly) instead of
+  // authCookieOptions. That's exactly the "works on local, breaks on
+  // prod" split: in dev, authCookieOptions has no meaningful domain and
+  // secure:false anyway, so the downgrade is invisible. In prod,
+  // authCookieOptions sets domain:'spup.live' and secure:true — so any
+  // time this function actually re-issues a cookie (a token refresh
+  // happening on the same request as an auth-route redirect, which is
+  // exactly the "logs in, immediately logs back out" moment right after
+  // login), the reissued cookie silently loses its Secure attribute and
+  // its cross-subdomain Domain, and can end up not matching the cookie
+  // the browser already has — the classic "two different cookies"
+  // failure mode. `cookie` here already carries every original
+  // attribute (getAll() returns full ResponseCookie objects, not just
+  // name/value) — passing it through whole, instead of just its name
+  // and value, is the actual fix.
   function withRefreshedCookies(response: NextResponse) {
     refreshedResponse.cookies.getAll().forEach(cookie => {
-      response.cookies.set(cookie.name, cookie.value)
+      response.cookies.set(cookie)
     })
     return response
   }

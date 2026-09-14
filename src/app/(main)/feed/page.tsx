@@ -29,7 +29,7 @@ export default async function FeedPage() {
     nextCursor = result.nextCursor
   } catch (err: any) {
     if (err?.message !== 'feed_timeout') {
-      // Real error — still render empty shell, client will retry
+      // Real error - still render empty shell, client will retry
       console.error('[FeedPage] getForYouFeedAction failed:', err)
     }
   }

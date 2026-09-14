@@ -2,14 +2,14 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
-import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, type FeedPost } from '@/lib/actions'
+import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, getSellingFeedAction, type FeedPost } from '@/lib/actions'
 import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import AdSlot from '@/components/feed/ad-card'
-import { Loader, Repeat2, Rss, Users, Sparkles } from 'lucide-react'
+import { Loader, Repeat2, Rss, Users, Sparkles, Tag } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
 
-type Tab = 'for-you' | 'following' | 'mutuals'
+type Tab = 'for-you' | 'following' | 'mutuals' | 'selling'
 const AD_EVERY = 5
 
 interface FeedClientProps {
@@ -24,11 +24,13 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'for-you',   label: 'For You'   },
   { key: 'following', label: 'Following' },
   { key: 'mutuals',   label: 'Mutuals'   },
+  { key: 'selling',   label: 'Selling'   },
 ]
 
 function getFeedFn(tab: Tab) {
   if (tab === 'following') return getFollowingFeedAction
   if (tab === 'mutuals')   return getMutualsFeedAction
+  if (tab === 'selling')   return getSellingFeedAction
   return getForYouFeedAction
 }
 
@@ -36,6 +38,7 @@ const EMPTY: Record<Tab, { icon: React.ReactNode; title: string; body: string }>
   'for-you':   { icon: <Sparkles size={32} />, title: 'Nothing here yet',     body: 'Be the first to post today.' },
   'following': { icon: <Users size={32} />,    title: 'Follow some creators', body: 'Follow people to see their posts here.' },
   'mutuals':   { icon: <Rss size={32} />,      title: 'No mutuals yet',       body: 'When someone follows you back, their posts appear here.' },
+  'selling':   { icon: <Tag size={32} />,      title: 'Nothing for sale yet', body: 'Posts marked as selling something will show up here.' },
 }
 
 export default function FeedClient({ initialPosts, initialCursor, currentUserId, currentUserAvatarUrl, currentUserDisplayName }: FeedClientProps) {

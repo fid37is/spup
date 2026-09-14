@@ -80,7 +80,11 @@ export const createPostSchema = z.object({
   media: z.array(mediaItemSchema).max(4).optional(),
   parent_post_id: z.string().uuid().optional(),
   quoted_post_id: z.string().uuid().optional(),
+  is_selling: z.boolean().optional(),
 }).refine(d=>(d.body&&d.body.trim().length>0)||(d.media&&d.media.length>0),{ message:'Post must have text or media' })
+  .refine(d => !d.is_selling || (d.body && d.body.trim().length > 0), {
+    message: 'Write a bit about what you\u2019re selling — the post itself is the description', path: ['body'],
+  })
 export type CreatePostSchema = z.infer<typeof createPostSchema>
 
 export const reportSchema = z.object({

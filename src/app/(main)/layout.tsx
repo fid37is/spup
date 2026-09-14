@@ -8,6 +8,7 @@ import RightSidebar from '@/components/layout/right-sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import MobileHeader from '@/components/layout/mobile-header'
 import { AppThemeProvider } from '@/components/layout/theme-provider'
+import PushNotificationsProvider from '@/components/layout/push-notifications-provider'
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -36,6 +37,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
   return (
     <AppThemeProvider>
+      <PushNotificationsProvider userId={profile.id} />
       <style>{`
         .main-layout {
           display: flex;
