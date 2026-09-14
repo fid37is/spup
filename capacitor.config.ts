@@ -6,9 +6,12 @@ const config: CapacitorConfig = {
   webDir: 'out',          // Next.js static export output
   
   server: {
-    // During development, point to local Next.js server
-    // Comment this out for production builds
-    url: 'http://192.168.1.x:3000',  // Replace with your LAN IP
+    // During development, point to local Next.js server so the device/
+    // simulator can reach it. Replace 192.168.1.x with your machine's
+    // actual LAN IP (e.g. `ipconfig getifaddr en0` on macOS, `hostname -I`
+    // on Linux, `ipconfig` on Windows) — this placeholder will not resolve.
+    // Comment this whole block out for production builds.
+    url: 'http://192.168.1.x:3000',
     cleartext: true,
   },
   plugins: {
@@ -24,7 +27,7 @@ const config: CapacitorConfig = {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
     StatusBar: {
-      style: 'dark',                  // Para is dark-themed
+      style: 'dark',                  // Spup is dark-themed
       backgroundColor: '#0A0A0A',
     },
   },
@@ -32,8 +35,8 @@ const config: CapacitorConfig = {
     allowMixedContent: true,
     backgroundColor: '#0A0A0A',
     buildOptions: {
-      keystorePath: 'android/app/para.keystore',
-      keystoreAlias: 'para',
+      keystorePath: 'android/app/spup.keystore',
+      keystoreAlias: 'spup',
     },
   },
   ios: {

@@ -27,7 +27,7 @@ const FEATURES = [
   {
     icon: Users,
     title: 'Built for Naija',
-    body: 'Nigerian phone login. Naira payouts. Local trending topics.',
+    body: 'Quick email sign-up. Naira payouts. Local trending topics.',
     wide: false,
   },
   {
@@ -557,7 +557,7 @@ export default async function LandingPage() {
             fontSize: 12, color: 'var(--color-text-secondary)',
             marginTop: 20, position: 'relative',
           }}>
-            No credit card required · Nigerian phone number only
+            No credit card required · Just your email to get started
           </p>
         </div>
       </section>
