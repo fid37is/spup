@@ -1,5 +1,6 @@
 // src/lib/supabase/server.ts
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createSupabaseJsClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { authCookieOptions } from './cookie-options'
 
@@ -21,7 +22,7 @@ export async function createClient() {
               cookieStore.set(name, value, options)
             )
           } catch {
-            // Server Component — cookies set by middleware
+            // Server Component - cookies set by middleware
           }
         },
       },
@@ -29,10 +30,9 @@ export async function createClient() {
   )
 }
 
-// Admin client — only use in server actions/API routes, NEVER expose to client
+// Admin client - only use in server actions/API routes, NEVER expose to client
 export function createAdminClient() {
-  const { createClient } = require('@supabase/supabase-js')
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }

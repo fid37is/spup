@@ -1,7 +1,7 @@
 // src/app/(auth)/login/page.tsx
 'use client'
 
-import React, { useState, useTransition, Suspense, useEffect } from 'react'
+import React, { useState, useTransition, Suspense, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
@@ -38,6 +38,17 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get('redirectTo') || '/feed'
+
+  // proxy.ts's cross-domain identity guard bounces a mismatched session
+  // (admin on main domain, or vice versa) back here with ?error=... —
+  // surface that as the same Alert a failed sign-in attempt would show.
+  const hostErrorParam = searchParams.get('error')
+  const hostErrorMessage = useMemo(() => {
+    if (hostErrorParam === 'admin_only') return 'This sign-in is for admin accounts only.'
+    if (hostErrorParam === 'use_admin_domain') return 'Admin accounts must sign in at the admin portal.'
+    return ''
+  }, [hostErrorParam])
+
   const [serverError, setServerError] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [isPending, startT] = useTransition()
@@ -65,7 +76,7 @@ function LoginForm() {
 
   return (
     <AuthCard title="Welcome back" subtitle="Sign in to your Spup account">
-      {serverError && <Alert type="error" message={serverError} />}
+      {(serverError || hostErrorMessage) && <Alert type="error" message={serverError || hostErrorMessage} />}
 
       {/* Social auth */}
       <OAuthButtons mode="login" />

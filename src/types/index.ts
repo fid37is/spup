@@ -3,14 +3,20 @@
 export type UserRole = 'user' | 'creator' | 'moderator' | 'admin'
 export type AccountStatus = 'active' | 'suspended' | 'banned' | 'pending_verification'
 export type NotificationType =
-  | 'new_follower' | 'post_like' | 'post_comment' | 'post_repost'
+  | 'new_follower' | 'post_like' | 'post_comment' | 'post_repost' | 'post_quote'
   | 'comment_like' | 'mention' | 'tip_received' | 'subscription_new'
   | 'earning_milestone' | 'monetisation_approved' | 'system'
+  | 'new_message'
+  | 'escrow_hold_received' | 'escrow_delivered' | 'escrow_released'
+  | 'escrow_disputed' | 'escrow_proposal' | 'escrow_escalated'
 export type PostType = 'original' | 'repost' | 'quote' | 'reply'
 export type MediaType = 'image' | 'video' | 'audio' | 'gif'
-export type TransactionType = 'earning_ad' | 'earning_tip' | 'earning_subscription' | 'withdrawal' | 'refund'
+export type TransactionType =
+  | 'earning_ad' | 'earning_tip' | 'earning_subscription' | 'withdrawal' | 'refund'
+  | 'wallet_topup' | 'escrow_hold' | 'escrow_release' | 'promotion_spend'
+  | 'transfer_sent' | 'transfer_received'
 export type TransactionStatus = 'pending' | 'completed' | 'failed' | 'reversed'
-export type VerificationTier = 'none' | 'standard' | 'creator' | 'organisation'
+export type VerificationTier = 'none' | 'standard' | 'pioneer' | 'creator' | 'organisation' | 'spup'
 export type ReportReason = 'spam' | 'harassment' | 'hate_speech' | 'misinformation' | 'nudity' | 'violence' | 'other'
 export type ReportStatus = 'pending' | 'reviewed' | 'actioned' | 'dismissed'
 
@@ -34,6 +40,7 @@ export interface User {
   is_private: boolean
   is_monetised: boolean
   monetised_at: string | null
+  is_pioneer: boolean
   phone_verified: boolean
   bvn_verified: boolean
   followers_count: number
@@ -141,71 +148,7 @@ export interface Transaction {
   completed_at: string | null
 }
 
-export interface OnboardingProgress {
-  user_id: string
-  step: number
-  profile_complete: boolean
-  interests_set: boolean
-  first_follow: boolean
-  completed_at: string | null
-}
-
-// ─── API / UI Types ────────────────────────────────────────────────────────────
-
-export interface ApiResponse<T = void> {
-  data?: T
-  error?: string
-  message?: string
-}
-
-export interface PaginatedResponse<T> {
-  data: T[]
-  count: number
-  page: number
-  limit: number
-  hasMore: boolean
-}
-
-export interface AuthUser {
-  id: string           // auth.uid()
-  email?: string
-  phone?: string
-  profile?: User
-  onboarding?: OnboardingProgress
-}
-
-export interface SignupFormData {
-  phone: string
-  display_name: string
-  username: string
-  password: string
-}
-
-export interface LoginFormData {
-  identifier: string   // phone or email
-  password: string
-}
-
-export interface OtpFormData {
-  phone: string
-  token: string
-}
-
-export interface ProfileSetupData {
-  display_name: string
-  username: string
-  bio?: string
-  avatar_url?: string
-}
-
-export interface InterestsData {
-  interests: string[]
-}
-
 // ─── UI Component Types ────────────────────────────────────────────────────────
-
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline'
-export type ButtonSize = 'sm' | 'md' | 'lg'
 
 export interface Interest {
   id: string

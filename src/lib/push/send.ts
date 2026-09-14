@@ -32,7 +32,7 @@ async function getWebPushLib() {
   if (!webPushConfigured) {
     const { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT } = process.env
     if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY || !VAPID_SUBJECT) {
-      throw new Error('Web push is not configured — missing VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT env vars')
+      throw new Error('Web push is not configured - missing VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT env vars')
     }
     webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
     webPushConfigured = true
@@ -40,7 +40,7 @@ async function getWebPushLib() {
   return webpush
 }
 
-/** Returns 'stale' if the subscription is gone and the device row should be deleted, 'ok' otherwise (including on transient failure — we don't want a network blip deleting a valid subscription). */
+/** Returns 'stale' if the subscription is gone and the device row should be deleted, 'ok' otherwise (including on transient failure - we don't want a network blip deleting a valid subscription). */
 async function sendWebPush(device: DeviceRow, payload: PushPayload): Promise<'ok' | 'stale'> {
   try {
     const webpush = await getWebPushLib()
@@ -50,7 +50,7 @@ async function sendWebPush(device: DeviceRow, payload: PushPayload): Promise<'ok
     )
     return 'ok'
   } catch (err: any) {
-    // 404/410 = the browser has unsubscribed or the subscription expired —
+    // 404/410 = the browser has unsubscribed or the subscription expired -
     // safe (and necessary) to stop trying this one.
     if (err?.statusCode === 404 || err?.statusCode === 410) return 'stale'
     console.error('Web push send failed:', err?.message || err)
@@ -58,19 +58,62 @@ async function sendWebPush(device: DeviceRow, payload: PushPayload): Promise<'ok
   }
 }
 
-// ─── Native (Android/iOS via Capacitor) — deferred ─────────────────────────
-//
-// Not implemented yet — deliberately. Sending to native devices needs some
-// provider (Firebase Cloud Messaging is the standard one for Capacitor
-// apps) which means creating a Firebase project first; that's a real
-// account-setup step outside of what code alone can do, and isn't needed
-// right now since only web push is in use. The `user_devices` schema
-// (migration 015) already supports fcm_token rows — usePushNotifications
-// still registers native tokens when running inside a Capacitor build, so
-// they'll be sitting ready in the table. To wire up sending later: add the
-// `firebase-admin` package back, and a sendFcmPush() here following the
-// same (device, payload) => Promise<'ok' | 'stale'> shape as sendWebPush
-// below, then call it from sendPushToUser for devices with fcm_token set.
+// ─── FCM (native Android/iOS via Capacitor) ────────────────────────────────
+
+// let fcmApp: import('firebase-admin').app.App | null = null
+
+// async function getFcmMessaging() {
+//   const admin = (await import('firebase-admin')).default
+//   if (!fcmApp) {
+//     const key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+//     if (!key) throw new Error('FCM is not configured - missing FIREBASE_SERVICE_ACCOUNT_KEY env var')
+//     fcmApp = admin.apps.length
+//       ? admin.app()
+//       : admin.initializeApp({ credential: admin.credential.cert(JSON.parse(key)) })
+//   }
+//   return admin.messaging(fcmApp)
+// }
+
+// async function sendFcmPush(device: DeviceRow, payload: PushPayload): Promise<'ok' | 'stale'> {
+//   try {
+//     const messaging = await getFcmMessaging()
+//     await messaging.send({
+//       token: device.fcm_token!,
+//       notification: { title: payload.title, body: payload.body },
+//       // FCM data payload values must all be strings.
+//       data: {
+//         type: payload.type,
+//         entityId: payload.entityId || '',
+//         actorUsername: payload.actorUsername || '',
+//       },
+//     })
+//     return 'ok'
+//   } catch (err: any) {
+//     if (err?.code === 'messaging/registration-token-not-registered' || err?.code === 'messaging/invalid-registration-token') {
+//       return 'stale'
+//     }
+//     console.error('FCM push send failed:', err?.message || err)
+//     return 'ok'
+//   }
+// }
+
+// FCM sending isn't implemented yet (see commented block above - needs the
+// firebase-admin package plus a service account key). Previously this
+// wasn't stubbed at all: sendPushToUser called sendFcmPush() for every
+// device with an fcm_token, which doesn't exist as a function, throwing a
+// ReferenceError on every native-app push and silently killing the whole
+// batch send for that user (caught by the outer try/catch, so it never
+// surfaced - pushes to native devices just never arrived). This stub logs
+// once and returns 'ok' (not 'stale') so device rows aren't deleted over a
+// missing feature rather than a genuinely dead token.
+let fcmWarned = false
+async function sendFcmPush(_device: DeviceRow, _payload: PushPayload): Promise<'ok' | 'stale'> {
+  if (!fcmWarned) {
+    console.warn('sendFcmPush: FCM sending is not implemented yet - native push notifications are not being delivered. See src/lib/push/send.ts.')
+    fcmWarned = true
+  }
+  return 'ok'
+}
 
 // ─── Public entry point ────────────────────────────────────────────────────
 
@@ -95,12 +138,10 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
 
     await Promise.all(
       devices.map(async (device: DeviceRow) => {
-        // Native (fcm_token) rows are skipped — see note above. They're
-        // left in the table rather than deleted; nothing here treats them
-        // as stale, since the token itself may well still be valid.
-        if (device.fcm_token) return
+        const result = device.fcm_token
+          ? await sendFcmPush(device, payload)
+          : await sendWebPush(device, payload)
 
-        const result = await sendWebPush(device, payload)
         if (result === 'stale') staleIds.push(device.id)
       })
     )
@@ -109,7 +150,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       await admin.from('user_devices').delete().in('id', staleIds)
     }
   } catch (err) {
-    // Push is a best-effort side channel — never let a misconfiguration or
+    // Push is a best-effort side channel - never let a misconfiguration or
     // an unexpected error here surface to (or block) the caller.
     console.error('sendPushToUser failed:', err)
   }

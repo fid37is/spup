@@ -32,10 +32,42 @@ async function setupPushNotifications(userId: string) {
 
   PushNotifications.addListener('pushNotificationActionPerformed', action => {
     const data = action.notification.data
-    // Deep-link routing based on notification type
-    if (data?.type === 'new_follower') window.location.href = `/profile/${data.actorUsername}`
-    if (data?.type === 'post_like' || data?.type === 'post_comment') window.location.href = `/post/${data.postId}`
-    if (data?.type === 'tip_received') window.location.href = '/wallet'
+    // Deep-link routing based on notification type. entityId is the field
+    // PushPayload (lib/push/send.ts) actually sends - this previously read
+    // data.postId, which doesn't exist on that payload at all, so
+    // post_like/post_comment taps never routed anywhere.
+    switch (data?.type) {
+      case 'new_follower':
+        window.location.href = `/user/${data.actorUsername}`
+        break
+      case 'post_like':
+      case 'post_comment':
+      case 'post_repost':
+      case 'post_quote':
+        window.location.href = `/post/${data.entityId}`
+        break
+      case 'tip_received':
+      case 'subscription_new':
+      case 'earning_milestone':
+        window.location.href = '/wallet'
+        break
+      case 'new_message':
+        window.location.href = `/messages/${data.entityId}`
+        break
+      case 'escrow_hold_received':
+      case 'escrow_delivered':
+      case 'escrow_released':
+      case 'escrow_disputed':
+      case 'escrow_proposal':
+      case 'escrow_escalated':
+        window.location.href = `/wallet/orders/${data.entityId}`
+        break
+      case 'monetisation_approved':
+        window.location.href = '/wallet'
+        break
+      default:
+        window.location.href = '/notifications'
+    }
   })
 }
 
