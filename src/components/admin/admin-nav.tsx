@@ -20,7 +20,7 @@ const NAV_GROUPS = [
   {
     label: 'Overview',
     items: [
-      { href: '/',              icon: LayoutDashboard, label: 'Dashboard' },
+      { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { href: '/activity-feed', icon: Radio,           label: 'Live activity' },
     ],
   },
