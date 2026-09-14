@@ -3,6 +3,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import {
   signupSchema, loginSchema, emailOtpSchema,
@@ -195,6 +196,19 @@ export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
   const parsed = loginSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
+  // Admin credentials must only ever work at admin.spup.live, and that
+  // subdomain must reject ordinary app accounts — checked here, at the
+  // point of sign-in, rather than only after the fact in proxy.ts. Without
+  // this, signInWithPassword() below already writes a real session cookie
+  // (shared across subdomains — see cookie-options.ts) before any role
+  // check runs, so a mismatched login would briefly succeed and only get
+  // caught on the *next* request. proxy.ts still carries its own copy of
+  // this same check, as a second line of defense for sessions that predate
+  // this fix or that arrive via OAuth (which doesn't go through this action).
+  const hdrs = await headers()
+  const host = hdrs.get('host') ?? ''
+  const isAdminHost = host.startsWith('admin.')
+
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword({
     email: parsed.data.email,
@@ -216,19 +230,27 @@ export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
     return { error: error.message }
   }
 
-  // Check role — admins/moderators go to /admin, everyone else to redirectTo
   const admin = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
+
+  let isAdminRole = false
   if (user) {
     const { data: profile } = await admin
       .from('users').select('role').eq('auth_id', user.id).single()
-    if (profile && ['admin', 'moderator'].includes(profile.role)) {
-      revalidatePath('/', 'layout')
-      redirect('/dashboard')
-    }
+    isAdminRole = !!profile && ['admin', 'moderator'].includes(profile.role)
+  }
+
+  if (isAdminHost && !isAdminRole) {
+    await supabase.auth.signOut()
+    return { error: 'This sign-in is for admin accounts only.' }
+  }
+  if (!isAdminHost && isAdminRole) {
+    await supabase.auth.signOut()
+    return { error: 'Admin accounts must sign in at the admin portal.' }
   }
 
   revalidatePath('/', 'layout')
+  if (isAdminRole) redirect('/dashboard')
   redirect(redirectTo)
 }
 

@@ -5,6 +5,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import bcrypt from 'bcryptjs'
+import { createNotification } from '@/lib/notifications'
 
 async function getCallerProfile() {
   const supabase = await createClient()
@@ -207,6 +208,24 @@ export async function sendMessageAction(conversationId: string, body: string, re
     p_conversation_id: conversationId,
     p_sender_id: profile.id,
   })
+
+  // Notify the recipient - this was previously never wired up, so new
+  // messages produced no in-app notification and no push.
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('participant_1, participant_2')
+    .eq('id', conversationId)
+    .single()
+  if (conv) {
+    const recipientId = conv.participant_1 === profile.id ? conv.participant_2 : conv.participant_1
+    void createNotification({
+      recipientId,
+      actorId: profile.id,
+      type: 'new_message',
+      entityId: conversationId,
+      entityType: 'conversation',
+    })
+  }
 
   revalidatePath(`/messages/${conversationId}`)
   return { success: true, messageId: msg.id }

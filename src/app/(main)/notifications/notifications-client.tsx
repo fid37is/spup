@@ -7,6 +7,7 @@ import Link from 'next/link'
 import {
   Bell, Heart, MessageCircle, Repeat2, UserPlus,
   ThumbsUp, AtSign, DollarSign, Star, CheckCheck, Loader2,
+  Quote, ShieldCheck, PackageCheck, Scale, Gavel, ShieldAlert,
 } from 'lucide-react'
 import {
   markNotificationReadAction,
@@ -23,7 +24,7 @@ type ActorShape = {
   verification_tier: string
 }
 
-// Supabase returns joined relations as arrays — we normalize to single object
+// Supabase returns joined relations as arrays - we normalize to single object
 type RawNotification = {
   id: string
   type: string
@@ -66,6 +67,14 @@ function NotifIcon({ type }: { type: string }) {
     earning_milestone:     { icon: <Star size={size} />,          bg: '#F59E0B22', color: '#F59E0B' },
     monetisation_approved: { icon: <CheckCheck size={size} />,    bg: '#10B98122', color: '#10B981' },
     system:                { icon: <Bell size={size} />,           bg: 'var(--color-surface-3)', color: 'var(--color-text-muted)' },
+    post_quote:            { icon: <Quote size={size} />,          bg: '#A855F722', color: '#A855F7' },
+    new_message:           { icon: <MessageCircle size={size} />, bg: '#378ADD22', color: '#378ADD' },
+    escrow_hold_received:  { icon: <ShieldCheck size={size} />,    bg: '#1A7A4A22', color: '#1A7A4A' },
+    escrow_delivered:      { icon: <PackageCheck size={size} />,   bg: '#F59E0B22', color: '#F59E0B' },
+    escrow_released:       { icon: <DollarSign size={size} />,     bg: '#10B98122', color: '#10B981' },
+    escrow_disputed:       { icon: <ShieldAlert size={size} />,    bg: '#EF444422', color: '#EF4444' },
+    escrow_proposal:       { icon: <Scale size={size} />,          bg: '#F59E0B22', color: '#F59E0B' },
+    escrow_escalated:      { icon: <Gavel size={size} />,          bg: '#EF444422', color: '#EF4444' },
   }
   const cfg = map[type] ?? map.system
   return (
@@ -95,11 +104,26 @@ function notifText(n: Notification): string {
     case 'earning_milestone':     return n.metadata?.message ?? 'You hit an earnings milestone'
     case 'monetisation_approved': return 'Your account has been approved for monetisation 🎉'
     case 'system':                return n.metadata?.message ?? 'System notification'
+    case 'post_quote':            return `${name} quoted your post`
+    case 'new_message':           return `${name} sent you a message`
+    case 'escrow_hold_received':  return `${name} paid for your item - funds are held in escrow`
+    case 'escrow_delivered':      return `${name} marked your order as delivered`
+    case 'escrow_released':       return 'Escrow funds have been released to you'
+    case 'escrow_disputed':       return `${name} opened a dispute on your order`
+    case 'escrow_proposal':       return `${name} proposed a resolution`
+    case 'escrow_escalated':      return 'Your dispute was escalated to Spup support'
     default:                      return 'New notification'
   }
 }
 
+const ESCROW_NOTIF_TYPES = new Set([
+  'escrow_hold_received', 'escrow_delivered', 'escrow_released',
+  'escrow_disputed', 'escrow_proposal', 'escrow_escalated',
+])
+
 function notifHref(n: Notification): string | null {
+  if (n.type === 'new_message' && n.entity_id) return `/messages/${n.entity_id}`
+  if (ESCROW_NOTIF_TYPES.has(n.type) && n.entity_id) return `/wallet/orders/${n.entity_id}`
   if (n.entity_type === 'post' && n.entity_id) return `/post/${n.entity_id}`
   if (n.type === 'new_follower' && n.actor?.username) return `/user/${n.actor.username}`
   return null
@@ -314,7 +338,7 @@ export default function NotificationsClient({
                 </span>
               </div>
 
-              {/* Metadata preview — e.g. post body snippet */}
+              {/* Metadata preview - e.g. post body snippet */}
               {n.metadata?.post_body && (
                 <p style={{
                   margin: '5px 0 0', fontSize: 13,

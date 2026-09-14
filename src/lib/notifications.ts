@@ -1,22 +1,16 @@
 // src/lib/notifications.ts
 //
 // Every existing call site (escrow.ts's notify(), posts.ts's
-// notifyPostAuthor(), etc.) only ever inserted a row into `notifications` —
+// notifyPostAuthor(), etc.) only ever inserted a row into `notifications` -
 // none of them triggered an actual push. This is the single place that
 // does both, so it's the one to call going forward. Existing call sites
-// haven't all been migrated to this yet (see PR notes / summary) — that's
+// haven't all been migrated to this yet (see PR notes / summary) - that's
 // a larger follow-up than this change, but new notification code should
 // use this rather than adding another local duplicate.
 
 import { createAdminClient } from '@/lib/supabase/server'
 import { sendPushToUser, type PushPayload } from '@/lib/push/send'
-
-type NotificationType =
-  | 'new_follower' | 'post_like' | 'post_comment' | 'post_repost' | 'post_quote'
-  | 'comment_like' | 'mention' | 'tip_received' | 'subscription_new'
-  | 'earning_milestone' | 'monetisation_approved' | 'system'
-  | 'escrow_hold_received' | 'escrow_delivered' | 'escrow_released'
-  | 'escrow_disputed' | 'escrow_proposal' | 'escrow_escalated'
+import type { NotificationType } from '@/types'
 
 // Builds the push title/body for a notification type. Kept here (not in
 // lib/push/send.ts) since it's about notification *content*, not delivery.
@@ -35,7 +29,8 @@ function buildPushPayload(type: NotificationType, actorName: string | null, enti
     earning_milestone: 'You hit an earnings milestone',
     monetisation_approved: "You're approved for monetisation",
     system: 'Spup',
-    escrow_hold_received: `${name} paid for your item — funds are held in escrow`,
+    new_message: `${name} sent you a message`,
+    escrow_hold_received: `${name} paid for your item - funds are held in escrow`,
     escrow_delivered: `${name} marked your order as delivered`,
     escrow_released: 'Escrow funds have been released to you',
     escrow_disputed: `${name} opened a dispute on your order`,
@@ -96,7 +91,7 @@ export async function createNotification({
     actorName = actor?.username ? `@${actor.username}` : null
   }
 
-  // Fire-and-forget — a push failure should never affect the caller, which
+  // Fire-and-forget - a push failure should never affect the caller, which
   // is why sendPushToUser itself never throws.
   void sendPushToUser(recipientId, buildPushPayload(type, actorName, entityId))
 }

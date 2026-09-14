@@ -4,6 +4,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { createNotification } from '@/lib/notifications'
+import type { NotificationType } from '@/types'
 
 // ============================================================
 // P2P escrow: buyer pays seller from wallet balance. Money leaves
@@ -13,7 +14,7 @@ import { createNotification } from '@/lib/notifications'
 // dispute resolves in the seller's favour. See migration
 // 013_escrow_marketplace.sql for the full schema/rationale.
 //
-// All wallet balance mutations here use the admin client — even
+// All wallet balance mutations here use the admin client - even
 // the buyer-debit step, deliberately, because a single action can
 // touch both parties' wallets (e.g. mutual-refund) and mixing RLS-
 // scoped and admin-scoped clients in one function invites subtle
@@ -46,11 +47,16 @@ async function getCallerProfile() {
   return { error: null, profile }
 }
 
-async function notify(recipientId: string, actorId: string, type: string, entityId: string, entityType = 'escrow_order') {
+type EscrowNotificationType = Extract<NotificationType,
+  | 'escrow_hold_received' | 'escrow_delivered' | 'escrow_released'
+  | 'escrow_disputed' | 'escrow_proposal' | 'escrow_escalated'
+>
+
+async function notify(recipientId: string, actorId: string, type: EscrowNotificationType, entityId: string, entityType = 'escrow_order') {
   await createNotification({
     recipientId,
     actorId,
-    type: type as any,
+    type,
     entityId,
     entityType,
   })
@@ -95,7 +101,7 @@ export async function payVendorAction({
   if (seller.id === buyer.id) return { error: "You can't pay yourself" }
 
   // Require the seller to have completed BVN verification before they can
-  // *receive* escrow — same gate already enforced at withdrawal time, just
+  // *receive* escrow - same gate already enforced at withdrawal time, just
   // applied a step earlier. Ties every seller to a real, traceable identity.
   if (!seller.bvn_verified) {
     return { error: 'This vendor has not completed identity verification and cannot receive escrow payments yet' }
@@ -110,7 +116,7 @@ export async function payVendorAction({
   if (!buyerWallet) return { error: 'Wallet not found' }
   if (buyerWallet.balance_kobo < amountKobo) {
     return {
-      error: `Insufficient balance. Your balance is ₦${(buyerWallet.balance_kobo / 100).toFixed(2)} — top up your wallet first.`,
+      error: `Insufficient balance. Your balance is ₦${(buyerWallet.balance_kobo / 100).toFixed(2)} - top up your wallet first.`,
       insufficient_balance: true,
     }
   }
@@ -118,7 +124,7 @@ export async function payVendorAction({
   const reference = generateReference('ESC')
   const now = new Date().toISOString()
 
-  // Debit buyer immediately — this is what makes it "held" rather than
+  // Debit buyer immediately - this is what makes it "held" rather than
   // merely "authorized". Uses adjust_wallet_balance (a single atomic SQL
   // UPDATE) rather than reading balance_kobo and writing back a computed
   // value, which would race against any other concurrent change to this
@@ -147,7 +153,7 @@ export async function payVendorAction({
     .single()
 
   if (txnError || !holdTxn) {
-    // Roll back the debit — better to fail the payment than lose the money.
+    // Roll back the debit - better to fail the payment than lose the money.
     // Credits back the exact amount rather than resetting to the balance we
     // read earlier, which could otherwise overwrite an unrelated change
     // (e.g. a tip landing) that happened in between.
@@ -230,12 +236,12 @@ async function releaseEscrow(orderId: string, resolvedVia: 'buyer_confirmed' | '
 
   // The status transition IS the concurrency guard: this UPDATE only
   // matches a row if it's still in a releasable state, and only one
-  // concurrent caller can win that race — Postgres serializes it at the
+  // concurrent caller can win that race - Postgres serializes it at the
   // row level. A second caller (e.g. a double-tap on "Confirm receipt",
   // or the auto-release cron firing at the same moment) finds zero rows
   // matched and bails out here, before any wallet is touched. Previously
   // the status was only checked with a SELECT well before the eventual
-  // UPDATE, with wallet-crediting in between — two concurrent calls could
+  // UPDATE, with wallet-crediting in between - two concurrent calls could
   // both pass that check and both credit the seller.
   const { data: order, error: orderError } = await admin
     .from('escrow_orders')
@@ -255,8 +261,8 @@ async function releaseEscrow(orderId: string, resolvedVia: 'buyer_confirmed' | '
     .single()
 
   if (!sellerWallet) {
-    // Wallet genuinely missing (not a race — we already own the status
-    // transition) — revert so the order isn't stuck claiming 'released'
+    // Wallet genuinely missing (not a race - we already own the status
+    // transition) - revert so the order isn't stuck claiming 'released'
     // with no money having actually moved.
     await admin.from('escrow_orders').update({ status: 'held', released_at: null }).eq('id', orderId)
     return { error: "Seller's wallet not found" }
@@ -285,7 +291,7 @@ async function releaseEscrow(orderId: string, resolvedVia: 'buyer_confirmed' | '
   await admin.rpc('adjust_wallet_balance', { p_wallet_id: sellerWallet.id, p_delta: order.amount_kobo })
   await admin.from('escrow_orders').update({ release_txn_id: releaseTxn.id }).eq('id', orderId)
 
-  // NOTE: this notifies the seller with themselves as the actor — pre-existing,
+  // NOTE: this notifies the seller with themselves as the actor - pre-existing,
   // not something this fix touches. Worth revisiting: actorId here should
   // probably be the buyer (or a system actor) rather than the seller notifying
   // themselves, but that needs a look at what the notifications schema expects
@@ -352,7 +358,7 @@ async function splitEscrow(orderId: string, sellerKobo: number, buyerKobo: numbe
   const admin = createAdminClient()
 
   // Read-only check first since we need amount_kobo to validate the split
-  // before attempting the transition — the transition below is still the
+  // before attempting the transition - the transition below is still the
   // real concurrency guard.
   const { data: preCheck } = await admin.from('escrow_orders').select('amount_kobo').eq('id', orderId).single()
   if (!preCheck) return { error: 'Order not found' }
@@ -537,7 +543,7 @@ export async function proposeResolutionAction({
   const order = dispute.order as unknown as { buyer_id: string; seller_id: string; amount_kobo: number }
   if (order.buyer_id !== profile.id && order.seller_id !== profile.id) return { error: 'Not your dispute' }
   if (!['open', 'negotiating'].includes(dispute.status)) {
-    return { error: 'This dispute is no longer open for negotiation — it may have been escalated or resolved' }
+    return { error: 'This dispute is no longer open for negotiation - it may have been escalated or resolved' }
   }
 
   if (resolutionType === 'split') {
@@ -612,7 +618,7 @@ export async function respondToProposalAction({
     return { success: true, accepted: false }
   }
 
-  // Accepted — execute the agreed resolution.
+  // Accepted - execute the agreed resolution.
   let result: { error?: string; success?: boolean } = { error: 'Unknown resolution type' }
   if (proposal.resolution_type === 'release_to_seller') {
     result = await releaseEscrow(dispute.escrow_order_id, 'mutual')

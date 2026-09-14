@@ -4,6 +4,7 @@ import { authCookieOptions } from '@/lib/supabase/cookie-options'
 
 const PROTECTED_ROUTES = ['/feed', '/profile', '/notifications', '/messages', '/settings', '/onboarding', '/wallet', '/explore']
 const AUTH_ROUTES = ['/login', '/signup', '/verify-otp', '/forgot-password']
+const ADMIN_ROLES = ['admin', 'moderator']
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -70,6 +71,52 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
+  // ── Cross-domain identity guard ────────────────────────────────────────────
+  // The auth cookie is deliberately shared across spup.live and
+  // admin.spup.live (see cookie-options.ts), and users.role is the only
+  // thing distinguishing an admin/moderator account from an ordinary one.
+  // loginAction checks role but never checked *which host* the login
+  // happened on, so an admin who signed in at the main domain ended up with
+  // a session cookie that worked everywhere, /feed included. This is the
+  // second line of defense (loginAction now also rejects at sign-in time):
+  // any already-established session whose role doesn't match its host —
+  // including ones that predate this fix, or that came in via OAuth, which
+  // bypasses loginAction's own check — gets signed out and bounced to that
+  // host's /login instead of being allowed through to the routing/redirect
+  // logic below. Static assets, _next, and API routes are left alone so
+  // this can't loop or break asset loading.
+  let role: string | null = null
+  if (user) {
+    const { data: profile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('auth_id', user.id)
+      .maybeSingle()
+    role = profile?.role ?? null
+  }
+
+  const isStatic = /\.(js|json|png|jpg|jpeg|svg|webp|ico|css|txt|xml)$/.test(pathname)
+
+  if (user && !isStatic && !pathname.startsWith('/_next') && !pathname.startsWith('/api/')) {
+    const isAdminRole = ADMIN_ROLES.includes(role ?? '')
+
+    if (isAdminHost && !isAdminRole) {
+      await supabase.auth.signOut()
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = '/login'
+      redirectUrl.searchParams.set('error', 'admin_only')
+      return withRefreshedCookies(NextResponse.redirect(redirectUrl))
+    }
+
+    if (!isAdminHost && isAdminRole) {
+      await supabase.auth.signOut()
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = '/login'
+      redirectUrl.searchParams.set('error', 'use_admin_domain')
+      return withRefreshedCookies(NextResponse.redirect(redirectUrl))
+    }
+  }
+
   // ── Admin subdomain routing ────────────────────────────────────────────────
   // admin.spup.live/ or admin.localhost:3000/ → internally serves /dashboard/*
   // Auth routes (/login, /signup etc.) pass through unchanged — the admin
@@ -77,7 +124,6 @@ export async function proxy(request: NextRequest) {
   if (isAdminHost) {
     const AUTH_PASS = ['/login', '/signup', '/forgot-password', '/verify-otp', '/verify-email', '/api/']
     const isAuthRoute = AUTH_PASS.some(r => pathname.startsWith(r))
-    const isStatic = /\.(js|json|png|jpg|jpeg|svg|webp|ico|css|txt|xml)$/.test(pathname)
 
     if (isAuthRoute || isStatic || pathname.startsWith('/_next')) {
       return withRefreshedCookies(NextResponse.next())
