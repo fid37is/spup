@@ -6,6 +6,7 @@ import { WaitlistProvider } from '@/components/landing/waitlist-context'
 import { getWaitlistOpenStatus } from '@/lib/queries/settings'
 import { GoogleAnalytics } from '@next/third-parties/google'
 import { ToastProvider } from '@/components/layout/toast'
+import { NetworkStatusProvider } from '@/lib/network-status'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
 
@@ -21,10 +22,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
 
   title: {
-    default: 'Spup — Speak Up. Be Heard.',
+    default: 'Spup - Speak Up. Be Heard.',
     template: '%s | Spup',
   },
-  description: 'Where Nigerian conversations happen — and where the people having them get paid. Join Spup: Nigeria\'s social platform with 70% ad revenue sharing.',
+  description: 'Where Nigerian conversations happen - and where the people having them get paid. Join Spup: Nigeria\'s social platform with 70% ad revenue sharing.',
 
   // ── Canonical & alternate languages ────────────────────────────────────
   alternates: {
@@ -140,7 +141,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <meta property="og:image:height" content="630" />
         <meta property="fb:app_id" content={process.env.NEXT_PUBLIC_FB_APP_ID ?? ''} />
 
-        {/* Structured data — website + sitelinks searchbox */}
+        {/* Structured data - website + sitelinks searchbox */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -165,11 +166,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </head>
       <body>
         <PWAProvider />
-        <ToastProvider>
-          <WaitlistProvider waitlistOpen={waitlistOpen}>
-            {children}
-          </WaitlistProvider>
-        </ToastProvider>
+        <NetworkStatusProvider>
+          <ToastProvider>
+            <WaitlistProvider waitlistOpen={waitlistOpen}>
+              {children}
+            </WaitlistProvider>
+          </ToastProvider>
+        </NetworkStatusProvider>
         {process.env.NEXT_PUBLIC_GA_ID && (
           <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
         )}

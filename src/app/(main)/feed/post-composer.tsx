@@ -4,6 +4,8 @@ import { useState, useRef, useTransition, useCallback, useImperativeHandle, forw
 import { ImageIcon, X, Loader2, Globe, BarChart2, MapPin, Camera, Mic, Tag } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 import { useToast } from '@/components/layout/toast'
+import { useNetworkStatus } from '@/lib/network-status'
+import { queueOfflinePost, registerBackgroundSync } from '@/lib/offline-post-queue'
 
 const MAX_CHARS = 500
 const MAX_MEDIA = 4
@@ -19,6 +21,7 @@ interface MediaItem {
   duration_secs?: number | null
   size_bytes?: number
   uploading?: boolean
+  offlineQueued?: boolean  // network was degraded/offline when attached - raw file is held in fileMapRef, never uploaded to Cloudinary directly
   error?: string
   localPreview: string   // object URL for immediate preview
 }
@@ -52,6 +55,11 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+  const fileMapRef = useRef<Map<string, File>>(new Map())
+
+  const { status: networkStatus } = useNetworkStatus()
+  const networkStatusRef = useRef(networkStatus)
+  networkStatusRef.current = networkStatus
 
   const charsLeft = MAX_CHARS - body.length
   const isOverLimit = charsLeft < 0
@@ -78,6 +86,18 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const uploadFile = useCallback(async (file: File, type: 'image' | 'video') => {
     const localPreview = URL.createObjectURL(file)
     const tempId = `temp_${Date.now()}_${Math.random()}`
+    fileMapRef.current.set(tempId, file)
+
+    if (networkStatusRef.current !== 'online') {
+      // Can't reliably upload right now - hold the raw file and let
+      // handlePost's offline branch queue the whole post for later,
+      // rather than firing a Cloudinary upload that'll likely time out.
+      setMedia(prev => [...prev, {
+        tempId, url: localPreview, media_type: type, localPreview,
+        uploading: false, offlineQueued: true,
+      }])
+      return
+    }
 
     // Add placeholder immediately so user sees preview while uploading
     setMedia(prev => [...prev, {
@@ -139,6 +159,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   }
 
   function removeMedia(tempId: string) {
+    fileMapRef.current.delete(tempId)
     setMedia(prev => {
       const item = prev.find(m => m.tempId === tempId)
       if (item?.localPreview) URL.revokeObjectURL(item.localPreview)
@@ -148,6 +169,38 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
   function handlePost() {
     if (!canPost) return
+
+    const needsQueueing = networkStatusRef.current !== 'online' || media.some(m => m.offlineQueued)
+
+    if (needsQueueing) {
+      const bodyText = body.trim() || null
+      const isSellingSnapshot = isSelling
+      const queuedMedia = media
+        .map(m => {
+          const blob = fileMapRef.current.get(m.tempId)
+          return blob ? { blob, mediaType: m.media_type, name: m.tempId } : null
+        })
+        .filter((m): m is { blob: File; mediaType: 'image' | 'video'; name: string } => !!m)
+
+      startTransition(async () => {
+        await queueOfflinePost({ body: bodyText, isSelling: isSellingSnapshot, media: queuedMedia })
+        registerBackgroundSync()
+
+        media.forEach(m => { if (m.localPreview) URL.revokeObjectURL(m.localPreview) })
+        fileMapRef.current.clear()
+        setBody('')
+        setMedia([])
+        setIsSelling(false)
+        setError('')
+        if (textareaRef.current) textareaRef.current.style.height = 'auto'
+        toastSuccess("Post queued - it'll go out once you're back online")
+        // No real post to prepend to the feed yet - onPosted(null) just
+        // tells the parent to close the composer.
+        onPosted?.(null)
+      })
+      return
+    }
+
     const readyMedia = media.filter(m => !m.uploading && !m.error && m.cloudinary_id)
     startTransition(async () => {
       const result = await createPostAction({
@@ -167,6 +220,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       if ('error' in result && result.error) { setError(result.error); return }
       // Cleanup object URLs
       media.forEach(m => { if (m.localPreview) URL.revokeObjectURL(m.localPreview) })
+      fileMapRef.current.clear()
       setBody('')
       setMedia([])
       setIsSelling(false)
@@ -342,9 +396,11 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           Everyone can reply
         </div>
 
-        {/* Selling toggle — no separate item field: the post's own text is
+        <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
+
+        {/* Selling toggle - no separate item field: the post's own text is
             the description, and it auto-fills the buyer's payment note
-            (still editable by the buyer) — see pay-vendor-button.tsx. */}
+            (still editable by the buyer) - see pay-vendor-button.tsx. */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Tag size={15} color={isSelling ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
@@ -370,12 +426,10 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           </button>
         </div>
         {isSelling && (
-          <p style={{ fontSize: 11.5, color: 'var(--color-text-faint)', marginTop: -4, marginBottom: 10 }}>
-            Buyers will see a Pay button on this post — write what you&rsquo;re selling above, it&rsquo;ll pre-fill their payment note.
+          <p style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: -4, marginBottom: 10 }}>
+            Buyers will see a Pay button on this post - write what you&rsquo;re selling above.
           </p>
         )}
-
-        <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
 
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

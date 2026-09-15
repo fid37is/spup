@@ -179,7 +179,7 @@ export default function VerifyPhonePage() {
               />
             </div>
             <p style={{ fontSize: 12, color: '#44444A', marginTop: 6 }}>
-              MTN, Airtel, Glo, 9Mobile — Nigerian numbers only
+              MTN, Airtel, Glo, 9Mobile - Nigerian numbers only
             </p>
           </div>
 

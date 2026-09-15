@@ -1,6 +1,12 @@
-// Spup Service Worker v2.0
+// Spup Service Worker v3.0
 // v2: network-first for _next/static chunks to prevent stale CSS flash
-const CACHE_NAME = 'spup-v2'
+// v3: only show the dedicated /offline page when the device is actually
+//     disconnected (navigator.onLine === false). A slow/flaky connection
+//     still reports onLine === true - for that case, serve whatever's
+//     cached instead of telling the person they're offline when they're
+//     not, so they can keep reading while a spotty connection just quietly
+//     fails to fetch anything new.
+const CACHE_NAME = 'spup-v3'
 const OFFLINE_URL = '/offline'
 
 const PRECACHE_ASSETS = [
@@ -19,7 +25,7 @@ self.addEventListener('install', event => {
   self.skipWaiting()
 })
 
-// ─── Activate — wipe all old caches ──────────────────────────────────────────
+// ─── Activate - wipe all old caches ──────────────────────────────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -66,14 +72,26 @@ self.addEventListener('fetch', event => {
           }
           return response
         })
-        .catch(() => caches.match(OFFLINE_URL) || caches.match('/'))
+        .catch(async () => {
+          if (!self.navigator.onLine) {
+            // Genuinely disconnected (wifi/data off, airplane mode) - this
+            // is the case the offline page exists for.
+            return (await caches.match(OFFLINE_URL)) || (await caches.match('/'))
+          }
+          // A live network interface is present, so this is a slow/flaky
+          // connection or a one-off failed request rather than "no
+          // internet" - don't claim they're offline. Serve whatever's
+          // cached for this page (or the app shell) so they can keep
+          // reading instead of hitting the offline screen.
+          return (await caches.match(request)) || (await caches.match('/')) || Response.error()
+        })
     )
     return
   }
 
   // ── Next.js JS/CSS chunks: network-first, cache as fallback ──────────────
   // These are content-hashed by Next.js so they change on every build.
-  // Cache-first here means stale CSS gets served after a deploy — the root
+  // Cache-first here means stale CSS gets served after a deploy - the root
   // cause of the theme flash on hard refresh.
   if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(
@@ -170,12 +188,77 @@ self.addEventListener('notificationclick', event => {
 })
 
 // ─── Background sync ─────────────────────────────────────────────────────────
+// Only fires on browsers that support Background Sync (Chrome/Android) -
+// iOS Safari has no equivalent, so use-offline-post-sync.ts's foreground
+// fallback (on the 'online' event / app open) is what covers those users.
+// This duplicates the plain-IndexedDB logic from src/lib/offline-post-queue.ts
+// in vanilla JS because this is a classic (non-module) service worker and
+// can't import TS/ESM - keep both in sync if the schema here changes.
 self.addEventListener('sync', event => {
   if (event.tag === 'retry-posts') {
     event.waitUntil(retryFailedPosts())
   }
 })
 
+const OFFLINE_DB_NAME = 'spup-offline'
+const OFFLINE_DB_VERSION = 1
+const OFFLINE_STORE = 'pending_posts'
+
+function openOfflineDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      if (!db.objectStoreNames.contains(OFFLINE_STORE)) {
+        db.createObjectStore(OFFLINE_STORE, { keyPath: 'id' })
+      }
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+function getAllPending(db) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_STORE, 'readonly')
+    const req = tx.objectStore(OFFLINE_STORE).getAll()
+    req.onsuccess = () => resolve(req.result || [])
+    req.onerror = () => reject(req.error)
+  })
+}
+
+function deletePending(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_STORE, 'readwrite')
+    tx.objectStore(OFFLINE_STORE).delete(id)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
 async function retryFailedPosts() {
-  console.log('Background sync: retrying failed posts')
+  const db = await openOfflineDB()
+  const pending = await getAllPending(db)
+
+  for (const post of pending) {
+    try {
+      const form = new FormData()
+      if (post.body) form.append('body', post.body)
+      form.append('isSelling', String(post.isSelling))
+      for (const m of post.media || []) form.append('media', m.blob, m.name)
+
+      const res = await fetch('/api/posts/sync', { method: 'POST', body: form })
+      if (res.ok) {
+        await deletePending(db, post.id)
+      }
+      // Leave failed ones in the queue - they'll be retried on the next
+      // sync event, or picked up by the foreground fallback when the app
+      // is next opened.
+    } catch {
+      // Network still bad mid-sync - stop here, the next sync/online
+      // event will pick up where this left off.
+      break
+    }
+  }
+  db.close()
 }

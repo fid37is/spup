@@ -40,7 +40,7 @@ async function getProfileId(authId: string): Promise<string | null> {
 
 /**
  * Upsert onboarding_progress for a profile.
- * Uses admin client — called right after profile insert, before session exists.
+ * Uses admin client - called right after profile insert, before session exists.
  */
 async function upsertOnboarding(profileId: string, updates: Record<string, unknown> = {}) {
   const admin = createAdminClient()
@@ -72,7 +72,7 @@ export async function signUpAction(data: SignupSchema) {
     .maybeSingle()
   if (existing) return { error: 'An account with this email already exists.', field: 'email' }
 
-  // Create auth user — Supabase sends a 6-digit OTP to the email
+  // Create auth user - Supabase sends a 6-digit OTP to the email
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email,
     password,
@@ -95,7 +95,7 @@ export async function signUpAction(data: SignupSchema) {
   const authId = authData.user.id
   const tempUsername = `user_${authId.slice(0, 8)}`
 
-  // Insert profile using ADMIN client — bypasses RLS
+  // Insert profile using ADMIN client - bypasses RLS
   // status = pending_verification until OTP is confirmed
   const { data: newProfile, error: profileError } = await admin
     .from('users')
@@ -112,7 +112,7 @@ export async function signUpAction(data: SignupSchema) {
 
   if (profileError) {
     console.error('Profile insert error:', profileError.message)
-    // Don't fail signup — user can still verify, profile will be created on verify
+    // Don't fail signup - user can still verify, profile will be created on verify
   } else if (newProfile) {
     // Create onboarding_progress row immediately so it's ready after verification
     await upsertOnboarding(newProfile.id)
@@ -140,7 +140,7 @@ export async function verifyEmailOtpAction(email: string, data: EmailOtpSchema) 
   })
   if (otpError) return { error: 'Invalid or expired code. Please try again.' }
 
-  // Session is now active — get the user
+  // Session is now active - get the user
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Verification succeeded but session was not established. Please log in.' }
 
@@ -157,7 +157,7 @@ export async function verifyEmailOtpAction(email: string, data: EmailOtpSchema) 
   let profileId = await getProfileId(user.id)
 
   if (!profileId) {
-    // Profile never got created — create it now
+    // Profile never got created - create it now
     const meta = user.user_metadata
     const { data: newProfile } = await admin
       .from('users')
@@ -197,19 +197,44 @@ export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
   const parsed = loginSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  // 10 attempts per 15 minutes per email — keyed by email rather than IP
-  // since the actual threat here is brute-forcing one specific account's
-  // password, which an attacker can trivially spread across many IPs.
-  const withinLimit = await checkRateLimit(`login:${parsed.data.email.toLowerCase()}`, 10, 900)
+  const identifier = parsed.data.identifier.trim().toLowerCase()
+
+  // 10 attempts per 15 minutes per identifier - keyed by whatever the
+  // person typed (email or username) rather than IP, since the actual
+  // threat here is brute-forcing one specific account's password, which
+  // an attacker can trivially spread across many IPs.
+  const withinLimit = await checkRateLimit(`login:${identifier}`, 10, 900)
   if (!withinLimit) {
     return { error: 'Too many login attempts. Please wait a few minutes and try again.' }
   }
 
+  // Resolve a username to its account email - signInWithPassword only
+  // accepts an email. Usernames never contain '@' (saveUsernameAction /
+  // changeUsernameAction both restrict them to [a-zA-Z0-9_]), so that's a
+  // safe, cheap way to tell the two apart without an extra lookup on the
+  // common case.
+  let email = identifier
+  if (!identifier.includes('@')) {
+    const admin = createAdminClient()
+    const { data: byUsername } = await admin
+      .from('users')
+      .select('email')
+      .eq('username', identifier)
+      .maybeSingle()
+
+    if (!byUsername?.email) {
+      // Same message as a wrong password would give - don't reveal
+      // whether a username exists.
+      return { error: 'Wrong email/username or password. Please try again.' }
+    }
+    email = byUsername.email
+  }
+
   // Admin credentials must only ever work at admin.spup.live, and that
-  // subdomain must reject ordinary app accounts — checked here, at the
+  // subdomain must reject ordinary app accounts - checked here, at the
   // point of sign-in, rather than only after the fact in proxy.ts. Without
   // this, signInWithPassword() below already writes a real session cookie
-  // (shared across subdomains — see cookie-options.ts) before any role
+  // (shared across subdomains - see cookie-options.ts) before any role
   // check runs, so a mismatched login would briefly succeed and only get
   // caught on the *next* request. proxy.ts still carries its own copy of
   // this same check, as a second line of defense for sessions that predate
@@ -220,7 +245,7 @@ export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
 
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword({
-    email: parsed.data.email,
+    email,
     password: parsed.data.password,
   })
 
@@ -230,11 +255,11 @@ export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
       return {
         error: 'Please verify your email first.',
         needsVerification: true,
-        email: parsed.data.email,
+        email,
       }
     }
     if (msg.includes('invalid login') || msg.includes('invalid credentials')) {
-      return { error: 'Wrong email or password. Please try again.' }
+      return { error: 'Wrong email/username or password. Please try again.' }
     }
     return { error: error.message }
   }
@@ -308,13 +333,13 @@ export async function handleOAuthCallbackAction() {
     .maybeSingle()
 
   if (existing) {
-    // Returning user — ensure onboarding_progress row exists
+    // Returning user - ensure onboarding_progress row exists
     await upsertOnboarding(existing.id)
     return { success: true, isNewUser: false }
   }
   
 
-  // New OAuth user — create profile + onboarding using admin client
+  // New OAuth user - create profile + onboarding using admin client
   const meta = user.user_metadata
   const fullName = meta?.full_name || meta?.name || ''
 
@@ -372,7 +397,7 @@ export async function checkUsernameAvailableAction(username: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  // IMPORTANT: Supabase query builder is immutable — .neq() returns a NEW builder.
+  // IMPORTANT: Supabase query builder is immutable - .neq() returns a NEW builder.
   // Calling query.neq() without reassigning discards the filter entirely,
   // making every username appear available to the current user.
   const { data } = await (

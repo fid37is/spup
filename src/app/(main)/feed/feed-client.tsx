@@ -8,6 +8,9 @@ import AdSlot from '@/components/feed/ad-card'
 import { Loader, Repeat2, Rss, Users, Sparkles, Tag } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
+import { useNetworkStatus } from '@/lib/network-status'
+import { useOfflinePostSync } from '@/hooks/use-offline-post-sync'
+import { WifiOff, Send } from 'lucide-react'
 
 type Tab = 'for-you' | 'following' | 'mutuals' | 'selling'
 const AD_EVERY = 5
@@ -53,6 +56,12 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
   const tabRef      = useRef<Tab>('for-you')
   tabRef.current = activeTab
 
+  const { status: networkStatus, isOffline } = useNetworkStatus()
+  const networkStatusRef = useRef(networkStatus)
+  networkStatusRef.current = networkStatus
+
+  const { pendingCount, trySync } = useOfflinePostSync()
+
   // Initial load if server sends empty
   useEffect(() => {
     if (initialPosts.length === 0) {
@@ -68,6 +77,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
 
   function switchTab(tab: Tab) {
     if (tab === activeTab) return
+    if (networkStatusRef.current === 'offline') return
     setActiveTab(tab)
     setPosts([])
     setNewPosts([])
@@ -83,6 +93,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
 
   const loadMore = useCallback(() => {
     if (isPending || !hasMore || !cursor) return
+    if (networkStatusRef.current !== 'online') return
     startTransition(async () => {
       const { posts: more, nextCursor } = await getFeedFn(tabRef.current)(cursor)
       setPosts(prev => {
@@ -109,7 +120,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
   const postsRef = useRef<FeedPost[]>(initialPosts)
   postsRef.current = posts
 
-  // Realtime — update counts on existing posts + detect new posts
+  // Realtime - update counts on existing posts + detect new posts
   useEffect(() => {
     const supabase = createBrowserClient()
     const channel = supabase
@@ -130,12 +141,17 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
             : p
         ))
       })
-      // Detect new posts inserted — show pill
+      // Detect new posts inserted - show pill
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'posts',
       }, async () => {
         // Only show pill for for-you and following tabs
         if (tabRef.current === 'mutuals') return
+        // Don't spend a fetch chasing new posts on a bad connection - the
+        // realtime event itself still got through, but re-querying the
+        // whole feed on top of that is exactly the kind of "refresh" this
+        // mode exists to avoid.
+        if (networkStatusRef.current !== 'online') return
         // Fetch the latest posts and find truly new ones
         const { posts: latest } = await getFeedFn(tabRef.current)()
         setPosts(prev => {
@@ -146,7 +162,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
             const allIds = new Set([...n.map(p => p.id), ...prev.map(p => p.id)])
             return [...n, ...fresh.filter(p => !allIds.has(p.id))]
           })
-          return prev // don't prepend yet — wait for pill click
+          return prev // don't prepend yet - wait for pill click
         })
       })
       .subscribe()
@@ -193,6 +209,44 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
           ))}
         </div>
       </div>
+
+      {/* Degraded/offline banner - explains why refresh & pagination are paused */}
+      {networkStatus !== 'online' && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px',
+          background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)',
+          fontSize: 13, color: 'var(--color-text-muted)',
+        }}>
+          <WifiOff size={14} />
+          {isOffline
+            ? "You're offline - showing what's already loaded."
+            : 'Slow connection - showing what\'s loaded. Refresh and new media are paused.'}
+        </div>
+      )}
+
+      {/* Queued offline posts - synced automatically on reconnect, but a
+          manual retry is offered since iOS has no real background sync. */}
+      {pendingCount > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          padding: '10px 16px', background: 'var(--color-brand-dim)', borderBottom: '1px solid var(--color-border)',
+          fontSize: 13, color: 'var(--color-text-primary)',
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Send size={14} />
+            {pendingCount} post{pendingCount > 1 ? 's' : ''} queued - will send once you're back online
+          </span>
+          {networkStatus === 'online' && (
+            <button
+              type="button"
+              onClick={() => trySync()}
+              style={{ background: 'none', border: 'none', color: 'var(--color-brand)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            >
+              Retry now
+            </button>
+          )}
+        </div>
+      )}
 
       {/* New posts pill */}
       {newPosts.length > 0 && (
@@ -265,6 +319,14 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
         </div>
       )}
 
+      {!isPending && hasMore && posts.length > 0 && networkStatus !== 'online' && (
+        <div style={{ padding: '24px 20px', textAlign: 'center' }}>
+          <p style={{ fontSize: 13, color: 'var(--color-text-faint)' }}>
+            {isOffline ? 'Reconnect to load more' : 'Loading more paused on this connection'}
+          </p>
+        </div>
+      )}
+
       {!hasMore && posts.length > 0 && (
         <div style={{ padding: '32px 20px', textAlign: 'center' }}>
           <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>You&apos;re all caught up</p>
@@ -275,6 +337,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
         authorAvatarUrl={currentUserAvatarUrl}
         authorName={currentUserDisplayName || 'You'}
         onPosted={post => {
+          if (!post) return
           setPosts(prev => [post as FeedPost, ...prev])
           feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
         }}

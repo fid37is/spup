@@ -1,19 +1,21 @@
 'use server'
 
 /**
- * posts.ts — mutations that write to the posts table only.
+ * posts.ts - mutations that write to the posts table only.
  * Reads/queries live in lib/queries/posts.ts.
  */
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
+import { sendNotificationEmail } from '@/lib/email/send'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
+import { extractMentionedUsernames } from '@/lib/utils'
 import { getPostById } from '@/lib/queries/posts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Fire-and-forget counter bump that still logs failures instead of swallowing
-// them silently — see the identical helper in follows.ts for context.
+// them silently - see the identical helper in follows.ts for context.
 function bumpCounter(supabase: SupabaseClient, table: string, column: string, id: string, amount: number) {
   void supabase.rpc('increment_counter', { p_table: table, p_column: column, p_id: id, p_amount: amount })
     .then(({ error }) => {
@@ -25,7 +27,7 @@ async function getCallerProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { supabase, profile: null }
-  const { data: profile } = await supabase.from('users').select('id, username, status').eq('auth_id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('id, username, display_name, status').eq('auth_id', user.id).single()
   return { supabase, profile }
 }
 
@@ -70,16 +72,19 @@ export async function createPostAction(data: CreatePostSchema) {
     revalidatePath(`/post/${parent_post_id}`)
   }
   if (quoted_post_id) {
-    // This was previously never incremented at all — quote posts were being
+    // This was previously never incremented at all - quote posts were being
     // created with no effect on the quoted post's quotes_count.
     bumpCounter(supabase, 'posts', 'quotes_count', quoted_post_id, 1)
     void notifyPostAuthor(supabase, quoted_post_id, profile.id, 'post_quote')
     revalidatePath(`/post/${quoted_post_id}`)
   }
+  if (body?.trim()) {
+    void notifyMentions(body.trim(), post.id, profile.id, profile.username, profile.display_name)
+  }
   revalidatePath('/feed')
 
   // Return the fully-hydrated post (author, media, counts, created_at) so the
-  // client can prepend it to the feed immediately with real data — returning
+  // client can prepend it to the feed immediately with real data - returning
   // just the id left callers building a bare `{ id }` stub that rendered as
   // "Invalid Date" with no media until the next full page refresh.
   const hydrated = await getPostById(post.id)
@@ -101,7 +106,7 @@ export async function deletePostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
 
-  // Fetch parent/quoted post ids before deleting — needed to decrement their
+  // Fetch parent/quoted post ids before deleting - needed to decrement their
   // counts below. Without this, deleting a reply or quote left the parent's
   // comments_count / quotes_count permanently inflated.
   const { data: existingPost } = await supabase
@@ -119,14 +124,14 @@ export async function deletePostAction(postId: string) {
     revalidatePath(`/post/${existingPost.parent_post_id}`)
   }
   // quoted_post_id is used by both 'quote' and 'repost' post_types (a plain
-  // repost points at the original via quoted_post_id with no body) — decrement
+  // repost points at the original via quoted_post_id with no body) - decrement
   // the correct counter for which one this actually was.
   if (existingPost?.quoted_post_id && existingPost.post_type === 'quote') {
     bumpCounter(supabase, 'posts', 'quotes_count', existingPost.quoted_post_id, -1)
     revalidatePath(`/post/${existingPost.quoted_post_id}`)
   }
   if (existingPost?.quoted_post_id && existingPost.post_type === 'repost') {
-    // Covers deletion via this action (e.g. moderation) — toggleRepostAction
+    // Covers deletion via this action (e.g. moderation) - toggleRepostAction
     // already handles its own decrement for the normal unrepost path.
     bumpCounter(supabase, 'posts', 'reposts_count', existingPost.quoted_post_id, -1)
   }
@@ -154,7 +159,7 @@ export async function toggleLikeAction(postId: string) {
     return { liked: false }
   }
 
-  // Like — use upsert to prevent duplicate likes at DB level
+  // Like - use upsert to prevent duplicate likes at DB level
   const { error: insertError } = await supabase
     .from('likes')
     .upsert({ user_id: profile.id, post_id: postId }, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
@@ -202,11 +207,11 @@ export async function toggleBookmarkAction(postId: string) {
 // ── Impression tracking ──────────────────────────────────────────────────────
 // Fires when a post scrolls into the viewport.
 // Uses post_views table with UNIQUE(post_id, user_id) so each user is counted
-// only once per post — the DB trigger then increments posts.impressions_count.
+// only once per post - the DB trigger then increments posts.impressions_count.
 export async function recordImpressionAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return
-  // ignoreDuplicates = true means ON CONFLICT DO NOTHING — safe to call repeatedly
+  // ignoreDuplicates = true means ON CONFLICT DO NOTHING - safe to call repeatedly
   await supabase
     .from('post_views')
     .upsert({ post_id: postId, user_id: profile.id }, { onConflict: 'post_id,user_id', ignoreDuplicates: true })
@@ -242,7 +247,7 @@ export async function recordVideoCompletionAction(postId: string) {
 }
 
 // ── Profile visit tracking ────────────────────────────────────────────────────
-// Fires when a viewer clicks the author's avatar/name from a specific post —
+// Fires when a viewer clicks the author's avatar/name from a specific post -
 // attributes the resulting profile visit back to that post for analytics.
 export async function recordProfileVisitFromPostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
@@ -258,6 +263,47 @@ async function notifyPostAuthor(
   const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).single()
   if (!post || post.user_id === actorId) return
   await createNotification({ recipientId: post.user_id, actorId, type, entityId: postId, entityType: 'post' })
+}
+
+// Resolves @username mentions in a post body to real users, notifies each
+// one (in-app + push, via the shared createNotification pipeline) and,
+// where the recipient hasn't opted out (notif_email), emails them too -
+// the 'mention' email template already existed in lib/email/send.ts but
+// had no caller anywhere in the app, so tagging someone produced no
+// notification of any kind.
+async function notifyMentions(
+  body: string, postId: string, actorId: string, actorUsername: string | null, actorDisplayName: string
+) {
+  const usernames = extractMentionedUsernames(body)
+  if (usernames.length === 0) return
+
+  const admin = createAdminClient()
+  const { data: mentioned } = await admin
+    .from('users')
+    .select('id, username, email, notif_email')
+    .in('username', usernames)
+    .is('deleted_at', null)
+
+  if (!mentioned || mentioned.length === 0) return
+
+  await Promise.all(mentioned.map(async user => {
+    if (user.id === actorId) return // don't notify yourself for @your_own_username
+    await createNotification({ recipientId: user.id, actorId, type: 'mention', entityId: postId, entityType: 'post' })
+
+    if (user.email && user.notif_email !== false) {
+      const result = await sendNotificationEmail({
+        to: user.email,
+        type: 'mention',
+        data: {
+          mentionerName: actorDisplayName,
+          mentionerUsername: actorUsername || '',
+          postPreview: body.trim(),
+          postId,
+        },
+      })
+      if (result.error) console.error(`mention email failed for ${user.email}:`, result.error)
+    }
+  }))
 }
 export async function getPostAnalyticsAction(postId: string) {
   const supabase = await createClient()
@@ -282,7 +328,7 @@ export async function getPostAnalyticsAction(postId: string) {
   if (!user) return { error: 'Not authenticated' }
   if ((post.author as any)?.auth_id !== user.id) return { error: 'Not authorized' }
 
-  // "Engagements" — total interactions, mirroring how X/Twitter defines it:
+  // "Engagements" - total interactions, mirroring how X/Twitter defines it:
   // every distinct action a viewer took on the post, not just likes/replies.
   const engagements_count =
     post.likes_count + post.comments_count + post.reposts_count + post.quotes_count +

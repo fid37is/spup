@@ -148,7 +148,7 @@ export async function adminUpdateAdAction(adId: string, status: 'active' | 'reje
 // the codebase is a hardcoded static grid on the landing page (src/app/page.tsx).
 // This compiles fine (the Supabase client here is untyped) but will fail at
 // runtime with "relation does not exist" unless that table already exists in
-// the live DB outside of migrations, or gets created — flagging rather than
+// the live DB outside of migrations, or gets created - flagging rather than
 // guessing at its schema.
 
 export async function adminUpdateTestimonialAction(
@@ -177,12 +177,33 @@ export async function adminInviteWaitlistAction(waitlistId: string) {
   const { error, admin, profile } = await requireAdmin(false) // admin only
   if (error || !admin || !profile) return { error: error || 'Forbidden' }
 
+  const { data: entry, error: fetchError } = await admin
+    .from('waitlist')
+    .select('id, full_name, email')
+    .eq('id', waitlistId)
+    .single()
+
+  if (fetchError || !entry) return { error: 'Waitlist entry not found' }
+  if (!entry.email) return { error: 'This entry has no email address on file - nothing to send the invite to.' }
+
+  // This previously flipped the row to 'invited' and stopped there -
+  // no email actually went out, so the row silently looked "sent" while
+  // the person on the waitlist never got anything. Send first, only mark
+  // invited (and audit-log) once the email genuinely succeeds.
+  const sendResult = await sendWaitlistInviteEmail(entry.email, {
+    name: entry.full_name,
+    subject: "You're in - welcome to Spup",
+    message: `Hey ${entry.full_name.split(' ')[0]}, your spot on Spup just opened up. Tap below to create your account and get started.`,
+  })
+
+  if (sendResult.error) return { error: `Invite email failed to send: ${sendResult.error}` }
+
   const { error: inviteError } = await admin.from('waitlist').update({
     status: 'invited',
     invited_at: new Date().toISOString(),
   }).eq('id', waitlistId)
 
-  if (inviteError) return { error: 'Invite failed' }
+  if (inviteError) return { error: 'Invite email sent, but failed to update the waitlist record.' }
 
   await auditLog(profile.id, 'waitlist_invite', 'waitlist', waitlistId)
   revalidatePath('/waitlist')
@@ -191,13 +212,13 @@ export async function adminInviteWaitlistAction(waitlistId: string) {
 
 // ─── Bulk-invite everyone currently waiting ─────────────────────────────────
 // Sends the admin-composed message to every 'waiting' entry that has an
-// email on file (phone-only entries have no send channel wired up yet —
-// there's no SMS provider in this codebase — and are reported back as
+// email on file (phone-only entries have no send channel wired up yet -
+// there's no SMS provider in this codebase - and are reported back as
 // skipped rather than silently dropped).
 //
 // Sending happens in an after() callback so the action returns immediately
 // instead of holding the request open for however long N Resend calls take
-// — at waitlist sizes in the hundreds this would otherwise risk hitting the
+// - at waitlist sizes in the hundreds this would otherwise risk hitting the
 // platform's function timeout. Each row only flips to 'invited' once its
 // own email actually succeeds, in small batches with a short pause between
 // them to stay under Resend's rate limit; a failure just leaves that row
@@ -260,7 +281,7 @@ export async function adminBulkInviteWaitlistAction({
           status: 'invited', invited_at: new Date().toISOString(),
         }).eq('id', entry.id)
       }))
-      // Brief pause between batches — keeps this well under Resend's
+      // Brief pause between batches - keeps this well under Resend's
       // per-second rate limit even at a few hundred recipients.
       if (i + BATCH_SIZE < recipients.length) {
         await new Promise(r => setTimeout(r, 400))
@@ -273,7 +294,7 @@ export async function adminBulkInviteWaitlistAction({
 }
 
 // ─── Waitlist form visibility (landing page) ────────────────────────────────
-// Independent of sending — lets an admin close/reopen the public join form
+// Independent of sending - lets an admin close/reopen the public join form
 // without necessarily sending mail at the same moment.
 
 export async function adminSetWaitlistOpenAction(open: boolean) {
@@ -370,7 +391,7 @@ export async function adminReviewVerificationAction(
       .update({ verification_tier: reqRow.requested_tier })
       .eq('id', reqRow.user_id)
 
-    if (tierError) return { error: 'Verification approved but tier update failed — check the user record' }
+    if (tierError) return { error: 'Verification approved but tier update failed - check the user record' }
   }
 
   await auditLog(profile.id, `verification_${decision}`, 'user', reqRow.user_id, { requested_tier: reqRow.requested_tier, notes })
