@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { X, Home, Search, Bell, Wallet, User, Settings, PenSquare } from 'lucide-react'
 import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
+import { formatNumber } from '@/lib/utils'
 
 const NAV = [
   { href: '/feed',          icon: Home,     label: 'Home' },
@@ -24,12 +25,15 @@ interface MobileHeaderProps {
     avatar_url: string | null
     is_monetised: boolean
     verification_tier: string
+    following_count: number
+    followers_count: number
   }
   unreadCount: number
+  mutualsCount: number
   title?: string
 }
 
-export default function MobileHeader({ profile, unreadCount, title }: MobileHeaderProps) {
+export default function MobileHeader({ profile, unreadCount, mutualsCount, title }: MobileHeaderProps) {
   const [mounted, setMounted] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [showPostModal, setShowPostModal] = useState(false)
@@ -99,8 +103,14 @@ export default function MobileHeader({ profile, unreadCount, title }: MobileHead
           </button>
         </div>
 
-        {/* Profile section */}
-        <div style={{ padding: '0 16px 16px', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+        {/* Profile section — tap to open your own profile */}
+        <Link
+          href="/profile"
+          style={{
+            display: 'block', padding: '0 16px 16px', textDecoration: 'none',
+            borderBottom: '1px solid var(--color-border)', flexShrink: 0,
+          }}
+        >
           <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', marginBottom: 10 }}>
             {profile.avatar_url ? (
               <img src={profile.avatar_url} alt={profile.display_name}
@@ -131,7 +141,17 @@ export default function MobileHeader({ profile, unreadCount, title }: MobileHead
           <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 2 }}>
             @{profile.username}
           </div>
-        </div>
+          <div style={{
+            fontSize: 12.5, color: 'var(--color-text-secondary)', marginTop: 8,
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 4, columnGap: 6,
+          }}>
+            <span style={{ whiteSpace: 'nowrap' }}><strong style={{ color: 'var(--color-text-primary)' }}>{formatNumber(profile.following_count)}</strong> Following</span>
+            <span style={{ color: 'var(--color-text-muted)' }}>|</span>
+            <span style={{ whiteSpace: 'nowrap' }}><strong style={{ color: 'var(--color-text-primary)' }}>{formatNumber(profile.followers_count)}</strong> Followers</span>
+            <span style={{ color: 'var(--color-text-muted)' }}>|</span>
+            <span style={{ whiteSpace: 'nowrap' }}><strong style={{ color: 'var(--color-text-primary)' }}>{formatNumber(mutualsCount)}</strong> Mutuals</span>
+          </div>
+        </Link>
 
         {/* Nav links */}
         <nav style={{ padding: '8px 8px', flex: 1 }}>

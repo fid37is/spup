@@ -4,7 +4,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Settings, Camera, Loader } from 'lucide-react'
+import { Settings, Camera, Loader, ArrowLeft } from 'lucide-react'
 import { updateAvatarAction, updateBannerAction } from '@/lib/actions/profiles'
 import CropModal from './crop-modal'
 import ProfileHeaderView from './profile-header-view'
@@ -153,7 +153,7 @@ export default function ProfileHeader({
       <div
         onClick={() => editing && !uploading && bannerRef.current?.click()}
         style={{
-          height: 160, position: 'relative', overflow: 'hidden',
+          height: 120, position: 'relative', overflow: 'hidden',
           background: bannerSrc
             ? 'transparent'
             : 'linear-gradient(135deg, #0A2016 0%, #1A3A20 50%, #0F2510 100%)',
@@ -164,6 +164,25 @@ export default function ProfileHeader({
           <img src={bannerSrc} alt="Cover"
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         )}
+
+        {/* Back button — floats on the banner like LinkedIn's, so the page
+            doesn't need a separate nav bar just to hold it. Stops propagation
+            so it doesn't trigger the banner's own onClick (opens file picker
+            in edit mode). */}
+        <button
+          onClick={e => { e.stopPropagation(); router.back() }}
+          aria-label="Go back"
+          style={{
+            position: 'absolute', top: 12, left: 12, zIndex: 2,
+            width: 36, height: 36, borderRadius: '50%',
+            background: 'rgba(0,0,0,0.45)', border: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+          }}
+        >
+          <ArrowLeft size={18} color="white" strokeWidth={2.2} />
+        </button>
+
         {editing && (
           <div style={{
             position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.38)',
@@ -197,10 +216,10 @@ export default function ProfileHeader({
               else if (avatarSrc) { setShowAvatarLightbox(true) }
             }}
             style={{
-              width: 84, height: 84, borderRadius: '50%',
+              width: 112, height: 112, borderRadius: '50%',
               border: '4px solid var(--color-bg)',
               overflow: 'hidden', position: 'relative',
-              marginTop: -42, flexShrink: 0,
+              marginTop: -56, flexShrink: 0,
               cursor: editing || avatarSrc ? 'pointer' : 'default',
             }}
           >
@@ -212,7 +231,7 @@ export default function ProfileHeader({
                 width: '100%', height: '100%',
                 background: 'linear-gradient(135deg, #1A7A4A, #22A861)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 30, color: 'white',
+                fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 38, color: 'white',
               }}>
                 {initials}
               </div>

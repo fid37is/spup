@@ -40,7 +40,16 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // getClaims() instead of getUser(): verifies the JWT signature locally
+  // against a cached JWKS endpoint rather than making a network round-trip
+  // to Supabase's Auth API on every single request. Safe specifically
+  // because this value only drives redirect routing below — every actual
+  // authorization decision (requireAdmin, server actions reading/writing
+  // sensitive data) does its own independent getUser() call server-side
+  // rather than trusting this one. Falls back to null on any verification
+  // failure, same as an absent user.
+  const { data: claims } = await supabase.auth.getClaims()
+  const user = claims?.claims ? { id: claims.claims.sub } : null
 
   // Carries the refreshed session cookies (if any were reissued above) onto
   // whatever final response this request ends up producing.
@@ -75,16 +84,13 @@ export async function proxy(request: NextRequest) {
   // The auth cookie is deliberately shared across spup.live and
   // admin.spup.live (see cookie-options.ts), and users.role is the only
   // thing distinguishing an admin/moderator account from an ordinary one.
-  // loginAction checks role but never checked *which host* the login
-  // happened on, so an admin who signed in at the main domain ended up with
-  // a session cookie that worked everywhere, /feed included. This is the
-  // second line of defense (loginAction now also rejects at sign-in time):
-  // any already-established session whose role doesn't match its host —
-  // including ones that predate this fix, or that came in via OAuth, which
-  // bypasses loginAction's own check — gets signed out and bounced to that
-  // host's /login instead of being allowed through to the routing/redirect
-  // logic below. Static assets, _next, and API routes are left alone so
-  // this can't loop or break asset loading.
+  // loginAction rejects a mismatched host at sign-in time, but this is the
+  // second line of defense — it also catches sessions that predate that
+  // check, or that arrive via OAuth (which doesn't go through loginAction
+  // at all). Any already-established session whose role doesn't match its
+  // host gets signed out and bounced to that host's /login. Static assets,
+  // _next, and API routes are left alone so this can't loop or break asset
+  // loading.
   let role: string | null = null
   if (user) {
     const { data: profile } = await supabase
