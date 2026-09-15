@@ -5,6 +5,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import bcrypt from 'bcryptjs'
+import nodeCrypto from 'crypto'
 import { createNotification } from '@/lib/notifications'
 
 async function getCallerProfile() {
@@ -24,13 +25,23 @@ export async function setChatPinAction(pin: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
 
+  // Reuse the existing pepper if the user is just changing their PIN
+  // (their wrapped E2E key was derived from the old pepper + old PIN —
+  // rotating the pepper here would orphan it). Only generate a fresh one
+  // the first time a PIN is ever set.
+  const { data: existing } = await supabase
+    .from('chat_pins').select('key_pepper').eq('user_id', profile.id).maybeSingle()
+  const key_pepper = existing?.key_pepper ?? nodeCrypto.randomBytes(32).toString('base64')
+
   const pin_hash = await bcrypt.hash(pin, 10)
   const { error } = await supabase.from('chat_pins').upsert(
-    { user_id: profile.id, pin_hash, updated_at: new Date().toISOString() },
+    { user_id: profile.id, pin_hash, key_pepper, updated_at: new Date().toISOString() },
     { onConflict: 'user_id' }
   )
   if (error) return { error: error.message }
-  return { success: true }
+  // Returned once, immediately after the PIN this user just chose — safe
+  // to hand back here since they've just proven they know it.
+  return { success: true, pepper: key_pepper }
 }
 
 export async function verifyChatPinAction(pin: string) {
@@ -39,11 +50,15 @@ export async function verifyChatPinAction(pin: string) {
   if (!profile) return { valid: false }
 
   const { data } = await supabase
-    .from('chat_pins').select('pin_hash').eq('user_id', profile.id).single()
+    .from('chat_pins').select('pin_hash, key_pepper').eq('user_id', profile.id).single()
   if (!data) return { valid: false, noPin: true }
 
   const valid = await bcrypt.compare(pin, data.pin_hash)
-  return { valid }
+  // The pepper is only ever handed back on a correct PIN — this is what
+  // makes it useless to an attacker who only has a stolen wrapped-key
+  // blob (see 022_chat_pin_pepper.sql): they'd still have to pass this
+  // live, rate-limitable check to get it.
+  return valid ? { valid: true, pepper: data.key_pepper as string | null } : { valid: false }
 }
 
 export async function hasChatPinAction() {
@@ -71,6 +86,35 @@ export async function getPublicKeyAction(userId: string) {
   const { data } = await supabase
     .from('users').select('public_key').eq('id', userId).single()
   return { publicKey: (data as any)?.public_key ?? null }
+}
+
+// ── Wrapped private key (cross-device E2E key recovery) ───────────────────────
+// The server only ever stores/returns ciphertext here — the password that
+// derives the unwrapping key never leaves the browser. See
+// src/lib/chat-crypto.ts (recoverOrCreateKeyPair) for the client-side flow
+// that calls these.
+
+export async function uploadWrappedKeyAction(wrapped: string, salt: string, iv: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  const { error } = await supabase
+    .from('users')
+    .update({ wrapped_private_key: wrapped, key_wrap_salt: salt, key_wrap_iv: iv })
+    .eq('id', profile.id)
+  if (error) return { error: error.message }
+  return { success: true }
+}
+
+export async function getWrappedKeyAction() {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { wrapped: null }
+  const { data } = await supabase
+    .from('users')
+    .select('wrapped_private_key, key_wrap_salt, key_wrap_iv')
+    .eq('id', profile.id)
+    .single()
+  if (!data?.wrapped_private_key || !data.key_wrap_salt || !data.key_wrap_iv) return { wrapped: null }
+  return { wrapped: { wrapped: data.wrapped_private_key, salt: data.key_wrap_salt, iv: data.key_wrap_iv } }
 }
 
 // ── Conversations ─────────────────────────────────────────────────────────────

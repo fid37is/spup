@@ -113,7 +113,7 @@ export default function VerifyPhonePage() {
 
       {/* Back */}
       <Link href="/profile" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#6A6A60', textDecoration: 'none', marginBottom: 28 }}>
-        <ArrowLeft size={16} /> Back to profile
+        <ArrowLeft size={16} /> Back to Settings
       </Link>
 
       {/* ── Success ───────────────────────────────────────────────────────── */}
