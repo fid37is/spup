@@ -218,9 +218,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   function handleNotif(key: 'push' | 'email', val: boolean) {
     if (key === 'push') setNotifPush(val); else setNotifEmail(val)
     startT(async () => {
-      await updateProfileAction(
-        key === 'push' ? { notif_push: val } as any : { notif_email: val } as any
-      )
+      await updateProfileAction(key === 'push' ? { notif_push: val } : { notif_email: val })
     })
   }
 
@@ -264,7 +262,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   function handleLang(code: string, label: string) {
     setLang(code)
     startT(async () => {
-      await updateProfileAction({ language_preference: code as any })
+      await updateProfileAction({ language_preference: code as 'en' | 'yo' | 'ig' | 'ha' | 'pcm' })
       showFlash(`Language set to ${label}`)
       setPanel(null)
     })
@@ -274,7 +272,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     setAutoplay(value)
     if (typeof window !== 'undefined') localStorage.setItem('spup_autoplay', value)
     startT(async () => {
-      await updateProfileAction({ autoplay_preference: value } as any)
+      await updateProfileAction({ autoplay_preference: value as 'always' | 'wifi' | 'never' })
       showFlash(`Autoplay set to ${label}`)
       setPanel(null)
     })
@@ -336,7 +334,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
         <Row
           icon={Eye}
           label="Private account"
-          desc={isPrivate ? 'Private — followers must be approved' : 'Public — anyone can follow and see your posts'}
+          desc={isPrivate ? 'Private - followers must be approved' : 'Public - anyone can follow and see your posts'}
           accentDesc={isPrivate}
           last={!isPrivate}
           right={<Toggle checked={isPrivate} onChange={togglePrivacy} disabled={isPending} />}
@@ -523,7 +521,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
         <Row
           icon={Phone}
           label="Phone & BVN"
-          desc={profile.bvn_verified ? 'Verified — withdrawals enabled' : 'Tap to verify'}
+          desc={profile.bvn_verified ? 'Verified - withdrawals enabled' : 'Tap to verify'}
           accentDesc={profile.bvn_verified}
           onClick={() => router.push('/settings/verify-phone')}
           last

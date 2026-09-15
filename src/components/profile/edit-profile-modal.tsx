@@ -4,7 +4,7 @@
  * EditProfileModal
  * ─────────────────
  * Full-screen modal for editing profile appearance (name, bio, location,
- * website). This is deliberately separate from /settings — settings handles
+ * website). This is deliberately separate from /settings - settings handles
  * account security/privacy; this handles how your profile looks.
  *
  * Opened via the "Edit profile" button on the profile page.
@@ -89,9 +89,9 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
     startT(async () => {
       const result = await updateProfileAction({
         display_name: displayName.trim(),
-        bio:          bio.trim() || undefined,
-        location:     location.trim() || undefined,
-        website_url:  website.trim() || undefined,
+        bio:          bio.trim() || null,
+        location:     location.trim() || null,
+        website_url:  website.trim() || null,
       })
       if (result.error) { setError(result.error); return }
       onSaved?.()
@@ -110,7 +110,7 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
         }}
       />
 
-      {/* Sheet — full-width on mobile, centred card on desktop */}
+      {/* Sheet - full-width on mobile, centred card on desktop */}
       <div style={{
         position: 'fixed',
         inset: 0,

@@ -40,7 +40,7 @@ function LoginForm() {
   const redirectTo = searchParams.get('redirectTo') || '/feed'
 
   // proxy.ts's cross-domain identity guard bounces a mismatched session
-  // (admin on main domain, or vice versa) back here with ?error=... —
+  // (admin on main domain, or vice versa) back here with ?error=... -
   // surface that as the same Alert a failed sign-in attempt would show.
   const hostErrorParam = searchParams.get('error')
   const hostErrorMessage = useMemo(() => {
@@ -70,7 +70,7 @@ function LoginForm() {
         }
         setServerError(r.error)
       }
-      // On success loginAction redirects server-side — nothing to do here
+      // On success loginAction redirects server-side - nothing to do here
     })
   }
 
@@ -83,21 +83,20 @@ function LoginForm() {
       <AuthDivider />
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
-        {/* Email */}
+        {/* Email or username */}
         <div style={{ marginBottom: 14 }}>
-          <label style={lbl}>Email address</label>
+          <label style={lbl}>Email or username</label>
           <input
-            {...register('email')}
-            type="email"
-            placeholder="you@email.com"
-            autoComplete="email"
-            inputMode="email"
+            {...register('identifier')}
+            type="text"
+            placeholder="you@email.com or username"
+            autoComplete="username"
             autoFocus
-            style={inp(errors.email?.message)}
+            style={inp(errors.identifier?.message)}
           />
-          {errors.email && (
+          {errors.identifier && (
             <p style={{ fontSize: 12, color: '#E53935', marginTop: 5 }}>
-              {errors.email.message}
+              {errors.identifier.message}
             </p>
           )}
         </div>

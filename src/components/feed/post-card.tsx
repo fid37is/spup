@@ -29,6 +29,7 @@ import type { FeedPost } from '@/lib/actions/feed'
 import { useToast } from '@/components/layout/toast'
 import MediaViewer from '@/components/feed/media-viewer'
 import PayVendorButton from '@/components/escrow/pay-vendor-button'
+import { GatedMedia } from '@/components/media/media-gate'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -146,7 +147,7 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
         }}
       />
 
-      {/* Manual play/pause — needed when autoplay is off, or to resume after scroll-pause */}
+      {/* Manual play/pause - needed when autoplay is off, or to resume after scroll-pause */}
       {!playing && (
         <button
           onClick={togglePlay}
@@ -190,7 +191,7 @@ function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: s
     setViewerIdx(i)
   }
 
-  // Single item — show at its natural aspect ratio, letterboxed rather than
+  // Single item - show at its natural aspect ratio, letterboxed rather than
   // cropped, so portrait/landscape photos both display without distortion.
   if (sorted.length === 1) {
     const m = sorted[0]
@@ -205,8 +206,10 @@ function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: s
           }}
         >
           {m.media_type === 'image'
-            ? <img src={m.url} alt="" style={{ width: '100%', maxHeight: 520, objectFit: 'contain' }} />
-            : <div style={{ width: '100%', aspectRatio: m.width && m.height ? `${m.width}/${m.height}` : '16/9' }}><TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} /></div>
+            ? <GatedMedia render={() => <img src={m.url} alt="" style={{ width: '100%', maxHeight: 520, objectFit: 'contain' }} />} />
+            : <div style={{ width: '100%', aspectRatio: m.width && m.height ? `${m.width}/${m.height}` : '16/9' }}>
+                <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} />} />
+              </div>
           }
         </div>
         {viewerIdx !== null && (
@@ -216,10 +219,10 @@ function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: s
     )
   }
 
-  // Multiple items — matches the reference: tight square-ish tiles, 3px gap,
+  // Multiple items - matches the reference: tight square-ish tiles, 3px gap,
   // one continuous rounded block. Exactly 2 items fill the row edge-to-edge,
   // same as X's static grid. 3+ items scroll horizontally (X can't show more
-  // than 2-4 in a static grid at all — this is the one deliberate departure,
+  // than 2-4 in a static grid at all - this is the one deliberate departure,
   // since the ask was specifically to make extra photos reachable by swipe).
   return (
     <>
@@ -246,8 +249,8 @@ function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: s
             }}
           >
             {m.media_type === 'image'
-              ? <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <TrackedVideo src={m.url} postId={postId} />
+              ? <GatedMedia render={() => <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
+              : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} />} />
             }
           </div>
         ))}
@@ -326,7 +329,7 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
 
 // ── ActionBtn ─────────────────────────────────────────────────────────────────
 // ── MenuItems ─────────────────────────────────────────────────────────────────
-// Shared list of "..." menu actions — rendered inside a bottom sheet on mobile
+// Shared list of "..." menu actions - rendered inside a bottom sheet on mobile
 // and a compact anchored popup on desktop (same items, different container).
 function MenuItems({
   isOwnPost, bookmarked, isPinned,
@@ -448,7 +451,7 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
   )
 }
 
-// ── PostActions — shared action bar used in both PostCard and RepostCard ──────
+// ── PostActions - shared action bar used in both PostCard and RepostCard ──────
 export function PostActions({
   post,
   currentUserId,
@@ -571,7 +574,7 @@ export function PostActions({
           />
         </div>
 
-        {/* Escrow pay button — only shown when the author explicitly marked
+        {/* Escrow pay button - only shown when the author explicitly marked
             this post as selling something (post.is_selling), set via the
             composer toggle. See lib/actions/escrow.ts for the payment +
             hold logic, and post-modal.tsx for where the toggle lives. */}
@@ -1020,8 +1023,14 @@ export default function PostCard({
               </div>
               {post.quoted_post.body && <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{post.quoted_post.body}</p>}
               {post.quoted_post.media && post.quoted_post.media.length > 0 && (
-                <div style={{ marginTop: 6, borderRadius: 8, overflow: 'hidden', maxHeight: 160 }}>
-                  <img src={post.quoted_post.media[0].url} alt="" style={{ width: '100%', objectFit: 'cover', maxHeight: 160 }} />
+                <div style={{
+                  marginTop: 6, borderRadius: 8, overflow: 'hidden',
+                  aspectRatio: post.quoted_post!.media[0].width && post.quoted_post!.media[0].height
+                    ? `${post.quoted_post!.media[0].width}/${post.quoted_post!.media[0].height}`
+                    : '16/9',
+                  maxHeight: 260,
+                }}>
+                  <GatedMedia render={() => <img src={post.quoted_post!.media[0].url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
                 </div>
               )}
             </div>

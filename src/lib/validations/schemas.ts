@@ -26,8 +26,11 @@ export const signupSchema = z.object({
 }).refine(d=>d.password===d.confirm_password,{ message:"Passwords don't match", path:['confirm_password'] })
 export type SignupSchema = z.infer<typeof signupSchema>
 
+// Accepts either an email address or a username (Supabase's own
+// signInWithPassword only takes an email - loginAction resolves a
+// username to its account email server-side before calling it).
 export const loginSchema = z.object({
-  email: z.string().min(1,'Email is required').email('Enter a valid email address'),
+  identifier: z.string().min(1,'Email or username is required'),
   password: z.string().min(1,'Password is required'),
 })
 export type LoginSchema = z.infer<typeof loginSchema>
@@ -83,7 +86,7 @@ export const createPostSchema = z.object({
   is_selling: z.boolean().optional(),
 }).refine(d=>(d.body&&d.body.trim().length>0)||(d.media&&d.media.length>0),{ message:'Post must have text or media' })
   .refine(d => !d.is_selling || (d.body && d.body.trim().length > 0), {
-    message: 'Write a bit about what you\u2019re selling — the post itself is the description', path: ['body'],
+    message: 'Write a bit about what you\u2019re selling - the post itself is the description', path: ['body'],
   })
 export type CreatePostSchema = z.infer<typeof createPostSchema>
 

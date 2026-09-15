@@ -16,6 +16,23 @@ export function formatNaira(kobo: number): string {
   return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(naira)
 }
 
+// ─── Mentions (@username tagging) ─────────────────────────────────────────────
+// Matches the same character set enforced at signup/username-change time
+// (saveUsernameAction / changeUsernameAction: letters, numbers, underscores,
+// 3-20 chars). The negative lookbehind keeps this from matching the domain
+// part of an email address (e.g. "me@spup.ng") or a doubled "@@handle".
+const MENTION_RE = /(?<![\w@])@([a-zA-Z0-9_]{3,20})\b/g
+
+/** Extracts the set of unique, lowercased usernames mentioned (via @username) in a post/message body. */
+export function extractMentionedUsernames(text: string | null | undefined): string[] {
+  if (!text) return []
+  const found = new Set<string>()
+  for (const match of text.matchAll(MENTION_RE)) {
+    found.add(match[1].toLowerCase())
+  }
+  return Array.from(found)
+}
+
 export function formatRelativeTime(date: string): string {
   const now = new Date()
   const then = new Date(date)
@@ -42,7 +59,7 @@ export function truncate(str: string, length: number): string {
 /**
  * Escapes a user-supplied search term for safe use inside a PostgREST
  * `.or('col.ilike.%term%,...')` filter string. PostgREST treats
- * `,`, `(`, `)`, and `.` as filter syntax — passing raw user input there
+ * `,`, `(`, `)`, and `.` as filter syntax - passing raw user input there
  * lets someone append extra filter clauses (e.g. searching
  * `x,role.eq.admin` would inject a second condition). Strip those
  * characters and cap the length before interpolating.

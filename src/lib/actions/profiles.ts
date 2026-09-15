@@ -1,7 +1,7 @@
 'use server'
 
 /**
- * profiles.ts — mutations on the users table post-onboarding.
+ * profiles.ts - mutations on the users table post-onboarding.
  * Onboarding-specific updates (saveProfile, saveInterests) stay in auth.ts
  * because they're tightly coupled to the auth flow.
  * Everything here is for the logged-in settings / edit-profile flow.
@@ -25,15 +25,25 @@ async function getCallerProfile() {
 
 // ─── Update profile fields ────────────────────────────────────────────────────
 
+// bio/location/website_url/occupation/date_of_birth are nullable (not just
+// optional): the edit-profile forms send `undefined` when a field is left
+// as-is, but need a real value to send when the person clears a
+// previously-set field. `undefined` keys get dropped entirely by
+// JSON.stringify before the request ever reaches Supabase, so a cleared
+// field silently kept its old value in the database - the edit "saved"
+// (no error, modal closed) but the change never actually persisted.
+// `null` survives serialization and tells Postgres to set the column to
+// NULL, so clearing now works the same way setting a value does.
 const updateProfileSchema = z.object({
   display_name:        z.string().min(2).max(50).optional(),
-  bio:                 z.string().max(160).optional(),
-  location:            z.string().max(60).optional(),
-  website_url:         z.string().url().optional().or(z.literal('')),
-  occupation:          z.string().max(60).optional(),
-  date_of_birth:       z.string().optional().refine(v => !v || !isNaN(Date.parse(v)), 'Invalid date'),
+  bio:                 z.string().max(160).nullable().optional(),
+  location:            z.string().max(60).nullable().optional(),
+  website_url:         z.string().url().nullable().optional().or(z.literal('')),
+  occupation:          z.string().max(60).nullable().optional(),
+  date_of_birth:       z.string().nullable().optional().refine(v => !v || !isNaN(Date.parse(v)), 'Invalid date'),
   birthday_visibility: z.enum(['everyone', 'followers', 'only_me']).optional(),
   language_preference: z.enum(['en', 'yo', 'ig', 'ha', 'pcm']).optional(),
+  autoplay_preference: z.enum(['always', 'wifi', 'never']).optional(),
   is_private:          z.boolean().optional(),
   notif_push:          z.boolean().optional(),
   notif_email:         z.boolean().optional(),
@@ -53,7 +63,10 @@ export async function updateProfileAction(data: UpdateProfileData) {
     .update({ ...parsed.data, updated_at: new Date().toISOString() })
     .eq('id', profile.id)
 
-  if (error) return { error: 'Failed to update profile.' }
+  if (error) {
+    console.error('updateProfileAction error:', error.message)
+    return { error: 'Failed to update profile.' }
+  }
 
   revalidatePath('/profile')
   revalidatePath('/settings')
@@ -146,7 +159,7 @@ export async function changeUsernameAction(newUsername: string) {
 }
 
 // ─── Change password ──────────────────────────────────────────────────────────
-// Supabase updateUser works for the currently authenticated session —
+// Supabase updateUser works for the currently authenticated session -
 // no need to re-supply the old password (user is already logged in).
 
 export async function changePasswordAction(oldPassword: string, newPassword: string, confirmPassword: string) {
@@ -183,8 +196,8 @@ export async function changePasswordAction(oldPassword: string, newPassword: str
 // ─── Soft-delete account ──────────────────────────────────────────────────────
 // Two-step: first anonymise all PII in the users table, then permanently
 // delete the Supabase Auth record. Permanent deletion is required by:
-//   • Apple App Store (guideline 5.1.1 — data must be fully deletable)
-//   • Google Play (policy update June 2022 — account deletion required)
+//   • Apple App Store (guideline 5.1.1 - data must be fully deletable)
+//   • Google Play (policy update June 2022 - account deletion required)
 // The soft-delete of the users row keeps referential integrity for posts/
 // notifications that were created before deletion (they show "Deleted user").
 
@@ -211,11 +224,11 @@ export async function deleteAccountAction() {
   // 2. Sign the session out first so the cookie is cleared
   await supabase.auth.signOut()
 
-  // 3. Hard-delete the auth.users row — this is what the app stores require.
+  // 3. Hard-delete the auth.users row - this is what the app stores require.
   //    After this the email/phone can be re-used for a new account.
   const { error: deleteError } = await admin.auth.admin.deleteUser(profile.auth_id)
   if (deleteError) {
-    // Log but don't surface — the users row is already anonymised
+    // Log but don't surface - the users row is already anonymised
     console.error('deleteAccountAction: auth deletion failed', deleteError.message)
   }
 
