@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { setChatPinAction, verifyChatPinAction, hasChatPinAction } from '@/lib/actions/messages'
+import { setSessionPinMaterial, clearSessionPinMaterial } from '@/lib/chat-pin-session'
 import { Lock, Eye, EyeOff, Shield } from 'lucide-react'
 
 const SESSION_KEY = 'spup_chat_unlocked_uid'
@@ -46,6 +47,7 @@ export default function PinGate({ children }: PinGateProps) {
 
       // Different user or fresh session — clear any stale unlock and require PIN
       sessionStorage.removeItem(SESSION_KEY)
+      clearSessionPinMaterial() // don't let a previous account's key material leak into this one
       const { hasPin } = await hasChatPinAction()
       setStatus(hasPin ? 'verify' : 'create')
     }
@@ -96,13 +98,17 @@ export default function PinGate({ children }: PinGateProps) {
     const pinStr = fullPin ?? pin.join('')
     if (pinStr.length !== 4) return
     setIsPending(true)
-    const { valid } = await verifyChatPinAction(pinStr)
+    const result = await verifyChatPinAction(pinStr)
     setIsPending(false)
-    if (valid) {
+    if (result.valid) {
       const { createBrowserClient } = await import('@/lib/supabase/client')
       const supabase = createBrowserClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (user) sessionStorage.setItem(SESSION_KEY, user.id)
+      // Stash PIN+pepper in memory so chat-client's E2E key recovery
+      // (see recoverOrCreateKeyPair/getKeyMaterial) doesn't need to prompt
+      // for it again right after this — see lib/chat-pin-session.ts.
+      if (result.pepper) setSessionPinMaterial(pinStr, result.pepper)
       setStatus('unlocked')
     } else {
       setError('Incorrect PIN. Try again.')
@@ -129,6 +135,7 @@ export default function PinGate({ children }: PinGateProps) {
     const supabase = createBrowserClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (user) sessionStorage.setItem(SESSION_KEY, user.id)
+    if ('pepper' in result && result.pepper) setSessionPinMaterial(enterStr, result.pepper)
     setStatus('unlocked')
   }
 

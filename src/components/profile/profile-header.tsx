@@ -37,12 +37,19 @@ interface ProfileHeaderProps {
   isOwner: boolean
   actionSlot?: React.ReactNode
   showBirthday?: boolean
+  // 'edit' renders the same banner/avatar uploader plus ProfileHeaderEdit's
+  // form instead of ProfileHeaderView — used by the dedicated /profile/edit
+  // page. Editing used to be an in-place toggle on /profile itself, which
+  // meant the posts/replies/media/likes tabs stayed visible (and the data
+  // for them stayed fetched) underneath the edit form; now /profile always
+  // renders in 'view' mode and "Edit profile" navigates to its own route.
+  mode?: 'view' | 'edit'
 }
 
 export default function ProfileHeader({
-  profile, stats, isOwner, actionSlot, showBirthday = false,
+  profile, stats, isOwner, actionSlot, showBirthday = false, mode = 'view',
 }: ProfileHeaderProps) {
-  const [editing,    setEditing]    = useState(false)
+  const editing = mode === 'edit'
   const [avatarSrc,  setAvatarSrc]  = useState<string | null>(profile.avatar_url)
   const [bannerSrc,  setBannerSrc]  = useState<string | null>(profile.banner_url)
   const [uploading,  setUploading]  = useState<UploadTarget | null>(null)
@@ -272,7 +279,7 @@ export default function ProfileHeader({
               }}>
                 <Settings size={16} />
               </Link>
-              <button onClick={() => setEditing(true)} style={{
+              <button onClick={() => router.push('/profile/edit')} style={{
                 border: '1px solid var(--color-border)', borderRadius: 20, padding: '8px 16px',
                 background: 'none', color: 'var(--color-text-primary)',
                 fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 600,
@@ -305,8 +312,8 @@ export default function ProfileHeader({
         ) : (
           <ProfileHeaderEdit
             profile={profile}
-            onCancel={() => setEditing(false)}
-            onSaved={() => { setEditing(false); router.refresh() }}
+            onCancel={() => router.push('/profile')}
+            onSaved={() => router.push('/profile')}
           />
         )}
       </div>

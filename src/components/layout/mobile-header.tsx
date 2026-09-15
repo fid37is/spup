@@ -228,6 +228,12 @@ export default function MobileHeader({ profile, unreadCount, mutualsCount, title
     </>
   )
 
+  // Profile has its own back button baked into the banner (see
+  // profile-header.tsx's floating ArrowLeft) specifically so it doesn't
+  // need this separate top bar — showing both stacked two nav/back
+  // affordances on one page.
+  if (pathname.startsWith('/profile')) return null
+
   return (
     <>
       {/* ── Top bar ── */}

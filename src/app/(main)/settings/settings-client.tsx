@@ -4,22 +4,25 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle, Lock,
-  X, Check, Eye, EyeOff, Loader, Moon, Sun, Play,
+  X, Check, Eye, EyeOff, Loader, Moon, Sun, Play, User, Phone,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
-import { updateProfileAction, deleteAccountAction, changePasswordAction } from '@/lib/actions/profiles'
+import { updateProfileAction, deleteAccountAction, changePasswordAction, changeUsernameAction } from '@/lib/actions/profiles'
 import { useTheme } from '@/components/layout/theme-provider'
 import { createBrowserClient } from '@/lib/supabase/client'
 
-type Panel = null | 'language' | 'theme' | 'password' | 'autoplay'
+type Panel = null | 'language' | 'theme' | 'password' | 'autoplay' | 'username'
 
 interface SettingsProfile {
   id: string
+  username: string
   is_private: boolean
   language_preference?: string
   notif_push?: boolean
   notif_email?: boolean
   autoplay_preference?: string
+  phone_number?: string | null
+  bvn_verified?: boolean
 }
 
 const LANGS = [
@@ -193,6 +196,10 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   const [deletePass, setDeletePass] = useState('')
   const [deletePassErr, setDeletePassErr] = useState('')
 
+  // Username state
+  const [username,    setUsername]    = useState(profile.username)
+  const [usernameErr, setUsernameErr] = useState('')
+
   function showFlash(text: string, ok = true) {
     setFlash({ text, ok })
     setTimeout(() => setFlash(null), 3000)
@@ -223,6 +230,17 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     if ('error' in r && r.error) { setPassErr(r.error); showFlash(r.error, false); return }
     showFlash('Password changed successfully')
     setOldPass(''); setNewPass(''); setConfPass(''); setPanel(null)
+  }
+
+  function handleUsernameChange() {
+    setUsernameErr('')
+    startT(async () => {
+      const r = await changeUsernameAction(username)
+      if (r.error) { setUsernameErr(r.error); return }
+      showFlash('Username updated')
+      setPanel(null)
+      router.refresh()
+    })
   }
 
   const passScore = [
@@ -459,6 +477,57 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
             ))}
           </InlinePanel>
         )}
+      </Card>
+
+      {/* ── ACCOUNT ──────────────────────────────────────────────────────── */}
+      <SectionLabel label="Account" />
+      <Card>
+        <Row
+          icon={User}
+          label="Username"
+          desc={`@${username}`}
+          onClick={() => togglePanel('username')}
+          last={panel !== 'username'}
+        />
+        {panel === 'username' && (
+          <InlinePanel>
+            <FieldLabel>New username</FieldLabel>
+            <div style={{ position: 'relative', marginBottom: 6 }}>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', fontSize: 14, pointerEvents: 'none' }}>@</span>
+              <input
+                value={username}
+                onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                maxLength={20} autoCapitalize="none" autoCorrect="off"
+                style={{ ...INP, paddingLeft: 26 }}
+              />
+            </div>
+            {usernameErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 12 }}>{usernameErr}</p>}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
+              <button
+                onClick={() => { setPanel(null); setUsername(profile.username); setUsernameErr('') }}
+                style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 14, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUsernameChange}
+                disabled={isPending || username.length < 3 || username === profile.username}
+                style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 14, fontWeight: 700, cursor: isPending || username.length < 3 || username === profile.username ? 'not-allowed' : 'pointer', opacity: isPending || username.length < 3 || username === profile.username ? 0.5 : 1, fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
+                {isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </InlinePanel>
+        )}
+        <Row
+          icon={Phone}
+          label="Phone & BVN"
+          desc={profile.bvn_verified ? 'Verified — withdrawals enabled' : 'Tap to verify'}
+          accentDesc={profile.bvn_verified}
+          onClick={() => router.push('/settings/verify-phone')}
+          last
+        />
       </Card>
 
       {/* ── SECURITY ─────────────────────────────────────────────────────── */}
