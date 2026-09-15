@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { checkRateLimit } from '@/lib/rate-limit'
 import {
   signupSchema, loginSchema, emailOtpSchema,
   profileSetupSchema, interestsSchema, completeSocialProfileSchema,
@@ -195,6 +196,14 @@ export async function resendEmailOtpAction(email: string) {
 export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
   const parsed = loginSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
+
+  // 10 attempts per 15 minutes per email — keyed by email rather than IP
+  // since the actual threat here is brute-forcing one specific account's
+  // password, which an attacker can trivially spread across many IPs.
+  const withinLimit = await checkRateLimit(`login:${parsed.data.email.toLowerCase()}`, 10, 900)
+  if (!withinLimit) {
+    return { error: 'Too many login attempts. Please wait a few minutes and try again.' }
+  }
 
   // Admin credentials must only ever work at admin.spup.live, and that
   // subdomain must reject ordinary app accounts — checked here, at the

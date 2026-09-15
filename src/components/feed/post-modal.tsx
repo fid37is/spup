@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useTransition } from 'react'
-import { X, ImageIcon, VideoIcon, BarChart2, MapPin, Tag } from 'lucide-react'
+import { X, ImageIcon, Camera, Mic, BarChart2, MapPin, Tag } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
@@ -49,8 +49,8 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
   const [showMedia, setShowMedia] = useState(false)
   const [isSelling, setIsSelling] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
-  const videoInputRef = useRef<HTMLInputElement>(null)
+  const mediaInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const { media, uploading, progress, error: uploadError, upload, remove, clear } = useMediaUpload({ maxFiles: 4 })
 
   const charsLeft = MAX_CHARS - body.length
@@ -282,36 +282,39 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
             marginTop: 12,
             flexShrink: 0,
           }}>
-            <div style={{ display: 'flex', gap: 2 }}>
-              {/* Image */}
+            <div style={{ display: 'flex', gap: 2, overflowX: 'auto' }}>
+              {/* Media upload — one button, accepts photos and videos together, matching the floating composer */}
               <input
-                ref={imageInputRef}
+                ref={mediaInputRef}
                 type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
+                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/mov,video/avi"
                 multiple
                 style={{ display: 'none' }}
                 onChange={e => { if (e.target.files) { upload(e.target.files); setShowMedia(true); e.target.value = '' } }}
               />
               <ToolbarBtn
                 icon={<ImageIcon size={18} />}
-                label="Add image"
-                onClick={() => imageInputRef.current?.click()}
+                label="Add photo or video"
+                onClick={() => mediaInputRef.current?.click()}
               />
 
-              {/* Video */}
+              {/* Camera capture */}
               <input
-                ref={videoInputRef}
+                ref={cameraInputRef}
                 type="file"
-                accept="video/mp4,video/webm,video/mov,video/avi"
+                accept="image/*,video/*"
+                capture="environment"
                 style={{ display: 'none' }}
                 onChange={e => { if (e.target.files) { upload(e.target.files); setShowMedia(true); e.target.value = '' } }}
               />
               <ToolbarBtn
-                icon={<VideoIcon size={18} />}
-                label="Add video"
-                onClick={() => videoInputRef.current?.click()}
+                icon={<Camera size={18} />}
+                label="Take photo or video"
+                onClick={() => cameraInputRef.current?.click()}
               />
 
+              <ToolbarBtn icon={<Mic size={18} />} label="Voice (coming soon)" onClick={() => {}} disabled />
+              <ToolbarBtn icon={<span style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid currentColor', borderRadius: 4, padding: '1px 3px', lineHeight: 1 }}>GIF</span>} label="Add GIF (coming soon)" onClick={() => {}} disabled />
               <ToolbarBtn icon={<BarChart2 size={18} />} label="Poll (coming soon)" onClick={() => {}} disabled />
               <ToolbarBtn icon={<MapPin size={18} />} label="Location (coming soon)" onClick={() => {}} disabled />
             </div>

@@ -342,8 +342,6 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           Everyone can reply
         </div>
 
-        <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
-
         {/* Selling toggle — no separate item field: the post's own text is
             the description, and it auto-fills the buyer's payment note
             (still editable by the buyer) — see pay-vendor-button.tsx. */}
@@ -372,10 +370,12 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           </button>
         </div>
         {isSelling && (
-          <p style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: -4, marginBottom: 10 }}>
-            Buyers will see a Pay button on this post — write what you&rsquo;re selling above.
+          <p style={{ fontSize: 11.5, color: 'var(--color-text-faint)', marginTop: -4, marginBottom: 10 }}>
+            Buyers will see a Pay button on this post — write what you&rsquo;re selling above, it&rsquo;ll pre-fill their payment note.
           </p>
         )}
+
+        <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
 
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

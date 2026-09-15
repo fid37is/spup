@@ -263,10 +263,8 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
   const { data: following } = await supabase
     .from('follows').select('following_id').eq('follower_id', profile.id)
 
-  const followingIds = [
-    profile.id, // include own posts
-    ...(following || []).map((f: {following_id: string}) => f.following_id),
-  ]
+  const followingIds = (following || []).map((f: {following_id: string}) => f.following_id)
+  if (!followingIds.length) return { posts: [], nextCursor: null }
 
   let query = supabase
     .from('posts')

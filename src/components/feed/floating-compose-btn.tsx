@@ -42,6 +42,45 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
     return () => vv.removeEventListener('resize', updateHeight)
   }, [open, isMobile])
 
+  // Lock the underlying page while the mobile sheet is open. Without this,
+  // the sheet itself tracks the visual viewport correctly (see above), but
+  // focusing the textarea still triggers the browser's native "scroll this
+  // input into view" behavior on the outer document — which scrolls the
+  // whole page up underneath the fixed sheet as the keyboard opens, even
+  // though the sheet's own position never changes. Locking body (and html,
+  // for browsers that scroll that instead) removes anything for that
+  // native behavior to scroll, so the sheet stays pinned above the keyboard
+  // with no page movement at all.
+  useEffect(() => {
+    if (!open || !isMobile) return
+    const scrollY = window.scrollY
+    const { style: bodyStyle } = document.body
+    const { style: htmlStyle } = document.documentElement
+
+    const prev = {
+      bodyPosition: bodyStyle.position, bodyTop: bodyStyle.top,
+      bodyLeft: bodyStyle.left, bodyRight: bodyStyle.right,
+      bodyOverflow: bodyStyle.overflow, htmlOverflow: htmlStyle.overflow,
+    }
+
+    bodyStyle.position = 'fixed'
+    bodyStyle.top = `-${scrollY}px`
+    bodyStyle.left = '0'
+    bodyStyle.right = '0'
+    bodyStyle.overflow = 'hidden'
+    htmlStyle.overflow = 'hidden'
+
+    return () => {
+      bodyStyle.position = prev.bodyPosition
+      bodyStyle.top = prev.bodyTop
+      bodyStyle.left = prev.bodyLeft
+      bodyStyle.right = prev.bodyRight
+      bodyStyle.overflow = prev.bodyOverflow
+      htmlStyle.overflow = prev.htmlOverflow
+      window.scrollTo(0, scrollY)
+    }
+  }, [open, isMobile])
+
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
     setIsMobile(mq.matches)

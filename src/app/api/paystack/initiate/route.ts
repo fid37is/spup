@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!
 const PAYSTACK_BASE = 'https://api.paystack.co'
@@ -32,6 +33,14 @@ export async function POST(request: NextRequest) {
     if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     if (!profile.bvn_verified) {
       return NextResponse.json({ error: 'BVN verification required before withdrawal' }, { status: 403 })
+    }
+
+    // 5 attempts per hour per user — independent of the 14-day payout-cycle
+    // rule below, which only kicks in after a successful withdrawal and
+    // does nothing to stop repeated hits on this endpoint otherwise.
+    const withinLimit = await checkRateLimit(`withdraw:${profile.id}`, 5, 3600)
+    if (!withinLimit) {
+      return NextResponse.json({ error: 'Too many withdrawal attempts. Please try again later.' }, { status: 429 })
     }
 
     const { data: wallet } = await supabase
@@ -128,11 +137,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create transaction record' }, { status: 500 })
     }
 
-    // Step 4: Deduct from balance immediately (prevent double-spend)
-    await supabase
-      .from('wallets')
-      .update({ balance_kobo: wallet.balance_kobo - amount_kobo })
-      .eq('id', wallet.id)
+    // Step 4: Deduct from balance immediately (prevent double-spend). Uses
+    // adjust_wallet_balance (atomic SQL UPDATE) rather than writing back
+    // wallet.balance_kobo - amount_kobo, which would race against any other
+    // concurrent change to this wallet and could double-spend under two
+    // near-simultaneous withdrawal requests. That RPC is only executable by
+    // service_role (see migration 014), so this specifically needs the
+    // admin client — the rest of this route stays on the user-scoped
+    // `supabase` client for reads and identity checks.
+    const admin = createAdminClient()
+    const { error: debitError } = await admin.rpc('adjust_wallet_balance', {
+      p_wallet_id: wallet.id,
+      p_delta: -amount_kobo,
+    })
+    if (debitError) {
+      await supabase.from('transactions').update({ status: 'failed' }).eq('id', txn.id)
+      return NextResponse.json({ error: 'Could not process withdrawal — balance may have changed. Please try again.' }, { status: 409 })
+    }
 
     // Step 5: Initiate Paystack transfer
     const transferRes = await paystackRequest('/transfer', 'POST', {
@@ -144,9 +165,13 @@ export async function POST(request: NextRequest) {
     })
 
     if (!transferRes.status) {
-      // Rollback: restore balance and mark transaction failed
+      // Rollback: restore balance and mark transaction failed. Credits back
+      // the exact amount rather than resetting to the wallet.balance_kobo
+      // snapshot taken at the top of this request, which could otherwise
+      // overwrite an unrelated change that happened during the Paystack
+      // round-trip.
       await Promise.all([
-        supabase.from('wallets').update({ balance_kobo: wallet.balance_kobo }).eq('id', wallet.id),
+        admin.rpc('adjust_wallet_balance', { p_wallet_id: wallet.id, p_delta: amount_kobo }),
         supabase.from('transactions').update({ status: 'failed' }).eq('id', txn.id),
       ])
       return NextResponse.json({ error: 'Transfer failed. Your balance has been restored.' }, { status: 502 })

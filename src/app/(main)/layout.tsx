@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getProfileByAuthId, getOnboardingProgress, getUnreadNotificationCount } from '@/lib/queries'
 import { getWallet } from '@/lib/queries'
 import SidebarNav from '@/components/layout/sidebar-nav'
@@ -27,13 +27,23 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   if (profile.status === 'banned') redirect('/banned')
 
   // ── Step 2: onboarding + sidebar data all in parallel ──────────────────────
-  const [onboardingProgress, unreadCount, wallet] = await Promise.all([
+  const admin = createAdminClient()
+  const [onboardingProgress, unreadCount, wallet, youFollow, followYou] = await Promise.all([
     getOnboardingProgress(profile.id),
     getUnreadNotificationCount(profile.id),
     getWallet(profile.id),
+    admin.from('follows').select('following_id').eq('follower_id', profile.id),
+    admin.from('follows').select('follower_id').eq('following_id', profile.id),
   ])
 
   if (!onboardingProgress?.completed_at) redirect('/onboarding')
+
+  // Mutuals count for the mobile drawer's profile header (not a denormalized
+  // column like followers_count/following_count, so it's computed here —
+  // same intersection logic used for a viewed profile's mutuals stat).
+  const youFollowSet = new Set((youFollow.data || []).map((r: { following_id: string }) => r.following_id))
+  const followYouSet = new Set((followYou.data || []).map((r: { follower_id: string }) => r.follower_id))
+  const mutualsCount = [...youFollowSet].filter(id => followYouSet.has(id)).length
 
   return (
     <AppThemeProvider>
@@ -82,7 +92,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
         <main className="main-content">
           <div className="mobile-header">
-            <MobileHeader profile={profile} unreadCount={unreadCount} />
+            <MobileHeader profile={profile} unreadCount={unreadCount} mutualsCount={mutualsCount} />
           </div>
           {children}
         </main>
