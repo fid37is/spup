@@ -12,6 +12,7 @@ import { recoverOrCreateKeyPair, deriveSharedKey, encryptMessage, decryptMessage
 import { getSessionPinMaterial } from '@/lib/chat-pin-session'
 import { ArrowLeft, Send, X, Trash2, CornerUpLeft, Lock, CheckCheck, Check, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
+import ConfirmModal from '@/components/ui/confirm-modal'
 
 const AVATAR_COLORS = ['#1A9E5F','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A']
 
@@ -64,6 +65,8 @@ export default function ChatClient({
   // around recoverOrCreateKeyPair itself.
   const [pinPrompt, setPinPrompt] = useState<{ error: string | null } | null>(null)
   const [pinInput,  setPinInput]  = useState('')
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [deletingMsg, setDeletingMsg] = useState(false)
   const pinResolveRef = useRef<((material: string | null) => void) | null>(null)
 
   const getKeyMaterial = useCallback((): Promise<string | null> => {
@@ -296,10 +299,21 @@ export default function ChatClient({
   }
 
   function handleDelete(msgId: string) {
+    setDeleteConfirmId(msgId)
+  }
+
+  function confirmDeleteMessage() {
+    const msgId = deleteConfirmId
+    if (!msgId) return
+    setDeletingMsg(true)
     setMessages(prev => prev.map(m =>
       m.id === msgId ? { ...m, is_deleted: true, body: null, _plaintext: undefined } : m
     ))
-    startTransition(async () => { await deleteMessageAction(msgId) })
+    startTransition(async () => {
+      await deleteMessageAction(msgId)
+      setDeletingMsg(false)
+      setDeleteConfirmId(null)
+    })
   }
 
   // ── Group by date ──────────────────────────────────────────────────────────
@@ -655,6 +669,19 @@ export default function ChatClient({
           </div>
         </div>
       )}
+
+      {/* Delete message confirmation */}
+      <ConfirmModal
+        open={!!deleteConfirmId}
+        title="Delete message?"
+        description="This can't be undone. It will be removed for you and, if this chat is encrypted, from this device's history."
+        confirmLabel="Delete"
+        confirmingLabel="Deleting…"
+        destructive
+        pending={deletingMsg}
+        onConfirm={confirmDeleteMessage}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </div>
   )
 }

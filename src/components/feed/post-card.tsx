@@ -30,6 +30,7 @@ import { useToast } from '@/components/layout/toast'
 import MediaViewer from '@/components/feed/media-viewer'
 import PayVendorButton from '@/components/escrow/pay-vendor-button'
 import { GatedMedia } from '@/components/media/media-gate'
+import ConfirmModal from '@/components/ui/confirm-modal'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -179,9 +180,11 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
   )
 }
 
-function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: string; post: FeedPost }) {
+function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['media']; postId: string; post: FeedPost; compact?: boolean }) {
   const [viewerIdx, setViewerIdx] = useState<number | null>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
+  const cap = compact ? 260 : 520
+  const radius = compact ? 8 : 14
 
   if (!media || media.length === 0) return null
   const sorted = [...media].sort((a, b) => a.position - b.position)
@@ -191,28 +194,49 @@ function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: s
     setViewerIdx(i)
   }
 
-  // Single item - show at its natural aspect ratio, letterboxed rather than
-  // cropped, so portrait/landscape photos both display without distortion.
+  // Single item - width is derived from the media's real aspect ratio against
+  // the height cap, not forced to 100%. A portrait item renders at its own
+  // narrower width (capped by height, flush left - never stretched or
+  // centered); a landscape item naturally fills the column.
   if (sorted.length === 1) {
     const m = sorted[0]
+    const ratio = m.width && m.height ? m.width / m.height : null
+    const boxWidth = ratio ? `min(100%, ${Math.round(ratio * cap)}px)` : undefined
     return (
       <>
         <div
-          onClick={e => openViewer(0, e)}
+          onClick={compact ? undefined : (e => openViewer(0, e))}
           style={{
-            borderRadius: 14, overflow: 'hidden', marginBottom: 10,
-            maxHeight: 520, background: 'var(--color-surface-2)',
-            cursor: 'pointer', display: 'flex', justifyContent: 'center',
+            borderRadius: radius, overflow: 'hidden', marginBottom: compact ? 0 : 10,
+            background: 'var(--color-surface-2)', cursor: 'pointer',
+            maxHeight: cap, maxWidth: '100%',
+            ...(ratio
+              ? { width: boxWidth, aspectRatio: `${m.width}/${m.height}` }
+              : m.media_type === 'image'
+                // No stored dimensions for this image - don't guess a box
+                // shape (a wrong guess crops real content). Let it size
+                // itself: display:inline-block so the div hugs the img's
+                // own natural width instead of stretching to the column.
+                ? { display: 'inline-block' }
+                // Video still needs a definite box before it loads (for the
+                // autoplay observer), so it keeps a 16/9 placeholder shape.
+                : { width: '100%', aspectRatio: '16/9' }),
           }}
         >
           {m.media_type === 'image'
-            ? <GatedMedia render={() => <img src={m.url} alt="" style={{ width: '100%', maxHeight: 520, objectFit: 'contain' }} />} />
-            : <div style={{ width: '100%', aspectRatio: m.width && m.height ? `${m.width}/${m.height}` : '16/9' }}>
-                <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} />} />
-              </div>
+            ? <GatedMedia render={() => (
+                <img
+                  src={m.url} alt=""
+                  style={ratio
+                    ? { width: '100%', height: '100%', objectFit: 'cover' }
+                    : { display: 'block', width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: cap }
+                  }
+                />
+              )} />
+            : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} />} />
           }
         </div>
-        {viewerIdx !== null && (
+        {!compact && viewerIdx !== null && (
           <MediaViewer media={sorted} initialIndex={viewerIdx} post={post} onClose={() => setViewerIdx(null)} />
         )}
       </>
@@ -230,16 +254,17 @@ function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: s
         ref={scrollerRef}
         className="media-scroller"
         style={{
-          display: 'flex', gap: 3, borderRadius: 14, overflow: sorted.length > 2 ? 'auto' : 'hidden',
-          marginBottom: 10,
+          display: 'flex', gap: 3, borderRadius: radius, overflow: sorted.length > 2 ? 'auto' : 'hidden',
+          marginBottom: compact ? 0 : 10,
           scrollSnapType: sorted.length > 2 ? 'x mandatory' : undefined,
           WebkitOverflowScrolling: 'touch',
+          maxHeight: compact ? cap : undefined,
         }}
       >
         {sorted.map((m, i) => (
           <div
             key={m.id || i}
-            onClick={e => openViewer(i, e)}
+            onClick={compact ? undefined : (e => openViewer(i, e))}
             style={{
               flex: sorted.length > 2 ? '0 0 48%' : '1 1 50%',
               scrollSnapAlign: sorted.length > 2 ? 'start' : undefined,
@@ -257,7 +282,7 @@ function MediaRow({ media, postId, post }: { media: FeedPost['media']; postId: s
         <style>{`.media-scroller::-webkit-scrollbar { display: none; }`}</style>
       </div>
 
-      {viewerIdx !== null && (
+      {!compact && viewerIdx !== null && (
         <MediaViewer
           media={sorted}
           initialIndex={viewerIdx}
@@ -323,6 +348,7 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
           </div>
         </div>
       </div>
+      <style>{`@keyframes modalIn { from { opacity:0;transform:translateY(-10px) scale(0.98); } to { opacity:1;transform:none; } }`}</style>
     </>
   )
 }
@@ -754,6 +780,8 @@ export default function PostCard({
   const [deleted,        setDeleted]        = useState(false)
   const [isPinned,       setIsPinned]       = useState(post.is_pinned ?? false)
   const [showPinConfirm, setShowPinConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const router = useRouter()
   const { success, error: toastError, info } = useToast()
@@ -846,11 +874,19 @@ export default function PostCard({
   function handleDelete(e: React.MouseEvent) {
     e.stopPropagation()
     setShowMenu(false)
+    setShowDeleteConfirm(true)
+  }
+
+  function confirmDelete() {
+    setDeleting(true)
     startTransition(async () => {
       const r = await deletePostAction(post.id)
+      setDeleting(false)
       if ('error' in r) {
-        toastError('Could not delete post. Try again.')
+        setShowDeleteConfirm(false)
+        toastError(r.error || 'Could not delete post. Try again.')
       } else {
+        setShowDeleteConfirm(false)
         setDeleted(true)
         success('Post deleted')
       }
@@ -1021,17 +1057,14 @@ export default function PostCard({
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{post.quoted_post.author?.display_name}</span>
                 <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>@{post.quoted_post.author?.username}</span>
               </div>
-              {post.quoted_post.body && <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{post.quoted_post.body}</p>}
+              {post.quoted_post.body && <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: post.quoted_post.media?.length ? 8 : 0 }}>{post.quoted_post.body}</p>}
               {post.quoted_post.media && post.quoted_post.media.length > 0 && (
-                <div style={{
-                  marginTop: 6, borderRadius: 8, overflow: 'hidden',
-                  aspectRatio: post.quoted_post!.media[0].width && post.quoted_post!.media[0].height
-                    ? `${post.quoted_post!.media[0].width}/${post.quoted_post!.media[0].height}`
-                    : '16/9',
-                  maxHeight: 260,
-                }}>
-                  <GatedMedia render={() => <img src={post.quoted_post!.media[0].url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
-                </div>
+                <MediaRow
+                  media={post.quoted_post.media}
+                  postId={post.quoted_post.id}
+                  post={post.quoted_post as unknown as FeedPost}
+                  compact
+                />
               )}
             </div>
           )}
@@ -1058,59 +1091,27 @@ export default function PostCard({
       )}
 
       {/* Pin replacement confirmation */}
-      {showPinConfirm && (
-        <>
-          <div
-            onClick={() => setShowPinConfirm(false)}
-            style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'var(--overlay-bg)' }}
-          />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%',
-            transform: 'translate(-50%,-50%)',
-            zIndex: 201, width: 'min(360px, 92vw)',
-            background: 'var(--color-surface-raised)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 18, padding: 24,
-            boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
-          }}>
-            <h3 style={{
-              fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 18,
-              color: 'var(--color-text-primary)', marginBottom: 10,
-            }}>
-              Replace pinned post?
-            </h3>
-            <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
-              You already have a pinned post. Pinning this will unpin the existing one.
-            </p>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => setShowPinConfirm(false)}
-                style={{
-                  flex: 1, padding: '11px 0', borderRadius: 20,
-                  border: '1px solid var(--color-border)', background: 'none',
-                  color: 'var(--color-text-secondary)', fontSize: 14,
-                  fontFamily: "'Syne',sans-serif", fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmReplace}
-                style={{
-                  flex: 1, padding: '11px 0', borderRadius: 20,
-                  border: 'none', background: 'var(--color-brand)',
-                  color: 'white', fontSize: 14,
-                  fontFamily: "'Syne',sans-serif", fontWeight: 700, cursor: 'pointer',
-                }}
-              >
-                Pin this post
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+      <ConfirmModal
+        open={showPinConfirm}
+        title="Replace pinned post?"
+        description="You already have a pinned post. Pinning this will unpin the existing one."
+        confirmLabel="Pin this post"
+        onConfirm={confirmReplace}
+        onCancel={() => setShowPinConfirm(false)}
+      />
 
-      <style>{`@keyframes modalIn { from { opacity:0;transform:translateY(-10px) scale(0.98); } to { opacity:1;transform:none; } }`}</style>
+      {/* Delete confirmation */}
+      <ConfirmModal
+        open={showDeleteConfirm}
+        title="Delete post?"
+        description="This can't be undone. This post will be removed from your profile and from anyone who has replied to or quoted it."
+        confirmLabel="Delete"
+        confirmingLabel="Deleting…"
+        destructive
+        pending={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </>
   )
 }

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { formatNaira, formatNumber } from '@/lib/utils'
 import { createAdminClient } from '@/lib/supabase/server'
+import { getSuggestedUsers } from '@/lib/queries/users'
 import SidebarFollowBtn from './sidebar-follow-btn'
 import type { User } from '@/types'
 
@@ -379,16 +380,7 @@ export default async function RightSidebar({ profile }: RightSidebarProps) {
   const followerIds  = (followerResult.data || []).map((f: any) => f.follower_id  as string)
   const excludeIds   = [profile.id, ...followingIds]
 
-  const { data: suggestedData } = await admin
-    .from('users')
-    .select('id, username, display_name, avatar_url, verification_tier, followers_count, is_monetised')
-    .eq('status', 'active')
-    .is('deleted_at', null)
-    .not('id', 'in', `(${excludeIds.join(',')})`)
-    .order('followers_count', { ascending: false })
-    .limit(5)
-
-  const suggested = (suggestedData || []) as any[]
+  const suggested = await getSuggestedUsers(excludeIds, 5)
   const wallet    = (walletResult as any)?.data as {
     balance_kobo: number; total_earned_kobo: number; total_withdrawn_kobo: number
   } | null
