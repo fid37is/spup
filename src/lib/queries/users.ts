@@ -112,17 +112,59 @@ export async function searchUsers(query: string, limit = 20) {
 }
 
 // ─── Suggested accounts to follow ────────────────────────────────────────────
+// "Who to follow" (sidebar + explore) used to be a single query sorted by
+// followers_count desc — which means a brand-new account with 0 followers
+// could never surface as long as `limit` other accounts had at least 1
+// follower. That's most accounts, most of the time, so new users were
+// effectively invisible and had no way to get their first follow.
+//
+// Instead this reserves roughly half the slots for the newest accounts
+// (so they get discovered) and fills the rest with the most-followed
+// accounts (so the list still has recognisable names), then interleaves
+// the two so a new account isn't always buried at the bottom.
+
+const SELECT_FIELDS = 'id, username, display_name, avatar_url, verification_tier, is_monetised, followers_count, bio'
 
 export async function getSuggestedUsers(excludeIds: string[], limit = 5) {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('users')
-    .select('id, username, display_name, avatar_url, verification_tier, is_monetised, followers_count')
-    .not('id', 'in', `(${excludeIds.join(',')})`)
-    .eq('status', 'active')
-    .is('deleted_at', null)
-    .order('followers_count', { ascending: false })
-    .limit(limit)
+  const notInFilter = excludeIds.length ? `(${excludeIds.join(',')})` : null
+  const newSlots = Math.ceil(limit / 2)
+  const popularSlots = limit - newSlots
 
-  return data || []
+  const baseQuery = () => {
+    let q = supabase
+      .from('users')
+      .select(SELECT_FIELDS)
+      .eq('status', 'active')
+      .is('deleted_at', null)
+    if (notInFilter) q = q.not('id', 'in', notInFilter)
+    return q
+  }
+
+  const [{ data: newest }, { data: popular }] = await Promise.all([
+    baseQuery().order('created_at', { ascending: false }).limit(newSlots * 3),
+    baseQuery().order('followers_count', { ascending: false }).limit(popularSlots * 3),
+  ])
+
+  const seen = new Set<string>()
+  const picked: any[] = []
+
+  // Interleave: new, popular, new, popular... so new accounts aren't
+  // pushed to the bottom of a short list nobody scrolls to.
+  const newRows = (newest || []).filter(r => !seen.has(r.id))
+  const popularRows = (popular || []).filter(r => !seen.has(r.id))
+  let ni = 0, pi = 0
+  while (picked.length < limit && (ni < newRows.length || pi < popularRows.length)) {
+    if (ni < newRows.length) {
+      const row = newRows[ni++]
+      if (!seen.has(row.id)) { seen.add(row.id); picked.push(row) }
+    }
+    if (picked.length >= limit) break
+    if (pi < popularRows.length) {
+      const row = popularRows[pi++]
+      if (!seen.has(row.id)) { seen.add(row.id); picked.push(row) }
+    }
+  }
+
+  return picked.slice(0, limit)
 }

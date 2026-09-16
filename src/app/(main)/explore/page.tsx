@@ -18,11 +18,14 @@
 
 import React from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { formatNumber } from '@/lib/utils'
+import { formatNumber, formatRelativeTime } from '@/lib/utils'
 import { NIGERIAN_INTERESTS } from '@/types'
 import PostCard from '@/components/feed/post-card'
 import Link from 'next/link'
 import ExploreSearchInput from './search-input'
+import { getSuggestedUsers } from '@/lib/queries/users'
+import { getMatchdayFixtures } from '@/lib/queries/matchday'
+import MatchdayStrip from '@/components/explore/matchday-strip'
 import {
   BadgeCheck, Star, TrendingUp, Users, Hash,
   Flame, ArrowUpRight, Search, UserRound, Newspaper,
@@ -45,7 +48,7 @@ interface UserResult {
 // Interest IDs (e.g. 'football', 'tech') double as hashtag tags in the DB.
 
 const EXPLORE_TABS = [
-  { key: 'for-you',       label: 'For You',       icon: Sparkles,     categories: null                                         },
+  { key: 'for-you',       label: 'Explore',       icon: Sparkles,     categories: null                                         },
   { key: 'trending',      label: 'Trending',      icon: TrendingUp,   categories: null                                         },
   { key: 'news',          label: 'News',          icon: Newspaper,    categories: ['News', 'Finance', 'Career']                },
   { key: 'sports',        label: 'Sports',        icon: Trophy,       categories: ['Sports']                                   },
@@ -180,16 +183,10 @@ async function getTrending(db: Supabase): Promise<TrendingTag[]> {
 async function getSuggestedPeople(db: Supabase, profileId: string): Promise<UserResult[]> {
   const { data: follows } = await db.from('follows').select('following_id').eq('follower_id', profileId)
   const excludeIds = [profileId, ...((follows || []).map((f: any) => f.following_id))]
-  let q = db
-    .from('users')
-    .select('id, username, display_name, avatar_url, verification_tier, followers_count, bio, is_monetised')
-    .eq('status', 'active')
-    .is('deleted_at', null)
-    .order('followers_count', { ascending: false })
-    .limit(5)
-  if (excludeIds.length) q = q.not('id', 'in', `(${excludeIds.join(',')})`)
-  const { data } = await q
-  return (data || []) as UserResult[]
+  // Blends newest accounts in with the most-followed ones so new users
+  // actually get discovered instead of being buried under everyone
+  // who already has followers — see lib/queries/users.ts.
+  return getSuggestedUsers(excludeIds, 5) as Promise<UserResult[]>
 }
 
 // ─── Search fetchers ──────────────────────────────────────────────────────────
@@ -263,6 +260,39 @@ function UserCard({ u }: { u: UserResult }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: 'var(--color-brand)', fontWeight: 700, flexShrink: 0 }}>
         View <ArrowUpRight size={12} />
+      </div>
+    </Link>
+  )
+}
+
+function HeadlineRow({ p, categoryLabel }: { p: any; categoryLabel: string }) {
+  const author = p.author || {}
+  const initials = author.display_name?.slice(0, 2).toUpperCase() || 'SP'
+  const engagement = (p.likes_count || 0) + (p.comments_count || 0) + (p.reposts_count || 0)
+  return (
+    <Link
+      href={`/post/${p.id}`}
+      style={{ textDecoration: 'none', display: 'block', padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}
+    >
+      <p style={{
+        fontSize: 16, fontWeight: 800, color: 'var(--color-text-primary)', margin: '0 0 8px', lineHeight: 1.3,
+        overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+      }}>
+        {p.body || 'Shared a post'}
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+        <div style={{
+          width: 18, height: 18, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+          background: author.avatar_url ? 'transparent' : avatarBg(author.username || 'sp'),
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 8, fontWeight: 800, color: 'white',
+        }}>
+          {author.avatar_url
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={author.avatar_url} alt={author.display_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : initials}
+        </div>
+        <span>{formatRelativeTime(p.created_at)} · {categoryLabel} · {formatNumber(engagement)} {engagement === 1 ? 'interaction' : 'interactions'}</span>
       </div>
     </Link>
   )
@@ -388,6 +418,10 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     profileId = profile?.id ?? null
   }
 
+  // Only needed for the browse/discovery tabs — skip the fetch entirely
+  // when the person is searching.
+  const fixtures = query ? [] : await getMatchdayFixtures()
+
   // ─── Sticky header: search bar + explore tabs ──────────────────────────────
   const StickyHeader = (
     <div style={{ position: 'sticky', top: 0, zIndex: 10, backdropFilter: 'blur(20px)', background: 'var(--nav-bg)' }}>
@@ -442,9 +476,15 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     return (
       <div>
         {StickyHeader}
+        <MatchdayStrip fixtures={fixtures} />
         {forYouPosts.length === 0
           ? <EmptyState Icon={Sparkles} title="Nothing here yet" sub="Follow people and select interests during onboarding to personalise your feed." />
-          : forYouPosts.map((p: any) => <PostCard key={p.id} post={p} />)
+          : (
+            <div style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <SectionHeader icon={Sparkles} title="Today's Posts" />
+              {forYouPosts.map((p: any) => <HeadlineRow key={p.id} p={p} categoryLabel="Explore" />)}
+            </div>
+          )
         }
         {suggestedPeople.length > 0 && (
           <div style={{ borderTop: '1px solid var(--color-border)' }}>
@@ -465,10 +505,11 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     return (
       <div>
         {StickyHeader}
+        <MatchdayStrip fixtures={fixtures} />
         {hotPosts.length > 0 && (
           <div style={{ borderBottom: '1px solid var(--color-border)' }}>
             <SectionHeader icon={Flame} title="Hot right now" />
-            {hotPosts.map((p: any) => <PostCard key={p.id} post={p} />)}
+            {hotPosts.map((p: any) => <HeadlineRow key={p.id} p={p} categoryLabel="Trending" />)}
           </div>
         )}
         {trending.length > 0 && (
@@ -492,9 +533,15 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     return (
       <div>
         {StickyHeader}
+        <MatchdayStrip fixtures={fixtures} />
         {posts.length === 0
           ? <EmptyState Icon={TabIcon} title={`No ${tabConfig.label} posts yet`} sub={`Be the first to post about ${tabConfig.label.toLowerCase()} topics and they'll appear here.`} />
-          : posts.map((p: any) => <PostCard key={p.id} post={p} />)
+          : (
+            <div>
+              <SectionHeader icon={TabIcon} title={`Today's ${tabConfig.label}`} />
+              {posts.map((p: any) => <HeadlineRow key={p.id} p={p} categoryLabel={tabConfig.label} />)}
+            </div>
+          )
         }
       </div>
     )

@@ -571,6 +571,69 @@ export async function getProfileMutualsAction(profileUserId: string): Promise<Mu
   return (users || []) as MutualUser[]
 }
 
+// ─── Single post — used by realtime feed updates ──────────────────────────────
+// When a new post comes in over the postgres_changes INSERT event, the client
+// only has the raw row (no author/media join, no engagement state, no
+// block/mute/following context). Re-running the whole feed query for every
+// single INSERT that happens anywhere on the platform doesn't scale, so this
+// fetches + filters + hydrates just the one post instead.
+//
+// Returns null if the post shouldn't be shown to this viewer right now
+// (author blocked/muted it, or — for the Following tab — the viewer doesn't
+// follow the author), so the caller can just drop it silently.
+
+export async function getFeedPostByIdAction(
+  postId: string,
+  tab: 'for-you' | 'following' | 'selling' = 'for-you'
+): Promise<FeedPost | null> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data: profile } = await supabase
+    .from('users').select('id').eq('auth_id', user.id).single()
+  if (!profile) return null
+
+  const { data: post, error } = await supabase
+    .from('posts')
+    .select(`
+      id, body, post_type, likes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling, user_id,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `)
+    .eq('id', postId)
+    .is('deleted_at', null)
+    .is('parent_post_id', null)
+    .neq('post_type', 'repost')
+    .maybeSingle()
+
+  if (error || !post) return null
+  if (tab === 'selling' && !post.is_selling) return null
+
+  // Respect blocks/mutes — same rule the full feed queries use.
+  const [{ data: blocked }, { data: muted }] = await Promise.all([
+    supabase.from('user_blocks').select('blocked_id')
+      .eq('blocker_id', profile.id).eq('blocked_id', post.user_id).maybeSingle(),
+    supabase.from('user_mutes').select('muted_id')
+      .eq('muter_id', profile.id).eq('muted_id', post.user_id).maybeSingle(),
+  ])
+  if (blocked || muted) return null
+
+  // Following tab only shows posts from people the viewer actually follows.
+  if (tab === 'following') {
+    const { data: follow } = await supabase
+      .from('follows').select('following_id')
+      .eq('follower_id', profile.id).eq('following_id', post.user_id).maybeSingle()
+    if (!follow) return null
+  }
+
+  const [hydrated] = await hydrateEngagement(supabase, profile.id, [post])
+  return hydrated ?? null
+}
+
 // ─── Internal: batch-hydrate like/repost/bookmark state ──────────────────────
 
 async function hydrateEngagement(
