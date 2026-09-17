@@ -284,7 +284,7 @@ function WhatsHappening({ trending }: { trending: { tag: string; posts_count: nu
         ))
       )}
 
-      <ShowMore href="/explore?tab=trending" />
+      <ShowMore href="/explore?etab=trending" />
     </Card>
   )
 }
@@ -321,7 +321,7 @@ function WhoToFollow({ suggested, followingIds, followerIds }: { suggested: any[
           <SidebarFollowBtn targetUserId={u.id} initialFollowing={followingSet.has(u.id)} followsMe={followerSet.has(u.id)} />
         </div>
       ))}
-      <ShowMore href="/explore?tab=people" />
+      <ShowMore href="/explore/people" />
     </Card>
   )
 }

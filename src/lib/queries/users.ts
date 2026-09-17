@@ -7,6 +7,7 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { sanitizeFilterTerm } from '@/lib/utils'
+import { NIGERIAN_INTERESTS } from '@/types'
 
 // ─── Profile by username ──────────────────────────────────────────────────────
 
@@ -167,4 +168,60 @@ export async function getSuggestedUsers(excludeIds: string[], limit = 5) {
   }
 
   return picked.slice(0, limit)
+}
+
+// ─── Suggested accounts by category ──────────────────────────────────────────
+// Powers the dedicated "Who to follow" page's category filter. Unlike the
+// viewer's own onboarding interests (which describe what THEY like),
+// this looks at what an account's own posts are actually hashtagged
+// with — a real signal for "this account posts about Sports" rather
+// than a guess.
+
+export const ACCOUNT_CATEGORIES: string[] = Array.from(
+  new Set(NIGERIAN_INTERESTS.map(i => i.category))
+)
+
+export async function getSuggestedUsersByCategory(
+  category: string,
+  excludeIds: string[],
+  limit = 20
+) {
+  const supabase = await createClient()
+
+  const interestIds = NIGERIAN_INTERESTS.filter(i => i.category === category).map(i => i.id)
+  if (!interestIds.length) return []
+
+  const { data: tags } = await supabase.from('hashtags').select('id').in('tag', interestIds)
+  const tagIds = (tags || []).map((t: any) => t.id)
+  if (!tagIds.length) return []
+
+  // Pull a batch of recent posts under this category's hashtags and count
+  // distinct authors — more posts in the category = a stronger signal
+  // that the account is actually "about" that topic, not a one-off mention.
+  const { data: postRows } = await supabase
+    .from('post_hashtags')
+    .select('post:posts(user_id, created_at)')
+    .in('hashtag_id', tagIds)
+    .order('created_at', { foreignTable: 'posts', ascending: false })
+    .limit(400)
+
+  const counts = new Map<string, number>()
+  for (const row of (postRows || []) as any[]) {
+    const uid = row.post?.user_id as string | undefined
+    if (!uid || excludeIds.includes(uid)) continue
+    counts.set(uid, (counts.get(uid) ?? 0) + 1)
+  }
+  if (!counts.size) return []
+
+  const authorIds = [...counts.keys()].slice(0, 200)
+  const { data: users } = await supabase
+    .from('users')
+    .select(SELECT_FIELDS)
+    .in('id', authorIds)
+    .eq('status', 'active')
+    .is('deleted_at', null)
+
+  return (users || [])
+    .sort((a: any, b: any) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
+    .slice(0, limit)
 }

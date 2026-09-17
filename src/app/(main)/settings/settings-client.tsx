@@ -4,14 +4,16 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle, Lock,
-  X, Check, Eye, EyeOff, Loader, Moon, Sun, Play, User, Phone,
+  X, Check, Eye, EyeOff, Loader, Moon, Sun, Play, User, Phone, Sparkles,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { updateProfileAction, deleteAccountAction, changePasswordAction, changeUsernameAction } from '@/lib/actions/profiles'
+import { saveInterestsAction } from '@/lib/actions/auth'
+import { NIGERIAN_INTERESTS } from '@/types'
 import { useTheme } from '@/components/layout/theme-provider'
 import { createBrowserClient } from '@/lib/supabase/client'
 
-type Panel = null | 'language' | 'theme' | 'password' | 'autoplay' | 'username'
+type Panel = null | 'language' | 'theme' | 'password' | 'autoplay' | 'username' | 'interests'
 
 interface SettingsProfile {
   id: string
@@ -169,7 +171,7 @@ function Card({ children }: { children: React.ReactNode }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function SettingsClient({ profile }: { profile: SettingsProfile }) {
+export default function SettingsClient({ profile, initialInterests }: { profile: SettingsProfile; initialInterests: string[] }) {
   const [panel,      setPanel]    = useState<Panel>(null)
   const [isPending,  startT]      = useTransition()
   const [flash,      setFlash]    = useState<{ text: string; ok: boolean } | null>(null)
@@ -178,6 +180,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   const [notifEmail, setNotifEmail] = useState(profile.notif_email ?? true)
   const [lang,       setLang]       = useState(profile.language_preference || 'en')
   const [autoplay,   setAutoplay]   = useState(profile.autoplay_preference || 'wifi')
+  const [interests,  setInterests]  = useState<string[]>(initialInterests)
   const [showDelete,  setShowDelete]  = useState(false)
   const [deleteInput, setDeleteInput] = useState('')
   const [deleting,    setDeleting]    = useState(false)
@@ -274,6 +277,23 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
     startT(async () => {
       await updateProfileAction({ autoplay_preference: value as 'always' | 'wifi' | 'never' })
       showFlash(`Autoplay set to ${label}`)
+      setPanel(null)
+    })
+  }
+
+  function toggleInterest(id: string) {
+    setInterests(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id)
+        : prev.length < 10 ? [...prev, id] : prev
+    )
+  }
+
+  function handleSaveInterests() {
+    if (interests.length < 3) { showFlash('Pick at least 3 interests', false); return }
+    startT(async () => {
+      const r = await saveInterestsAction({ interests })
+      if ('error' in r && r.error) { showFlash(r.error, false); return }
+      showFlash('Interests updated')
       setPanel(null)
     })
   }
@@ -473,6 +493,64 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                 {autoplay === opt.value && <Check size={15} color="var(--color-brand)" />}
               </button>
             ))}
+          </InlinePanel>
+        )}
+      </Card>
+
+      {/* ── CONTENT ──────────────────────────────────────────────────────── */}
+      <SectionLabel label="Content" />
+      <Card>
+        <Row
+          icon={Sparkles}
+          label="Interests"
+          desc={interests.length > 0 ? `${interests.length} selected` : 'Not set - showing posts for everyone'}
+          onClick={() => togglePanel('interests')}
+          last={panel !== 'interests'}
+        />
+        {panel === 'interests' && (
+          <InlinePanel>
+            <p style={{ fontSize: 12.5, color: 'var(--color-text-muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
+              Your &ldquo;For you&rdquo; feed is prioritised around these - pick 3 to 10.
+              {' '}<span style={{ color: interests.length >= 3 ? 'var(--color-brand)' : 'var(--color-error)' }}>
+                {interests.length}/10 selected
+              </span>
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+              {NIGERIAN_INTERESTS.map(interest => {
+                const sel = interests.includes(interest.id)
+                return (
+                  <button
+                    key={interest.id}
+                    onClick={() => toggleInterest(interest.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '8px 14px', borderRadius: 100,
+                      border: `1.5px solid ${sel ? 'var(--color-brand)' : 'var(--color-border)'}`,
+                      background: sel ? 'var(--color-brand-muted)' : 'var(--color-surface)',
+                      color: sel ? 'var(--color-brand)' : 'var(--color-text-muted)',
+                      fontSize: 13, fontWeight: sel ? 600 : 400, cursor: 'pointer',
+                      fontFamily: "'DM Sans', sans-serif", WebkitTapHighlightColor: 'transparent',
+                    }}
+                  >
+                    <span>{interest.emoji}</span>
+                    {interest.label}
+                  </button>
+                )
+              })}
+            </div>
+            <button
+              onClick={handleSaveInterests}
+              disabled={isPending || interests.length < 3}
+              style={{
+                width: '100%', background: 'var(--color-brand)', color: 'white',
+                border: 'none', borderRadius: 10, padding: '11px',
+                fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
+                cursor: (isPending || interests.length < 3) ? 'not-allowed' : 'pointer',
+                opacity: (isPending || interests.length < 3) ? 0.5 : 1,
+              }}
+            >
+              {isPending ? 'Saving…' : 'Save interests'}
+            </button>
           </InlinePanel>
         )}
       </Card>
