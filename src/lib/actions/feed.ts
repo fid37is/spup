@@ -13,6 +13,13 @@ import { createClient } from '@/lib/supabase/server'
 
 const PAGE_SIZE = 20
 
+// Scheduled posts carry a future created_at (see createPostAction) and must
+// never surface in a feed/listing - including the author's own profile -
+// until that moment arrives. RLS already enforces this as the real security
+// boundary; this is the query-level mirror of it so scheduled rows don't
+// even get fetched.
+const nowIso = () => new Date().toISOString()
+
 // ─── Space out selling posts so the feed doesn't read like a marketplace ─────
 // Keeps every post, but re-sorts within the page so no two selling posts sit
 // closer than `gap` positions apart — same "merge every N" technique already
@@ -124,6 +131,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     .is('deleted_at', null)
     .is('parent_post_id', null)          // top-level posts only
     .neq('post_type', 'repost')
+    .lte('created_at', nowIso())         // exclude scheduled posts not yet due
     .order('created_at', { ascending: false })
     .limit(PAGE_SIZE + 1)                // fetch one extra to know if there's a next page
 
@@ -141,7 +149,17 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   const page = hasMore ? rawPosts.slice(0, PAGE_SIZE) : rawPosts
   const nextCursor = hasMore ? page[page.length - 1].created_at : null
 
-  // On first page, interleave interest-based posts every 4 posts
+  // Interest-based personalisation - first page only (pages 2+ continue the
+  // plain chronological order from `page` above, which keeps "load more"
+  // simple and avoids re-deriving a blended cursor).
+  //
+  // Matching works by resolving each saved interest to a real hashtag row
+  // and pulling posts tagged with it - tagging happens automatically via
+  // process_post_hashtags (called from createPostAction whenever a post
+  // body contains a #hashtag). Preference-matched posts fill the page
+  // first; the general chronological pool (`page`) only backfills the
+  // remaining slots, so someone with few or no matching posts yet still
+  // sees a full feed instead of an empty one.
   let finalPage = page
   if (interestIds.length > 0 && !cursor) {
     const { data: tags } = await supabase
@@ -149,32 +167,37 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     const tagIds = (tags || []).map((t: any) => t.id)
 
     if (tagIds.length > 0) {
-      const existingIds = new Set(page.map((p: any) => p.id))
       const { data: interestRows } = await supabase
         .from('post_hashtags')
         .select(`post:posts(
-          id, body, post_type, likes_count, comments_count, reposts_count,
+          id, body, post_type, parent_post_id, likes_count, comments_count, reposts_count,
           bookmarks_count, impressions_count, link_clicks_count, detail_expands_count,
           video_views_count, video_completions_count, created_at, edited_at,
-          is_sensitive, quoted_post_id,
+          is_sensitive, is_pinned, quoted_post_id, is_selling,
           author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, is_monetised),
           media:post_media(id, media_type, url, thumbnail_url, width, height, position)
         )`)
         .in('hashtag_id', tagIds)
-        .limit(PAGE_SIZE)
+        .limit(PAGE_SIZE * 2) // fetch generously - most get filtered out below
 
-      const interestPosts = (interestRows || [])
+      const seen = new Set<string>()
+      const matched = (interestRows || [])
         .map((r: any) => r.post)
-        .filter((p: any) => p && !existingIds.has(p.id) && !excludeIds.includes(p.user_id))
+        .filter((p: any) =>
+          p && !p.parent_post_id && p.post_type !== 'repost' &&
+          p.created_at <= nowIso() &&                 // no not-yet-due scheduled posts, own included
+          !excludeIds.includes(p.author?.id) &&
+          (seen.has(p.id) ? false : (seen.add(p.id), true))  // a post can carry >1 matching hashtag
+        )
+        .sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1))
+        .slice(0, PAGE_SIZE)
 
-      if (interestPosts.length > 0) {
-        const merged: any[] = []
-        let fi = 0, ii = 0
-        while (fi < page.length || ii < interestPosts.length) {
-          for (let i = 0; i < 4 && fi < page.length; i++) merged.push(page[fi++])
-          if (ii < interestPosts.length) merged.push(interestPosts[ii++])
-        }
-        finalPage = merged.slice(0, PAGE_SIZE)
+      if (matched.length > 0) {
+        const matchedIds = new Set(matched.map((p: any) => p.id))
+        const backfillNeeded = Math.max(0, PAGE_SIZE - matched.length)
+        const backfill = page.filter((p: any) => !matchedIds.has(p.id)).slice(0, backfillNeeded)
+        finalPage = [...matched, ...backfill]
+          .sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1))
       }
     }
   }
@@ -222,6 +245,7 @@ export async function getSellingFeedAction(cursor?: string): Promise<{
     .is('deleted_at', null)
     .is('parent_post_id', null)
     .eq('is_selling', true)
+    .lte('created_at', nowIso())
     .order('created_at', { ascending: false })
     .limit(PAGE_SIZE + 1)
 
@@ -280,6 +304,7 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
     .is('parent_post_id', null)
     .neq('post_type', 'repost')
     .in('user_id', followingIds)
+    .lte('created_at', nowIso())
     .order('created_at', { ascending: false })
     .limit(PAGE_SIZE + 1)
 
@@ -341,6 +366,7 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
     .is('parent_post_id', null)
     .neq('post_type', 'repost')
     .in('user_id', mutualIds)
+    .lte('created_at', nowIso())
     .order('created_at', { ascending: false })
     .limit(PAGE_SIZE + 1)
 
@@ -497,6 +523,7 @@ export async function getProfileTabAction(
       .select(tab === 'media' ? MEDIA_SELECT : BASE_SELECT)
       .eq('user_id', profileUserId)
       .is('deleted_at', null)
+      .lte('created_at', nowIso())  // scheduled posts stay off the profile too - even the owner's own
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE + 1)
 
@@ -569,69 +596,6 @@ export async function getProfileMutualsAction(profileUserId: string): Promise<Mu
     .limit(50)
 
   return (users || []) as MutualUser[]
-}
-
-// ─── Single post — used by realtime feed updates ──────────────────────────────
-// When a new post comes in over the postgres_changes INSERT event, the client
-// only has the raw row (no author/media join, no engagement state, no
-// block/mute/following context). Re-running the whole feed query for every
-// single INSERT that happens anywhere on the platform doesn't scale, so this
-// fetches + filters + hydrates just the one post instead.
-//
-// Returns null if the post shouldn't be shown to this viewer right now
-// (author blocked/muted it, or — for the Following tab — the viewer doesn't
-// follow the author), so the caller can just drop it silently.
-
-export async function getFeedPostByIdAction(
-  postId: string,
-  tab: 'for-you' | 'following' | 'selling' = 'for-you'
-): Promise<FeedPost | null> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: profile } = await supabase
-    .from('users').select('id').eq('auth_id', user.id).single()
-  if (!profile) return null
-
-  const { data: post, error } = await supabase
-    .from('posts')
-    .select(`
-      id, body, post_type, likes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling, user_id,
-      author:users!posts_user_id_fkey(
-        id, username, display_name, avatar_url, verification_tier, is_monetised
-      ),
-      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
-    `)
-    .eq('id', postId)
-    .is('deleted_at', null)
-    .is('parent_post_id', null)
-    .neq('post_type', 'repost')
-    .maybeSingle()
-
-  if (error || !post) return null
-  if (tab === 'selling' && !post.is_selling) return null
-
-  // Respect blocks/mutes — same rule the full feed queries use.
-  const [{ data: blocked }, { data: muted }] = await Promise.all([
-    supabase.from('user_blocks').select('blocked_id')
-      .eq('blocker_id', profile.id).eq('blocked_id', post.user_id).maybeSingle(),
-    supabase.from('user_mutes').select('muted_id')
-      .eq('muter_id', profile.id).eq('muted_id', post.user_id).maybeSingle(),
-  ])
-  if (blocked || muted) return null
-
-  // Following tab only shows posts from people the viewer actually follows.
-  if (tab === 'following') {
-    const { data: follow } = await supabase
-      .from('follows').select('following_id')
-      .eq('follower_id', profile.id).eq('following_id', post.user_id).maybeSingle()
-    if (!follow) return null
-  }
-
-  const [hydrated] = await hydrateEngagement(supabase, profile.id, [post])
-  return hydrated ?? null
 }
 
 // ─── Internal: batch-hydrate like/repost/bookmark state ──────────────────────

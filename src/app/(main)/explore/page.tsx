@@ -26,8 +26,9 @@ import ExploreSearchInput from './search-input'
 import { getSuggestedUsers } from '@/lib/queries/users'
 import { getMatchdayFixtures } from '@/lib/queries/matchday'
 import MatchdayStrip from '@/components/explore/matchday-strip'
+import { UserCard, avatarBg, type UserResult } from '@/components/explore/user-card'
 import {
-  BadgeCheck, Star, TrendingUp, Users, Hash,
+  TrendingUp, Users, Hash,
   Flame, ArrowUpRight, Search, UserRound, Newspaper,
   Trophy, Clapperboard, Sparkles,
 } from 'lucide-react'
@@ -37,11 +38,6 @@ import {
 type Supabase = Awaited<ReturnType<typeof createClient>>
 
 interface TrendingTag  { tag: string; posts_count: number }
-interface UserResult {
-  id: string; username: string; display_name: string
-  avatar_url: string | null; verification_tier: string
-  followers_count: number; bio: string | null; is_monetised: boolean
-}
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 // Maps each top-level tab to the NIGERIAN_INTERESTS category names it covers.
@@ -232,39 +228,6 @@ async function searchHashtags(db: Supabase, query: string): Promise<TrendingTag[
 
 // ─── UI components ────────────────────────────────────────────────────────────
 
-const AVATAR_COLORS = ['#1A7A4A', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A', '#1A6A6A']
-function avatarBg(s: string) { return AVATAR_COLORS[s.charCodeAt(0) % AVATAR_COLORS.length] }
-
-function UserCard({ u }: { u: UserResult }) {
-  const initials = u.display_name?.slice(0, 2).toUpperCase() || 'SP'
-  return (
-    <Link href={`/user/${u.username}`} style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 13, padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
-      <div style={{ width: 46, height: 46, borderRadius: '50%', background: u.avatar_url ? 'transparent' : avatarBg(u.username), flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, color: 'white', border: '2px solid var(--color-border)' }}>
-        {u.avatar_url
-          // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={u.avatar_url} alt={u.display_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : initials}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-primary)' }}>{u.display_name}</span>
-          {u.verification_tier && u.verification_tier !== 'none' && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: '50%', background: u.verification_tier === 'organisation' ? '#D4A017' : 'var(--color-brand)' }}>
-              <BadgeCheck size={11} color="white" />
-            </span>
-          )}
-          {u.is_monetised && <Star size={12} fill="var(--color-gold)" stroke="none" />}
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 1 }}>@{u.username} · {formatNumber(u.followers_count)} followers</div>
-        {u.bio && <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: '4px 0 0', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{u.bio}</p>}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: 'var(--color-brand)', fontWeight: 700, flexShrink: 0 }}>
-        View <ArrowUpRight size={12} />
-      </div>
-    </Link>
-  )
-}
-
 function HeadlineRow({ p, categoryLabel }: { p: any; categoryLabel: string }) {
   const author = p.author || {}
   const initials = author.display_name?.slice(0, 2).toUpperCase() || 'SP'
@@ -413,9 +376,19 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
 
   const { data: { user } } = await db.auth.getUser()
   let profileId: string | null = null
+  let followingIdSet = new Set<string>()
+  let followerIdSet  = new Set<string>()
   if (user) {
     const { data: profile } = await db.from('users').select('id').eq('auth_id', user.id).single()
     profileId = profile?.id ?? null
+    if (profileId) {
+      const [{ data: followingRows }, { data: followerRows }] = await Promise.all([
+        db.from('follows').select('following_id').eq('follower_id', profileId),
+        db.from('follows').select('follower_id').eq('following_id', profileId),
+      ])
+      followingIdSet = new Set((followingRows || []).map((r: any) => r.following_id as string))
+      followerIdSet  = new Set((followerRows  || []).map((r: any) => r.follower_id  as string))
+    }
   }
 
   // Only needed for the browse/discovery tabs — skip the fetch entirely
@@ -459,7 +432,9 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
           <SearchTabBar query={query} activeTab={searchTab} counts={counts} />
         </div>
         {searchTab === 'posts' && (postResults.length === 0 ? <EmptyState Icon={Search} title="No posts found" sub={`No posts match "${query}". Try different keywords or search a #hashtag.`} /> : postResults.map((p: any) => <PostCard key={p.id} post={p} />))}
-        {searchTab === 'people' && (userResults.length === 0 ? <EmptyState Icon={UserRound} title="No people found" sub={`No accounts match "${query}".`} /> : userResults.map(u => <UserCard key={u.id} u={u} />))}
+        {searchTab === 'people' && (userResults.length === 0 ? <EmptyState Icon={UserRound} title="No people found" sub={`No accounts match "${query}".`} /> : userResults.map(u => (
+          <UserCard key={u.id} u={u} showFollow={!!profileId} initialFollowing={followingIdSet.has(u.id)} followsMe={followerIdSet.has(u.id)} />
+        )))}
         {searchTab === 'hashtags' && (hashtagResults.length === 0 ? <EmptyState Icon={Hash} title="No hashtags found" sub={`No hashtags match "${query}".`} /> : hashtagResults.map(t => <HashtagRow key={t.tag} t={t} />))}
       </div>
     )
@@ -488,8 +463,10 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
         }
         {suggestedPeople.length > 0 && (
           <div style={{ borderTop: '1px solid var(--color-border)' }}>
-            <SectionHeader icon={Users} title="Who to follow" seeAllHref="/explore?etab=for-you&discover=1" />
-            {suggestedPeople.map(u => <UserCard key={u.id} u={u} />)}
+            <SectionHeader icon={Users} title="Who to follow" seeAllHref="/explore/people" />
+            {suggestedPeople.map(u => (
+              <UserCard key={u.id} u={u} showFollow initialFollowing={false} followsMe={followerIdSet.has(u.id)} />
+            ))}
           </div>
         )}
       </div>

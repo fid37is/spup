@@ -5,6 +5,8 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Pencil, X, Loader2 } from 'lucide-react'
 import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-composer'
+import DraftsPanel from './drafts-panel'
+import type { LocalDraft } from '@/lib/local-drafts'
 
 // Floating compose button — only for feed page.
 // Visible when user is scrolled near the bottom (recent posts).
@@ -12,11 +14,19 @@ import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-co
 //   - Desktop: centered modal dialog
 //   - Mobile:  full-screen sheet (X-style), Post button lives in the header
 
-export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorName }: { onPosted?: (post: unknown) => void; authorAvatarUrl?: string | null; authorName?: string }) {
+interface FloatingComposeBtnProps {
+  onPosted?: (post: unknown) => void
+  authorAvatarUrl?: string | null
+  authorName?: string
+  userId?: string
+}
+
+export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorName, userId }: FloatingComposeBtnProps) {
   const [visible, setVisible] = useState(false)
   const [open, setOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
-  const [composerState, setComposerState] = useState({ canPost: false, isPending: false, hasUploading: false })
+  const [showDrafts, setShowDrafts] = useState(false)
+  const [composerState, setComposerState] = useState({ canPost: false, isPending: false, hasUploading: false, isScheduled: false })
   const lastScrollY = useRef(0)
   const ticking = useRef(false)
   const composerRef = useRef<PostComposerHandle>(null)
@@ -111,8 +121,15 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
     onPosted?.(post)
   }
 
-  const { canPost, isPending, hasUploading } = composerState
-  const postLabel = isPending ? 'Posting…' : hasUploading ? 'Uploading…' : 'Post'
+  function handleEditDraft(draft: LocalDraft) {
+    setShowDrafts(false)
+    composerRef.current?.loadDraft(draft)
+  }
+
+  const { canPost, isPending, isScheduled } = composerState
+  const postLabel = isPending
+    ? (isScheduled ? 'Scheduling…' : 'Posting…')
+    : (isScheduled ? 'Schedule' : 'Post')
 
   return (
     <>
@@ -178,6 +195,18 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
               >
                 <X size={22} />
               </button>
+              {userId && (
+                <button
+                  onClick={() => setShowDrafts(true)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--color-brand)', fontFamily: "'Syne', sans-serif",
+                    fontWeight: 700, fontSize: 14, padding: 4,
+                  }}
+                >
+                  Drafts
+                </button>
+              )}
               <button
                 onClick={() => composerRef.current?.submit()}
                 disabled={!canPost}
@@ -205,6 +234,7 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
                 variant="fullscreen"
                 authorAvatarUrl={authorAvatarUrl}
                 authorName={authorName}
+                userId={userId}
                 onStateChange={setComposerState}
                 onPosted={handlePosted}
               />
@@ -240,20 +270,46 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
                 padding: '14px 16px',
                 borderBottom: '1px solid var(--color-border)',
               }}>
-                <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--color-text-primary)' }}>
-                  New post
-                </span>
                 <button
                   onClick={() => setOpen(false)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', padding: 4, borderRadius: '50%' }}
+                  aria-label="Close"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-primary)', display: 'flex', padding: 4, borderRadius: '50%' }}
                 >
                   <X size={20} />
                 </button>
+                {userId && (
+                  <button
+                    onClick={() => setShowDrafts(true)}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--color-brand)', fontFamily: "'Syne', sans-serif",
+                      fontWeight: 700, fontSize: 14, padding: 4,
+                    }}
+                  >
+                    Drafts
+                  </button>
+                )}
               </div>
-              <PostComposer variant="modal" authorAvatarUrl={authorAvatarUrl} authorName={authorName} onPosted={handlePosted} />
+              <PostComposer
+                ref={composerRef}
+                variant="modal"
+                authorAvatarUrl={authorAvatarUrl}
+                authorName={authorName}
+                userId={userId}
+                onStateChange={setComposerState}
+                onPosted={handlePosted}
+              />
             </div>
           </>
         )
+      )}
+
+      {showDrafts && userId && (
+        <DraftsPanel
+          userId={userId}
+          onClose={() => setShowDrafts(false)}
+          onEditDraft={handleEditDraft}
+        />
       )}
     </>
   )

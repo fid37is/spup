@@ -22,12 +22,28 @@ export function formatNaira(kobo: number): string {
 // 3-20 chars). The negative lookbehind keeps this from matching the domain
 // part of an email address (e.g. "me@spup.ng") or a doubled "@@handle".
 const MENTION_RE = /(?<![\w@])@([a-zA-Z0-9_]{3,20})\b/g
+export { MENTION_RE }
 
 /** Extracts the set of unique, lowercased usernames mentioned (via @username) in a post/message body. */
 export function extractMentionedUsernames(text: string | null | undefined): string[] {
   if (!text) return []
   const found = new Set<string>()
   for (const match of text.matchAll(MENTION_RE)) {
+    found.add(match[1].toLowerCase())
+  }
+  return Array.from(found)
+}
+
+// ─── Hashtags (#tag) ───────────────────────────────────────────────────────────
+// Mirrors MENTION_RE's shape: word characters only, negative lookbehind so we
+// don't match mid-word (e.g. the "tag" in "hash#tag" isn't a real hashtag).
+export const HASHTAG_RE = /(?<![\w#])#([a-zA-Z][a-zA-Z0-9_]{0,49})\b/g
+
+/** Extracts the set of unique, lowercased hashtags (via #tag) in a post body. Matches the `hashtags.tag` column convention (lowercase, no #). */
+export function extractHashtags(text: string | null | undefined): string[] {
+  if (!text) return []
+  const found = new Set<string>()
+  for (const match of text.matchAll(HASHTAG_RE)) {
     found.add(match[1].toLowerCase())
   }
   return Array.from(found)

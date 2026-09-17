@@ -14,6 +14,7 @@ import { createPostAction } from '@/lib/actions'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import { useToast } from '@/components/layout/toast'
 import { PostActions } from '@/components/feed/post-card'
+import { linkifyPostText } from '@/components/shared/linkify'
 
 interface MediaItem {
   id: string
@@ -81,7 +82,7 @@ function ReplyCard({ reply }: { reply: FeedPost }) {
         </div>
         {reply.body?.trim() && (
           <p style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.5, margin: 0, wordBreak: 'break-word' }}>
-            {reply.body}
+            {linkifyPostText(reply.body)}
           </p>
         )}
         {reply.media && reply.media.length > 0 && (
@@ -169,7 +170,7 @@ function SidebarPanel({ post, replies, loading, onClose, onReplyPosted }: {
           </div>
           {post.body?.trim() && (
             <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, margin: '0 0 8px', wordBreak: 'break-word' }}>
-              {post.body}
+              {linkifyPostText(post.body)}
             </p>
           )}
           <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>

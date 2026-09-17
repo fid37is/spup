@@ -6,6 +6,8 @@ import { createPostAction } from '@/lib/actions'
 import { useToast } from '@/components/layout/toast'
 import { useNetworkStatus } from '@/lib/network-status'
 import { queueOfflinePost, registerBackgroundSync } from '@/lib/offline-post-queue'
+import SchedulePicker, { formatScheduled } from '@/components/feed/schedule-picker'
+import { saveDraft, deleteDraft, hasMeaningfulContent, newDraftId, type LocalDraft } from '@/lib/local-drafts'
 
 const MAX_CHARS = 500
 const MAX_MEDIA = 4
@@ -30,25 +32,30 @@ interface PostComposerProps {
   onPosted?: (post: unknown) => void
   authorName?: string
   authorAvatarUrl?: string | null
+  // Local drafts are saved to localStorage scoped to this id - omit it (no
+  // signed-in profile yet) and autosave is simply skipped.
+  userId?: string
   // 'fullscreen' hides this component's own footer Post button/char-ring -
   // used on mobile, where the header (owned by the parent) renders Post
   // instead, matching X's layout. 'modal' (default) keeps everything here,
   // used for the desktop centered dialog.
   variant?: 'modal' | 'fullscreen'
-  onStateChange?: (state: { canPost: boolean; isPending: boolean; hasUploading: boolean }) => void
+  onStateChange?: (state: { canPost: boolean; isPending: boolean; hasUploading: boolean; isScheduled: boolean }) => void
 }
 
 export interface PostComposerHandle {
   submit: () => void
+  loadDraft: (draft: LocalDraft) => void
 }
 
 const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function PostComposer(
-  { onPosted, authorName = 'P', authorAvatarUrl, variant = 'modal', onStateChange },
+  { onPosted, authorName = 'P', authorAvatarUrl, userId, variant = 'modal', onStateChange },
   ref
 ) {
   const [body, setBody] = useState('')
   const [media, setMedia] = useState<MediaItem[]>([])
   const [isSelling, setIsSelling] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const { success: toastSuccess } = useToast()
   const [error, setError] = useState('')
@@ -56,6 +63,12 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const mediaInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileMapRef = useRef<Map<string, File>>(new Map())
+
+  // Stable id for the local draft this compose session autosaves to - kept
+  // across edits so re-saving updates the same entry instead of piling up
+  // duplicates. Regenerated after a successful post/schedule/clear.
+  const draftIdRef = useRef<string>(newDraftId())
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { status: networkStatus } = useNetworkStatus()
   const networkStatusRef = useRef(networkStatus)
@@ -69,11 +82,58 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     && !isOverLimit && !isPending && !hasUploading && (!isSelling || body.trim().length > 0)
 
   useEffect(() => {
-    onStateChange?.({ canPost, isPending, hasUploading })
-  }, [canPost, isPending, hasUploading, onStateChange])
+    onStateChange?.({ canPost, isPending, hasUploading, isScheduled: !!scheduledAt })
+  }, [canPost, isPending, hasUploading, scheduledAt, onStateChange])
+
+  // Debounced local autosave - anything typed and then closed without
+  // sending shows up later in the Drafts panel. Only saves media that has
+  // actually finished uploading (a real, stable Cloudinary URL); in-flight
+  // blobs can't survive a reload anyway.
+  useEffect(() => {
+    if (!userId) return
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+    const uploadedMedia = media.filter(m => !m.uploading && !m.error && m.cloudinary_id)
+    if (!hasMeaningfulContent(body, uploadedMedia.length)) return
+    draftSaveTimer.current = setTimeout(() => {
+      saveDraft(userId, {
+        id: draftIdRef.current,
+        body,
+        media: uploadedMedia.map(m => ({
+          url: m.url, thumbnail_url: m.thumbnail_url, media_type: m.media_type,
+          width: m.width, height: m.height, duration_secs: m.duration_secs,
+          size_bytes: m.size_bytes, cloudinary_id: m.cloudinary_id,
+        })),
+        isSelling,
+        updatedAt: new Date().toISOString(),
+      })
+    }, 800)
+    return () => { if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current) }
+  }, [userId, body, media, isSelling])
 
   useImperativeHandle(ref, () => ({
     submit: () => handlePost(),
+    loadDraft: (draft: LocalDraft) => {
+      draftIdRef.current = draft.id
+      setBody(draft.body)
+      setIsSelling(draft.isSelling)
+      setMedia(draft.media.map(m => ({
+        tempId: `draft_${draft.id}_${m.url}`,
+        cloudinary_id: m.cloudinary_id,
+        url: m.url,
+        media_type: m.media_type,
+        thumbnail_url: m.thumbnail_url,
+        width: m.width,
+        height: m.height,
+        duration_secs: m.duration_secs,
+        size_bytes: m.size_bytes,
+        localPreview: m.url,
+      })))
+      setError('')
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current
+        if (ta) { ta.focus(); ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
+      })
+    },
   }))
 
   function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -172,7 +232,12 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
     const needsQueueing = networkStatusRef.current !== 'online' || media.some(m => m.offlineQueued)
 
-    if (needsQueueing) {
+    // Scheduling needs a live round-trip to createPostAction (it's what sets
+    // the future created_at) - it can't be handed to the offline queue,
+    // which just replays a plain createPostAction call once back online.
+    // The Schedule button is already hidden/disabled while offline, so this
+    // is only a safety net.
+    if (needsQueueing && !scheduledAt) {
       const bodyText = body.trim() || null
       const isSellingSnapshot = isSelling
       const queuedMedia = media
@@ -206,6 +271,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       const result = await createPostAction({
         body: body.trim() || undefined,
         is_selling: isSelling || undefined,
+        scheduled_at: scheduledAt || undefined,
         media: readyMedia.length > 0 ? readyMedia.map(m => ({
           url: m.url,
           thumbnail_url: m.thumbnail_url,
@@ -221,12 +287,20 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       // Cleanup object URLs
       media.forEach(m => { if (m.localPreview) URL.revokeObjectURL(m.localPreview) })
       fileMapRef.current.clear()
+      if (userId) deleteDraft(userId, draftIdRef.current)
+      draftIdRef.current = newDraftId()
+      const wasScheduled = 'scheduled' in result && result.scheduled
+      const scheduledFor = 'scheduledFor' in result ? result.scheduledFor : undefined
       setBody('')
       setMedia([])
       setIsSelling(false)
+      setScheduledAt(null)
       setError('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      toastSuccess('Your post is live')
+      toastSuccess(wasScheduled && scheduledFor ? `Scheduled for ${formatScheduled(scheduledFor)}` : 'Your post is live')
+      // A scheduled post isn't visible anywhere yet (see createPostAction) -
+      // nothing to prepend to the feed, just close the composer.
+      if (wasScheduled) { onPosted?.(null); return }
       if (onPosted && 'postId' in result) onPosted('post' in result && result.post ? result.post : { id: result.postId })
     })
   }
@@ -431,6 +505,15 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           </p>
         )}
 
+        {scheduledAt && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10,
+            fontSize: 12.5, color: 'var(--color-brand)', fontWeight: 600,
+          }}>
+            Will post on {formatScheduled(scheduledAt)}
+          </div>
+        )}
+
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="composer-toolbar-icons" style={{ display: 'flex', gap: 2, overflowX: 'auto', WebkitOverflowScrolling: 'touch', minWidth: 0 }}>
@@ -469,6 +552,13 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             <ToolbarBtn icon={<span style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid currentColor', borderRadius: 4, padding: '1px 3px', lineHeight: 1 }}>GIF</span>} label="Add GIF" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<BarChart2 size={18} />} label="Add poll" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<MapPin size={18} />} label="Add location" disabled title="Coming soon" onClick={() => {}} />
+            {/* Scheduling needs a live createPostAction round-trip (see
+                handlePost) so it's not available offline. */}
+            <SchedulePicker
+              value={scheduledAt}
+              onChange={setScheduledAt}
+              disabled={networkStatus !== 'online'}
+            />
           </div>
           <style>{`.composer-toolbar-icons::-webkit-scrollbar { display: none; }`}</style>
 
@@ -514,7 +604,11 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
                 }}
               >
                 {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
-                {isPending ? 'Posting…' : hasUploading ? 'Uploading…' : 'Post'}
+                {/* Media uploading is shown per-thumbnail (see the spinner
+                    overlay above) - the button just stays disabled and
+                    keeps its normal label instead of also claiming to be
+                    "loading", which read as the post itself being stuck. */}
+                {isPending ? (scheduledAt ? 'Scheduling…' : 'Posting…') : (scheduledAt ? 'Schedule' : 'Post')}
               </button>
             </div>
           ) : (

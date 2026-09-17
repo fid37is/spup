@@ -10,6 +10,12 @@
 
 import { createClient } from '@/lib/supabase/server'
 
+// Scheduled posts carry a future created_at (see createPostAction) and
+// shouldn't surface in any listing - including the author's own - until
+// that time arrives. RLS is the actual security boundary; this mirrors it
+// at the query level.
+const nowIso = () => new Date().toISOString()
+
 const POST_SELECT = `
   id, body, post_type, likes_count, comments_count, reposts_count,
   bookmarks_count, impressions_count, created_at, edited_at, is_sensitive,
@@ -45,6 +51,7 @@ export async function getUserPosts(userId: string, limit = 20) {
     .eq('user_id', userId)
     .is('deleted_at', null)
     .is('parent_post_id', null)
+    .lte('created_at', nowIso())
     .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit)
@@ -91,6 +98,7 @@ export async function searchPosts(query: string, limit = 20) {
     .select(POST_SELECT)
     .textSearch('body', query, { type: 'websearch', config: 'english' })
     .is('deleted_at', null)
+    .lte('created_at', nowIso())
     .order('created_at', { ascending: false })
     .limit(limit)
 

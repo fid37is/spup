@@ -37,13 +37,38 @@ export async function createPostAction(data: CreatePostSchema) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
   if (profile.status === 'suspended' || profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
-  const { body, parent_post_id, quoted_post_id, media } = parsed.data
+  const { body, parent_post_id, quoted_post_id, media, scheduled_at } = parsed.data
   const postType = parent_post_id ? 'reply' : quoted_post_id ? 'quote' : 'original'
+  const isScheduled = !!scheduled_at
   const { data: post, error } = await supabase
     .from('posts')
-    .insert({ user_id: profile.id, body: body?.trim() || '', post_type: postType, parent_post_id: parent_post_id || null, quoted_post_id: quoted_post_id || null })
+    .insert({
+      user_id: profile.id,
+      body: body?.trim() || '',
+      post_type: postType,
+      parent_post_id: parent_post_id || null,
+      quoted_post_id: quoted_post_id || null,
+      // Scheduling is just a future created_at - feed queries filter
+      // created_at <= now() so the row simply doesn't appear anywhere
+      // (including the author's own profile) until that moment arrives.
+      // No cron job needed.
+      ...(isScheduled ? { created_at: scheduled_at } : {}),
+    })
     .select('id').single()
   if (error) return { error: 'Failed to post. Please try again.' }
+
+  // Extract #hashtags from the body and link them via post_hashtags - this
+  // is what powers interest-based feed personalisation (getForYouFeedAction),
+  // hashtag search, and Explore's trending tab. The extraction itself
+  // (regex + upsert + posts_count) already existed as a DB function from day
+  // one; nothing in the app ever called it, so hashtags/post_hashtags stayed
+  // permanently empty and every feature reading from them was silently a
+  // no-op. Fire-and-forget: a failure here shouldn't block the post itself.
+  if (body?.trim()) {
+    void supabase.rpc('process_post_hashtags', { p_post_id: post.id, p_body: body })
+      .then(({ error }) => { if (error) console.error('process_post_hashtags failed:', error.message) })
+  }
+
   // Insert post_media rows now that we have a real post_id
   if (media?.length) {
     const { error: mediaError } = await supabase.from('post_media').insert(
@@ -65,6 +90,9 @@ export async function createPostAction(data: CreatePostSchema) {
       return { error: 'Failed to attach media. Please try again.' }
     }
   }
+  // Bumped immediately even for scheduled posts (no worker revisits this
+  // row when it goes live to bump it then) - cancelScheduledPostAction
+  // undoes this if the post is cancelled before it publishes.
   bumpCounter(supabase, 'users', 'posts_count', profile.id, 1)
   if (parent_post_id) {
     bumpCounter(supabase, 'posts', 'comments_count', parent_post_id, 1)
@@ -78,10 +106,17 @@ export async function createPostAction(data: CreatePostSchema) {
     void notifyPostAuthor(supabase, quoted_post_id, profile.id, 'post_quote')
     revalidatePath(`/post/${quoted_post_id}`)
   }
-  if (body?.trim()) {
+  // Mentions notify their recipients immediately - that only makes sense
+  // once the post is actually visible, so a scheduled post's @mentions wait
+  // and fire for real when it goes live (see the note above the insert).
+  if (body?.trim() && !isScheduled) {
     void notifyMentions(body.trim(), post.id, profile.id, profile.username, profile.display_name)
   }
   revalidatePath('/feed')
+
+  if (isScheduled) {
+    return { success: true, postId: post.id, scheduled: true, scheduledFor: scheduled_at! }
+  }
 
   // Return the fully-hydrated post (author, media, counts, created_at) so the
   // client can prepend it to the feed immediately with real data - returning
@@ -100,6 +135,54 @@ export async function createPostAction(data: CreatePostSchema) {
       is_bookmarked: false,
     },
   }
+}
+
+// ── Scheduled posts ──────────────────────────────────────────────────────────
+// "Scheduled" just means: a post the caller owns whose created_at hasn't
+// arrived yet. Powers the Drafts panel's Scheduled tab.
+
+export async function getScheduledPostsAction() {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { posts: [] }
+  const { data, error } = await supabase
+    .from('posts')
+    .select(`
+      id, body, created_at, is_selling,
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `)
+    .eq('user_id', profile.id)
+    .is('deleted_at', null)
+    .gt('created_at', new Date().toISOString())
+    .order('created_at', { ascending: true })
+  if (error) return { posts: [] }
+  return { posts: data || [] }
+}
+
+export async function cancelScheduledPostAction(postId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+
+  const { data: post } = await supabase
+    .from('posts')
+    .select('id, user_id, created_at')
+    .eq('id', postId)
+    .single()
+
+  if (!post || post.user_id !== profile.id) return { error: 'Scheduled post not found' }
+  if (new Date(post.created_at).getTime() <= Date.now()) {
+    return { error: 'This post has already gone live and can\u2019t be cancelled' }
+  }
+
+  // Hard delete, not soft-delete - it was never actually published, so
+  // there's nothing for the soft-delete tombstone to be useful for.
+  const { error } = await supabase.from('posts').delete().eq('id', postId).eq('user_id', profile.id)
+  if (error) return { error: 'Could not cancel scheduled post. Please try again.' }
+
+  // createPostAction bumped posts_count on insert (see comment there) -
+  // undo it now that the post is being cancelled instead of going live.
+  bumpCounter(supabase, 'users', 'posts_count', profile.id, -1)
+  revalidatePath('/feed')
+  return { success: true }
 }
 
 export async function deletePostAction(postId: string) {

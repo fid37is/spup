@@ -84,9 +84,21 @@ export const createPostSchema = z.object({
   parent_post_id: z.string().uuid().optional(),
   quoted_post_id: z.string().uuid().optional(),
   is_selling: z.boolean().optional(),
+  // ISO timestamp for scheduled posts. Only original (non-reply, non-quote)
+  // posts can be scheduled - see the refine below.
+  scheduled_at: z.string().datetime().optional(),
 }).refine(d=>(d.body&&d.body.trim().length>0)||(d.media&&d.media.length>0),{ message:'Post must have text or media' })
   .refine(d => !d.is_selling || (d.body && d.body.trim().length > 0), {
     message: 'Write a bit about what you\u2019re selling - the post itself is the description', path: ['body'],
+  })
+  .refine(d => !d.scheduled_at || (!d.parent_post_id && !d.quoted_post_id), {
+    message: 'Replies and quote posts can\u2019t be scheduled', path: ['scheduled_at'],
+  })
+  .refine(d => !d.scheduled_at || new Date(d.scheduled_at).getTime() > Date.now() + 4 * 60 * 1000, {
+    message: 'Pick a time at least 5 minutes from now', path: ['scheduled_at'],
+  })
+  .refine(d => !d.scheduled_at || new Date(d.scheduled_at).getTime() < Date.now() + 365 * 24 * 60 * 60 * 1000, {
+    message: 'Can\u2019t schedule more than a year out', path: ['scheduled_at'],
   })
 export type CreatePostSchema = z.infer<typeof createPostSchema>
 

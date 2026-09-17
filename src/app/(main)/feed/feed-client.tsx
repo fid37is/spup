@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
-import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, getSellingFeedAction, getFeedPostByIdAction, type FeedPost } from '@/lib/actions'
+import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, getSellingFeedAction, type FeedPost } from '@/lib/actions'
 import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import AdSlot from '@/components/feed/ad-card'
 import { Loader, Repeat2, Rss, Users, Sparkles, Tag } from 'lucide-react'
@@ -119,8 +119,6 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
 
   const postsRef = useRef<FeedPost[]>(initialPosts)
   postsRef.current = posts
-  const newPostsRef = useRef<FeedPost[]>([])
-  newPostsRef.current = newPosts
 
   // Realtime - update counts on existing posts + detect new posts
   useEffect(() => {
@@ -143,41 +141,29 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
             : p
         ))
       })
-      // Detect new posts inserted — surface them right away.
+      // Detect new posts inserted - show pill
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'posts',
-      }, async payload => {
-        const tab = tabRef.current
-        // Only for-you, following and selling are chronological feeds a new
-        // post can land in. Mutuals stays as-is (it's a smaller, slower-moving
-        // list and re-deriving mutuality per insert isn't worth it).
-        if (tab === 'mutuals') return
+      }, async () => {
+        // Only show pill for for-you and following tabs
+        if (tabRef.current === 'mutuals') return
         // Don't spend a fetch chasing new posts on a bad connection - the
-        // realtime event itself still got through, but fetching on top of
-        // that is exactly the kind of "refresh" this mode exists to avoid.
+        // realtime event itself still got through, but re-querying the
+        // whole feed on top of that is exactly the kind of "refresh" this
+        // mode exists to avoid.
         if (networkStatusRef.current !== 'online') return
-
-        const newRow = payload.new as { id: string; user_id: string; parent_post_id: string | null; post_type: string }
-        // Skip replies and reposts outright — cheaper than a round trip.
-        if (newRow.parent_post_id || newRow.post_type === 'repost') return
-
-        const seenIds = new Set([...postsRef.current.map(p => p.id), ...newPostsRef.current.map(p => p.id)])
-        if (seenIds.has(newRow.id)) return
-
-        // Fetch + filter (blocks/mutes/following/selling) just this one post
-        // instead of re-querying the whole feed for every insert on the platform.
-        const post = await getFeedPostByIdAction(newRow.id, tab as 'for-you' | 'following' | 'selling')
-        if (!post) return
-        if (tabRef.current !== tab) return // tab changed while the fetch was in flight
-
-        // If the reader is at (or very near) the top of the feed, show the
-        // post immediately instead of making them tap a pill for it.
-        const atTop = window.scrollY < 80
-        if (atTop) {
-          setPosts(prev => (prev.some(p => p.id === post.id) ? prev : [post, ...prev]))
-        } else {
-          setNewPosts(prev => (prev.some(p => p.id === post.id) ? prev : [...prev, post]))
-        }
+        // Fetch the latest posts and find truly new ones
+        const { posts: latest } = await getFeedFn(tabRef.current)()
+        setPosts(prev => {
+          const existingIds = new Set(prev.map(p => p.id))
+          const fresh = latest.filter(p => !existingIds.has(p.id))
+          if (!fresh.length) return prev
+          setNewPosts(n => {
+            const allIds = new Set([...n.map(p => p.id), ...prev.map(p => p.id)])
+            return [...n, ...fresh.filter(p => !allIds.has(p.id))]
+          })
+          return prev // don't prepend yet - wait for pill click
+        })
       })
       .subscribe()
 
@@ -350,6 +336,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
       <FloatingComposeBtn
         authorAvatarUrl={currentUserAvatarUrl}
         authorName={currentUserDisplayName || 'You'}
+        userId={currentUserId}
         onPosted={post => {
           if (!post) return
           setPosts(prev => [post as FeedPost, ...prev])
