@@ -108,8 +108,11 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
             {user.is_monetised && (
               <span className="rounded-md bg-gold px-2 py-0.5 text-[11px] font-extrabold text-black">PRO</span>
             )}
+            {user.nin_verified && (
+              <span className="rounded-md bg-brand-muted px-2 py-0.5 text-[11px] font-semibold text-brand">NIN ✓</span>
+            )}
             {user.bvn_verified && (
-              <span className="rounded-md bg-brand-muted px-2 py-0.5 text-[11px] font-semibold text-brand">BVN ✓</span>
+              <span className="rounded-md px-2 py-0.5 text-[11px] font-semibold text-gold" style={{ background: 'var(--color-gold-muted)' }}>BVN ✓</span>
             )}
           </div>
           <div className="mb-2 hidden text-sm text-secondary sm:block">@{user.username}</div>

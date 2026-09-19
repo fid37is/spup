@@ -32,6 +32,7 @@ interface ProfileHeaderProps {
     phone_number?: string | null
     phone_verified?: boolean
     bvn_verified?: boolean
+    nin_verified?: boolean
   }
   stats: { following: string; followers: string; posts: string; mutuals: string }
   isOwner: boolean

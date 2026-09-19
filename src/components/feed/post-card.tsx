@@ -30,6 +30,7 @@ import { useToast } from '@/components/layout/toast'
 import MediaViewer from '@/components/feed/media-viewer'
 import PayVendorButton from '@/components/escrow/pay-vendor-button'
 import { GatedMedia } from '@/components/media/media-gate'
+import { linkifyPostText } from '@/components/shared/linkify'
 import ConfirmModal from '@/components/ui/confirm-modal'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
@@ -630,7 +631,7 @@ function TruncatedBody({ text, limit = 240, postId }: { text: string; limit?: nu
   if (!needsTruncation || expanded) {
     return (
       <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-        {text}
+        {linkifyPostText(text)}
         {needsTruncation && (
           <>
             {' '}
@@ -653,7 +654,7 @@ function TruncatedBody({ text, limit = 240, postId }: { text: string; limit?: nu
 
   return (
     <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-      {truncated}
+      {linkifyPostText(truncated)}
       {'... '}
       <span
         onClick={e => {
@@ -747,7 +748,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
           </div>
           {original.body && (
             <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap', marginBottom: original.media?.length ? 10 : 0 }}>
-              {original.body}
+              {linkifyPostText(original.body)}
             </p>
           )}
           <MediaRow media={original.media} postId={original.id} post={originalAsPost} />
@@ -1057,7 +1058,7 @@ export default function PostCard({
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{post.quoted_post.author?.display_name}</span>
                 <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>@{post.quoted_post.author?.username}</span>
               </div>
-              {post.quoted_post.body && <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: post.quoted_post.media?.length ? 8 : 0 }}>{post.quoted_post.body}</p>}
+              {post.quoted_post.body && <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: post.quoted_post.media?.length ? 8 : 0 }}>{linkifyPostText(post.quoted_post.body)}</p>}
               {post.quoted_post.media && post.quoted_post.media.length > 0 && (
                 <MediaRow
                   media={post.quoted_post.media}

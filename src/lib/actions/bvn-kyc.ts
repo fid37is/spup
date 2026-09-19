@@ -7,14 +7,19 @@ import crypto from 'crypto'
 import { revalidatePath } from 'next/cache'
 
 // ============================================================
-// Real BVN verification.
+// Real BVN verification — extra check for LARGE withdrawals only.
 //
-// This is the step that actually enforces "one person, one account" —
-// phone verification (phone-kyc.ts) does not. A BVN is checked against
-// a licensed KYC provider (Prembly / YouVerify / Smile ID are common
-// choices for Nigerian BVN lookups), and only the resulting hash +
-// provider reference are stored — never the raw BVN — for NDPR
-// compliance.
+// NIN (see nin-kyc.ts) is now the baseline identity check: it's what
+// earns the "Verified" badge and what's required before any ordinary
+// withdrawal. BVN sits on top of that, required in addition to NIN
+// only once a withdrawal crosses BIG_TRANSACTION_THRESHOLD_KOBO (see
+// lib/constants.ts, app/api/paystack/initiate/route.ts). Most people
+// never need to complete this at all.
+//
+// A BVN is checked against a licensed KYC provider (Prembly / YouVerify
+// / Smile ID are common choices for Nigerian BVN lookups), and only
+// the resulting hash + provider reference are stored — never the raw
+// BVN — for NDPR compliance.
 //
 // TODO before going live:
 //   1. Pick a KYC provider and set BVN_KYC_PROVIDER_API_KEY / _URL below.
@@ -76,7 +81,7 @@ export async function verifyBvnAction(bvn: string) {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('id, phone_verified, bvn_verified, verification_tier, is_pioneer, display_name')
+    .select('id, phone_verified, bvn_verified, display_name')
     .eq('auth_id', user.id)
     .single()
 
@@ -112,19 +117,9 @@ export async function verifyBvnAction(bvn: string) {
     bvn_verified: true,
   }
 
-  // The "standard" verification_tier is what the profile badge component
-  // (verified-badge.tsx) labels "BVN Verified" — so it should follow
-  // automatically from a real BVN check, not require a separate manual
-  // admin-approved verification_requests submission. Only bump from 'none':
-  // never downgrade someone who already holds 'creator' or 'organisation'.
-  //
-  // One of the first 200 people to ever create a Spup account gets the
-  // gold "pioneer" tier instead of the ordinary green "standard" one, at
-  // this exact moment — completing phone + BVN verification — rather
-  // than at signup, so the badge also rewards actually finishing KYC.
-  if (profile.verification_tier === 'none') {
-    updates.verification_tier = profile.is_pioneer ? 'pioneer' : 'standard'
-  }
+  // Note: unlike NIN, BVN verification does NOT bump verification_tier —
+  // the "Verified" badge is earned via NIN (see nin-kyc.ts). BVN is purely
+  // the extra gate for large withdrawals and has no badge/tier effect.
 
   const { error: updateError } = await admin
     .from('users')
@@ -146,8 +141,10 @@ export async function verifyBvnAction(bvn: string) {
     return { error: 'BVN verified but failed to update profile. Contact support.' }
   }
 
-  // Badge should show immediately, not after the next cache window.
+  // Wallet's "needed before large withdrawal" banner should clear
+  // immediately, not after the next cache window.
   revalidatePath('/profile')
+  revalidatePath('/wallet')
 
   return { success: true }
 }

@@ -24,6 +24,7 @@ interface RequestDetail {
     avatar_url: string | null
     verification_tier: string
     bvn_verified: boolean
+    nin_verified: boolean
     followers_count: number
     following_count: number
     posts_count: number
@@ -40,7 +41,7 @@ async function getRequest(id: string) {
       id, requested_tier, note, status, review_notes, created_at, reviewed_at,
       user:users!verification_requests_user_id_fkey(
         id, username, display_name, bio, avatar_url, verification_tier,
-        bvn_verified, followers_count, following_count, posts_count, created_at
+        bvn_verified, nin_verified, followers_count, following_count, posts_count, created_at
       ),
       reviewer:users!verification_requests_reviewed_by_fkey(username, display_name)
     `)
@@ -87,8 +88,11 @@ export default async function VerificationDetailPage({ params }: { params: Promi
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-display text-base font-bold text-primary">{user?.display_name}</span>
+              {user?.nin_verified && (
+                <span className="rounded-md bg-brand-muted px-2 py-0.5 text-[11px] font-semibold text-brand">NIN ✓</span>
+              )}
               {user?.bvn_verified && (
-                <span className="rounded-md bg-brand-muted px-2 py-0.5 text-[11px] font-semibold text-brand">BVN ✓</span>
+                <span className="rounded-md px-2 py-0.5 text-[11px] font-semibold text-gold" style={{ background: 'var(--color-gold-muted)' }}>BVN ✓</span>
               )}
             </div>
             <Link href={`/users/${user?.id}`} className="text-[13px] text-faint no-underline">@{user?.username}</Link>

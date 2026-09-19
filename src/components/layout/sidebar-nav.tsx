@@ -217,7 +217,7 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
         </div>
       </aside>
 
-      {showPostModal && <PostModal onClose={() => setShowPostModal(false)} />}
+      {showPostModal && <PostModal onClose={() => setShowPostModal(false)} userId={profile.id} />}
     </>
   )
 }

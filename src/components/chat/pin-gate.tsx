@@ -2,8 +2,8 @@
 
 // src/components/chat/pin-gate.tsx
 // Shows a PIN entry screen before granting access to the chat.
-// On first use — prompts to create a 4-digit PIN.
-// On subsequent logins — prompts to enter existing PIN.
+// On first use - prompts to create a 4-digit PIN.
+// On subsequent logins - prompts to enter existing PIN.
 // PIN is stored as bcrypt hash in the DB, never in plaintext.
 // Session-level unlock is stored in sessionStorage so user
 // doesn't need to re-enter the PIN on every page navigation within the same session.
@@ -45,7 +45,7 @@ export default function PinGate({ children }: PinGateProps) {
         return
       }
 
-      // Different user or fresh session — clear any stale unlock and require PIN
+      // Different user or fresh session - clear any stale unlock and require PIN
       sessionStorage.removeItem(SESSION_KEY)
       clearSessionPinMaterial() // don't let a previous account's key material leak into this one
       const { hasPin } = await hasChatPinAction()
@@ -53,6 +53,15 @@ export default function PinGate({ children }: PinGateProps) {
     }
     init()
   }, [])
+
+  // The confirm-step inputs are the same DOM elements as the enter-step
+  // ones, just re-pointed to confirmRefs on re-render - so focusing
+  // confirmRefs[0] has to wait until after that re-render actually commits.
+  // Calling it synchronously right after setStep('confirm') (as this used
+  // to) hits confirmRefs[0].current while it's still null.
+  useEffect(() => {
+    if (step === 'confirm') confirmRefs[0].current?.focus()
+  }, [step])
 
   function handlePinInput(index: number, value: string, isConfirm = false) {
     const refs = isConfirm ? confirmRefs : inputRefs
@@ -75,7 +84,7 @@ export default function PinGate({ children }: PinGateProps) {
         setTimeout(() => {
           if (isConfirm) handleConfirmPin(full)
           else if (status === 'verify') handleVerify(full)
-          else { setStep('confirm'); confirmRefs[0].current?.focus() }
+          else setStep('confirm')
         }, 100)
       }
     }
@@ -107,7 +116,7 @@ export default function PinGate({ children }: PinGateProps) {
       if (user) sessionStorage.setItem(SESSION_KEY, user.id)
       // Stash PIN+pepper in memory so chat-client's E2E key recovery
       // (see recoverOrCreateKeyPair/getKeyMaterial) doesn't need to prompt
-      // for it again right after this — see lib/chat-pin-session.ts.
+      // for it again right after this - see lib/chat-pin-session.ts.
       if (result.pepper) setSessionPinMaterial(pinStr, result.pepper)
       setStatus('unlocked')
     } else {
@@ -236,7 +245,7 @@ export default function PinGate({ children }: PinGateProps) {
 
       <button
         onClick={() => isCreate
-          ? (isConfirmStep ? handleConfirmPin() : (pin.join('').length === 4 && (setStep('confirm'), confirmRefs[0].current?.focus())))
+          ? (isConfirmStep ? handleConfirmPin() : (pin.join('').length === 4 && setStep('confirm')))
           : handleVerify()
         }
         disabled={activePin.join('').length !== 4 || isPending}

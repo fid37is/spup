@@ -26,6 +26,7 @@ interface ViewProps {
     phone_number?: string | null
     phone_verified?: boolean
     bvn_verified?: boolean
+    nin_verified?: boolean
   }
   stats: { following: string; followers: string; mutuals: string }
   isOwner: boolean
@@ -142,9 +143,9 @@ export default function ProfileHeaderView({
             <Phone size={15} strokeWidth={1.8} color={profile.phone_verified ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
             <span>{profile.phone_verified ? 'Phone verified' : 'Phone not verified'}</span>
           </div>
-          <div style={{ ...ROW, color: profile.bvn_verified ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
-            <Shield size={15} strokeWidth={1.8} color={profile.bvn_verified ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
-            <span>{profile.bvn_verified ? 'BVN verified' : 'BVN not verified — required before withdrawal'}</span>
+          <div style={{ ...ROW, color: profile.nin_verified ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
+            <Shield size={15} strokeWidth={1.8} color={profile.nin_verified ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
+            <span>{profile.nin_verified ? 'NIN verified' : 'NIN not verified — required before withdrawal'}</span>
           </div>
         </div>
       )}

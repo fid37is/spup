@@ -4,6 +4,7 @@ import { getProfileByAuthId } from '@/lib/queries'
 import { getWallet, getTransactions, getMonthlyEarnings, getNextPayoutDate } from '@/lib/queries'
 import { getMonetisationEligibility } from '@/lib/actions/monetisation'
 import { formatNaira, formatNumber } from '@/lib/utils'
+import { BIG_TRANSACTION_THRESHOLD_KOBO } from '@/lib/constants'
 import { TrendingUp, ArrowDownToLine, CheckCircle, ArrowUpRight, Shield } from 'lucide-react'
 import WithdrawButton from './withdraw-button'
 import SendButton from './send-button'
@@ -12,8 +13,8 @@ import AcceptMonetisationButton from './accept-monetisation-button'
 import Link from 'next/link'
 
 /* ── Monetisation checklist ─────────────────────────────────────────────── */
-/* Growth criteria only (90 days / 500 followers / 100 posts) — deliberately
-   independent of phone/BVN verification, which stays gated at withdrawal
+/* Growth criteria only (90 days / 500 followers / 100 posts) - deliberately
+   independent of phone/NIN verification, which stays gated at withdrawal
    only. See lib/actions/monetisation.ts. */
 function MonetisationChecklist({
   criteria, is_monetised, eligibleToAccept,
@@ -47,7 +48,7 @@ function MonetisationChecklist({
             {is_monetised
               ? 'You are earning ad revenue'
               : eligibleToAccept
-                ? 'All criteria met — enable below'
+                ? 'All criteria met - enable below'
                 : `${metCount} of ${items.length} criteria met`}
           </p>
         </div>
@@ -182,7 +183,7 @@ export default async function WalletPage() {
   const balance = wallet?.balance_kobo || 0
   const totalEarned = wallet?.total_earned_kobo || 0
   const totalWithdrawn = wallet?.total_withdrawn_kobo || 0
-  const canWithdraw = balance >= 100_000 && profile.bvn_verified
+  const canWithdraw = balance >= 100_000 && profile.nin_verified
 
   const savedBank = wallet?.bank_account_number ? {
     bank_name: wallet.bank_name,
@@ -234,7 +235,7 @@ export default async function WalletPage() {
             <StatCard label="Withdrawn" value={formatNaira(totalWithdrawn)} />
           </div>
 
-          <WithdrawButton canWithdraw={canWithdraw} balance={balance} bvnVerified={profile.bvn_verified} savedBank={savedBank} nextEligibleAt={nextPayout.next_eligible_at} />
+          <WithdrawButton canWithdraw={canWithdraw} balance={balance} ninVerified={profile.nin_verified} bvnVerified={profile.bvn_verified} savedBank={savedBank} nextEligibleAt={nextPayout.next_eligible_at} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             <TopUpButton />
             <SendButton balance={balance} />
@@ -244,8 +245,10 @@ export default async function WalletPage() {
           </div>
         </div>
 
-        {/* Phone/BVN banners — shown in dependency order; BVN verification
-            requires phone to be verified first (see bvn-kyc.ts) */}
+        {/* Phone/NIN/BVN banners - shown in dependency order. NIN is the
+            baseline required before any withdrawal (see nin-kyc.ts); BVN
+            only shows up once the balance is large enough to need it
+            (see bvn-kyc.ts, lib/constants.ts) - it stays silent otherwise. */}
         {!profile.phone_verified && (
           <div style={{
             border: '1px solid var(--color-border)',
@@ -260,7 +263,7 @@ export default async function WalletPage() {
                 Phone verification required
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
-                Verify your phone number first — this unlocks BVN verification, needed before you can withdraw.
+                Verify your phone number first - this unlocks NIN verification, needed before you can withdraw.
               </div>
               <Link href="/settings/verify-phone" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
                 Verify phone <ArrowUpRight size={13} />
@@ -269,7 +272,7 @@ export default async function WalletPage() {
           </div>
         )}
 
-        {profile.phone_verified && !profile.bvn_verified && (
+        {profile.phone_verified && !profile.nin_verified && (
           <div style={{
             border: '1px solid var(--color-border)',
             borderRadius: 14,
@@ -280,10 +283,35 @@ export default async function WalletPage() {
             <Shield size={18} color="var(--color-gold)" style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
-                BVN verification required
+                NIN verification required
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
-                Only needed before you withdraw — you can keep posting and earning without it until then.
+                Only needed before you withdraw - you can keep posting and earning without it until then.
+              </div>
+              <Link href="/settings/verify-nin" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
+                Verify NIN <ArrowUpRight size={13} />
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* BVN stays silent until it's actually relevant - only surfaces
+            once the balance itself is large enough to need it. */}
+        {profile.nin_verified && !profile.bvn_verified && balance >= BIG_TRANSACTION_THRESHOLD_KOBO && (
+          <div style={{
+            border: '1px solid var(--color-border)',
+            borderRadius: 14,
+            padding: '14px 16px',
+            marginBottom: 12,
+            display: 'flex', gap: 12, alignItems: 'flex-start',
+          }}>
+            <Shield size={18} color="var(--color-gold)" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
+                BVN verification required for this amount
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
+                Withdrawals of {formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO)} or more need an extra check, as required by the CBN.
               </div>
               <Link href="/settings/verify-bvn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
                 Verify BVN <ArrowUpRight size={13} />

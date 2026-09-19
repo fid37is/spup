@@ -65,12 +65,14 @@ export async function sendPhoneOtpAction(phone: string) {
 
 // ─── Step 2: Verify the OTP and link phone to profile ─────────────────────────
 //
-// NOTE: phone verification is identity confirmation only — it is NOT BVN
-// verification and must never set bvn_verified. A phone number proves the
-// person controls a SIM, not who they are financially; someone can register
-// many different phone numbers. Real BVN verification (which is what actually
-// prevents one person from holding multiple monetised accounts) lives in
-// bvn-kyc.ts and is a separate, required step before withdrawal.
+// NOTE: phone verification is identity confirmation only — it is NOT NIN
+// verification and must never set nin_verified or bvn_verified. A phone
+// number proves the person controls a SIM, not who they are; someone can
+// register many different phone numbers. Real NIN verification (which is
+// what actually prevents one person from holding multiple monetised
+// accounts) lives in nin-kyc.ts and is a separate, required step before
+// withdrawal. BVN (bvn-kyc.ts) is a further, optional step only required
+// once a withdrawal is large — see lib/constants.ts.
 
 export async function verifyPhoneOtpAction(phone: string, token: string) {
   const parsed = otpSchema.safeParse({ token })

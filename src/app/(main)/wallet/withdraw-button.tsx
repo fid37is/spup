@@ -4,6 +4,7 @@ import { useState, useEffect, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowDownToLine, X, ChevronDown, CheckCircle, AlertCircle, Loader2, Search } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
+import { BIG_TRANSACTION_THRESHOLD_KOBO } from '@/lib/constants'
 import { useRouter } from 'next/navigation'
 
 const BANKS = [
@@ -39,12 +40,13 @@ type Step = 'form' | 'confirm' | 'success' | 'error'
 interface WithdrawButtonProps {
   canWithdraw: boolean
   balance: number
+  ninVerified: boolean
   bvnVerified: boolean
   savedBank?: { bank_name: string; bank_account_number: string; bank_account_name: string; paystack_recipient_code: string } | null
   nextEligibleAt?: string | null
 }
 
-export default function WithdrawButton({ canWithdraw, balance, bvnVerified, savedBank, nextEligibleAt }: WithdrawButtonProps) {
+export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnVerified, savedBank, nextEligibleAt }: WithdrawButtonProps) {
   const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
@@ -98,7 +100,8 @@ export default function WithdrawButton({ canWithdraw, balance, bvnVerified, save
     setTimeout(reset, 300)
   }
 
-  const canProceed = bankCode && accountNumber.length === 10 && accountName && amountKobo >= 100_000 && amountKobo <= balance
+  const needsBvnForAmount = amountKobo >= BIG_TRANSACTION_THRESHOLD_KOBO && !bvnVerified
+  const canProceed = bankCode && accountNumber.length === 10 && accountName && amountKobo >= 100_000 && amountKobo <= balance && !needsBvnForAmount
 
   function handleConfirm() {
     if (!canProceed) return
@@ -239,6 +242,12 @@ export default function WithdrawButton({ canWithdraw, balance, bvnVerified, save
                   <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Min ₦1,000</span>
                   <button onClick={() => setAmountKobo(balance)} style={{ fontSize: 12, color: 'var(--color-brand)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>Withdraw all</button>
                 </div>
+                {needsBvnForAmount && (
+                  <p style={{ fontSize: 12, color: 'var(--color-gold)', marginTop: 8, lineHeight: 1.5 }}>
+                    Withdrawals of {formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO)} or more need BVN verification first.{' '}
+                    <a href="/settings/verify-bvn" style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>Verify BVN</a>
+                  </p>
+                )}
               </div>
 
               {/* Bank selector */}
@@ -341,7 +350,7 @@ export default function WithdrawButton({ canWithdraw, balance, bvnVerified, save
           Next withdrawal available {new Date(nextEligibleAt!).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
       )}
-      {!cycleActive && !canWithdraw && bvnVerified && balance < 100_000 && (
+      {!cycleActive && !canWithdraw && ninVerified && balance < 100_000 && (
         <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>Minimum withdrawal is ₦1,000</p>
       )}
       {mounted && open && createPortal(modal, document.body)}

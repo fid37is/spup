@@ -1,24 +1,100 @@
+import type { LucideIcon } from 'lucide-react'
+
+import {
+  Dumbbell,
+  Music2,
+  Clapperboard,
+  Landmark,
+  Briefcase,
+  Laptop,
+  Shirt,
+  Utensils,
+  Laugh,
+  Bitcoin,
+  BookOpen,
+  HeartPulse,
+  Gamepad2,
+  Plane,
+  HandHeart,
+  Palette,
+} from 'lucide-react'
+
 // ─── Database Enums ────────────────────────────────────────────────────────────
 
 export type UserRole = 'user' | 'creator' | 'moderator' | 'admin'
-export type AccountStatus = 'active' | 'suspended' | 'banned' | 'pending_verification'
+
+export type AccountStatus =
+  | 'active'
+  | 'suspended'
+  | 'banned'
+  | 'pending_verification'
+
 export type NotificationType =
-  | 'new_follower' | 'post_like' | 'post_comment' | 'post_repost' | 'post_quote'
-  | 'comment_like' | 'mention' | 'tip_received' | 'subscription_new'
-  | 'earning_milestone' | 'monetisation_approved' | 'system'
+  | 'new_follower'
+  | 'post_like'
+  | 'post_comment'
+  | 'post_repost'
+  | 'post_quote'
+  | 'comment_like'
+  | 'mention'
+  | 'tip_received'
+  | 'subscription_new'
+  | 'earning_milestone'
+  | 'monetisation_approved'
+  | 'system'
   | 'new_message'
-  | 'escrow_hold_received' | 'escrow_delivered' | 'escrow_released'
-  | 'escrow_disputed' | 'escrow_proposal' | 'escrow_escalated'
+  | 'escrow_hold_received'
+  | 'escrow_delivered'
+  | 'escrow_released'
+  | 'escrow_disputed'
+  | 'escrow_proposal'
+  | 'escrow_escalated'
+
 export type PostType = 'original' | 'repost' | 'quote' | 'reply'
+
 export type MediaType = 'image' | 'video' | 'audio' | 'gif'
+
 export type TransactionType =
-  | 'earning_ad' | 'earning_tip' | 'earning_subscription' | 'withdrawal' | 'refund'
-  | 'wallet_topup' | 'escrow_hold' | 'escrow_release' | 'promotion_spend'
-  | 'transfer_sent' | 'transfer_received'
-export type TransactionStatus = 'pending' | 'completed' | 'failed' | 'reversed'
-export type VerificationTier = 'none' | 'standard' | 'pioneer' | 'creator' | 'organisation' | 'spup'
-export type ReportReason = 'spam' | 'harassment' | 'hate_speech' | 'misinformation' | 'nudity' | 'violence' | 'other'
-export type ReportStatus = 'pending' | 'reviewed' | 'actioned' | 'dismissed'
+  | 'earning_ad'
+  | 'earning_tip'
+  | 'earning_subscription'
+  | 'withdrawal'
+  | 'refund'
+  | 'wallet_topup'
+  | 'escrow_hold'
+  | 'escrow_release'
+  | 'promotion_spend'
+  | 'transfer_sent'
+  | 'transfer_received'
+
+export type TransactionStatus =
+  | 'pending'
+  | 'completed'
+  | 'failed'
+  | 'reversed'
+
+export type VerificationTier =
+  | 'none'
+  | 'standard'
+  | 'pioneer'
+  | 'creator'
+  | 'organisation'
+  | 'spup'
+
+export type ReportReason =
+  | 'spam'
+  | 'harassment'
+  | 'hate_speech'
+  | 'misinformation'
+  | 'nudity'
+  | 'violence'
+  | 'other'
+
+export type ReportStatus =
+  | 'pending'
+  | 'reviewed'
+  | 'actioned'
+  | 'dismissed'
 
 // ─── Database Row Types ────────────────────────────────────────────────────────
 
@@ -43,6 +119,7 @@ export interface User {
   is_pioneer: boolean
   phone_verified: boolean
   bvn_verified: boolean
+  nin_verified: boolean
   followers_count: number
   following_count: number
   posts_count: number
@@ -75,6 +152,7 @@ export interface Post {
   updated_at: string
   edited_at: string | null
   deleted_at: string | null
+
   // Joined
   author?: User
   media?: PostMedia[]
@@ -153,28 +231,110 @@ export interface Transaction {
 export interface Interest {
   id: string
   label: string
-  emoji: string
+  icon: LucideIcon
   category: string
 }
 
 export const NIGERIAN_INTERESTS: Interest[] = [
-  { id: 'football', label: 'Football', emoji: '⚽', category: 'Sports' },
-  { id: 'naija_music', label: 'Afrobeats', emoji: '🎵', category: 'Entertainment' },
-  { id: 'nollywood', label: 'Nollywood', emoji: '🎬', category: 'Entertainment' },
-  { id: 'politics', label: 'Politics', emoji: '🏛️', category: 'News' },
-  { id: 'business', label: 'Business', emoji: '💼', category: 'Career' },
-  { id: 'tech', label: 'Tech', emoji: '💻', category: 'Career' },
-  { id: 'fashion', label: 'Fashion', emoji: '👗', category: 'Lifestyle' },
-  { id: 'food', label: 'Nigerian Food', emoji: '🍛', category: 'Lifestyle' },
-  { id: 'comedy', label: 'Comedy', emoji: '😂', category: 'Entertainment' },
-  { id: 'crypto', label: 'Crypto', emoji: '₿', category: 'Finance' },
-  { id: 'education', label: 'Education', emoji: '📚', category: 'Career' },
-  { id: 'health', label: 'Health & Fitness', emoji: '💪', category: 'Lifestyle' },
-  { id: 'gaming', label: 'Gaming', emoji: '🎮', category: 'Entertainment' },
-  { id: 'travel', label: 'Travel', emoji: '✈️', category: 'Lifestyle' },
-  { id: 'spirituality', label: 'Faith & Spirituality', emoji: '🙏', category: 'Lifestyle' },
-  { id: 'art', label: 'Art & Design', emoji: '🎨', category: 'Creative' },
+  {
+    id: 'football',
+    label: 'Football',
+    icon: Dumbbell,
+    category: 'Sports',
+  },
+  {
+    id: 'naija_music',
+    label: 'Afrobeats',
+    icon: Music2,
+    category: 'Entertainment',
+  },
+  {
+    id: 'nollywood',
+    label: 'Nollywood',
+    icon: Clapperboard,
+    category: 'Entertainment',
+  },
+  {
+    id: 'politics',
+    label: 'Politics',
+    icon: Landmark,
+    category: 'News',
+  },
+  {
+    id: 'business',
+    label: 'Business',
+    icon: Briefcase,
+    category: 'Career',
+  },
+  {
+    id: 'tech',
+    label: 'Tech',
+    icon: Laptop,
+    category: 'Career',
+  },
+  {
+    id: 'fashion',
+    label: 'Fashion',
+    icon: Shirt,
+    category: 'Lifestyle',
+  },
+  {
+    id: 'food',
+    label: 'Nigerian Food',
+    icon: Utensils,
+    category: 'Lifestyle',
+  },
+  {
+    id: 'comedy',
+    label: 'Comedy',
+    icon: Laugh,
+    category: 'Entertainment',
+  },
+  {
+    id: 'crypto',
+    label: 'Crypto',
+    icon: Bitcoin,
+    category: 'Finance',
+  },
+  {
+    id: 'education',
+    label: 'Education',
+    icon: BookOpen,
+    category: 'Career',
+  },
+  {
+    id: 'health',
+    label: 'Health & Fitness',
+    icon: HeartPulse,
+    category: 'Lifestyle',
+  },
+  {
+    id: 'gaming',
+    label: 'Gaming',
+    icon: Gamepad2,
+    category: 'Entertainment',
+  },
+  {
+    id: 'travel',
+    label: 'Travel',
+    icon: Plane,
+    category: 'Lifestyle',
+  },
+  {
+    id: 'spirituality',
+    label: 'Faith & Spirituality',
+    icon: HandHeart,
+    category: 'Lifestyle',
+  },
+  {
+    id: 'art',
+    label: 'Art & Design',
+    icon: Palette,
+    category: 'Creative',
+  },
 ]
+
+// ─── Window Extensions ─────────────────────────────────────────────────────────
 
 // Extend Window with Google AdSense global
 declare global {

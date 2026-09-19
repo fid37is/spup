@@ -242,7 +242,13 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
           </div>,
           document.body
         ) : (
-          /* ── Desktop: centered modal ──────────────────────────────────── */
+          /* ── Desktop: centered modal — also portaled to <body> (see the
+             comment on the mobile sheet above, and on PostModal): otherwise
+             this renders inside .main-layout, which globals.css caps to its
+             own stacking context, so its z-index (150/151) never actually
+             compares against real body-level layers like DraftsPanel
+             (400). */
+          createPortal(
           <>
             <div
               onClick={() => setOpen(false)}
@@ -300,7 +306,9 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
                 onPosted={handlePosted}
               />
             </div>
-          </>
+          </>,
+          document.body
+          )
         )
       )}
 
