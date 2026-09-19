@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useLayoutEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Calendar, X } from 'lucide-react'
 
 interface SchedulePickerProps {
@@ -43,23 +44,65 @@ export default function SchedulePicker({ value, onChange, disabled }: SchedulePi
   const [open, setOpen] = useState(false)
   const [draftValue, setDraftValue] = useState('')
   const [error, setError] = useState('')
+  const [coords, setCoords] = useState<{ top: number; left: number; openUpward: boolean } | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
+  const POPOVER_WIDTH = 260
+  const POPOVER_HEIGHT_EST = 320
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    setIsMobile(mq.matches)
+    const handleMqChange = () => setIsMobile(mq.matches)
+    mq.addEventListener('change', handleMqChange)
+    return () => mq.removeEventListener('change', handleMqChange)
+  }, [])
+
+  // The trigger usually lives inside a modal/sheet with `overflow: hidden`
+  // and its own stacking context (see the portal notes on PostModal and
+  // floating-compose-btn.tsx) - a plain `position: absolute` popover gets
+  // clipped by that ancestor instead of floating free. Portaling to <body>
+  // and computing fixed coordinates from the trigger's own bounding box
+  // sidesteps both problems entirely. Desktop only - on mobile this renders
+  // as a full-width bottom sheet instead (see below), which doesn't need a
+  // trigger-relative position at all.
+  const reposition = useCallback(() => {
+    if (isMobile) return
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const openUpward = rect.top > POPOVER_HEIGHT_EST || rect.top > window.innerHeight - rect.bottom
+    const left = Math.min(Math.max(8, rect.left), window.innerWidth - POPOVER_WIDTH - 8)
+    const top = openUpward ? rect.top - 8 : rect.bottom + 8
+    setCoords({ top, left, openUpward })
+  }, [isMobile])
+
+  useLayoutEffect(() => {
     if (!open) return
+    reposition()
     const initial = value ? new Date(value) : addMinutes(new Date(), 60)
     setDraftValue(toLocalInputValue(initial))
     setError('')
-  }, [open, value])
+    if (isMobile) return
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [open, value, reposition, isMobile])
 
-  useEffect(() => {
-    if (!open) return
+  useLayoutEffect(() => {
+    if (!open || isMobile) return  // mobile closes via its own backdrop tap instead
     function onClick(e: MouseEvent) {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) setOpen(false)
+      if (
+        popoverRef.current && !popoverRef.current.contains(e.target as Node) &&
+        triggerRef.current && !triggerRef.current.contains(e.target as Node)
+      ) setOpen(false)
     }
     document.addEventListener('mousedown', onClick)
     return () => document.removeEventListener('mousedown', onClick)
-  }, [open])
+  }, [open, isMobile])
 
   function applyPreset(date: Date) {
     setDraftValue(toLocalInputValue(date))
@@ -81,10 +124,11 @@ export default function SchedulePicker({ value, onChange, disabled }: SchedulePi
   }
 
   return (
-    <div style={{ position: 'relative', display: 'inline-flex' }}>
+    <div style={{ display: 'inline-flex' }}>
       {value ? (
         // Scheduled pill — shows the chosen time, click to change it
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setOpen(v => !v)}
           disabled={disabled}
@@ -110,6 +154,7 @@ export default function SchedulePicker({ value, onChange, disabled }: SchedulePi
         </button>
       ) : (
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setOpen(v => !v)}
           disabled={disabled}
@@ -129,12 +174,81 @@ export default function SchedulePicker({ value, onChange, disabled }: SchedulePi
         </button>
       )}
 
-      {open && (
+      {open && isMobile && createPortal(
+        <>
+          <style>{`
+            @keyframes schedFadeIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes schedSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+          `}</style>
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'var(--overlay-bg)', animation: 'schedFadeIn 0.15s ease' }}
+          />
+          <div
+            ref={popoverRef}
+            style={{
+              position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 501,
+              maxHeight: '85vh', overflowY: 'auto',
+              background: 'var(--color-surface-raised)',
+              borderRadius: '18px 18px 0 0',
+              boxShadow: '0 -8px 32px rgba(0,0,0,0.35)',
+              padding: '14px 16px calc(16px + env(safe-area-inset-bottom))',
+              animation: 'schedSlideUp 0.2s ease',
+            }}
+          >
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)', margin: '0 auto 14px' }} />
+            <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 12px', fontFamily: "'Syne', sans-serif" }}>
+              Schedule post
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+              <PresetBtn label="In 1 hour" onClick={() => applyPreset(addMinutes(new Date(), 60))} />
+              <PresetBtn label="Tomorrow morning · 9:00 AM" onClick={() => applyPreset(nextMorning(new Date(), 9))} />
+            </div>
+
+            <label style={{ display: 'block', fontSize: 12.5, color: 'var(--color-text-faint)', marginBottom: 6 }}>
+              Or pick a date &amp; time
+            </label>
+            <input
+              type="datetime-local"
+              value={draftValue}
+              onChange={e => { setDraftValue(e.target.value); setError('') }}
+              style={{
+                width: '100%', background: 'var(--color-surface-2)',
+                border: '1px solid var(--color-border)', borderRadius: 10,
+                padding: '12px 10px', fontSize: 15, color: 'var(--color-text-primary)',
+                fontFamily: "'DM Sans', sans-serif", marginBottom: 10,
+              }}
+            />
+
+            {error && (
+              <p style={{ fontSize: 13, color: 'var(--color-error)', margin: '0 0 10px' }}>{error}</p>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+              {value && (
+                <button type="button" onClick={clear} style={{ ...secondaryBtnStyle, flex: 1, textAlign: 'center', padding: '11px' }}>
+                  Remove
+                </button>
+              )}
+              <button type="button" onClick={confirm} style={{ ...primaryBtnStyle, flex: 1, textAlign: 'center', padding: '11px', borderRadius: 10 }}>
+                Confirm
+              </button>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
+      {open && !isMobile && coords && createPortal(
         <div
           ref={popoverRef}
           style={{
-            position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, zIndex: 20,
-            width: 260, background: 'var(--color-surface-raised)',
+            position: 'fixed', zIndex: 500, width: POPOVER_WIDTH,
+            top: coords.openUpward ? undefined : coords.top,
+            bottom: coords.openUpward ? window.innerHeight - coords.top : undefined,
+            left: coords.left,
+            background: 'var(--color-surface-raised)',
             border: '1px solid var(--color-border)', borderRadius: 14,
             boxShadow: '0 12px 32px rgba(0,0,0,0.35)', padding: 14,
           }}
@@ -180,7 +294,8 @@ export default function SchedulePicker({ value, onChange, disabled }: SchedulePi
               Confirm
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

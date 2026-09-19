@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
       })
 
     if (insertError) {
+      console.error(`Promotion insert failed (post_id=${post_id}, user_id=${profile.id}, tier=${tier}):`, insertError.message, insertError.details, insertError.hint)
       return NextResponse.json({ error: 'Could not start promotion' }, { status: 500 })
     }
 
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!initRes.status) {
+      console.error(`Paystack initialize failed (reference=${reference}):`, initRes.message, initRes)
       await supabase.from('post_promotions').update({ status: 'failed' }).eq('reference', reference)
       return NextResponse.json({ error: 'Could not initialize payment' }, { status: 502 })
     }

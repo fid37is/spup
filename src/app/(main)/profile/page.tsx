@@ -68,6 +68,7 @@ export default async function ProfilePage() {
           email:        (profile as any).email        ?? null,
           phone_number: (profile as any).phone_number ?? null,
           bvn_verified: (profile as any).bvn_verified ?? false,
+          nin_verified: (profile as any).nin_verified ?? false,
         }}
         stats={stats}
         initialPosts={initialPosts}

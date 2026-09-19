@@ -101,12 +101,14 @@ function ProgressBar({ pct }: { pct: number }) {
 
 // ─── Creator Programme widget ─────────────────────────────────────────────────
 // Deliberately mirrors lib/actions/monetisation.ts: eligibility is growth
-// criteria only (followers, posts, account age). BVN is shown separately,
+// criteria only (followers, posts, account age). NIN is shown separately,
 // informationally — it's required at withdrawal, not for monetisation itself.
+// BVN (the extra check for large withdrawals) stays out of this widget
+// entirely — it only comes up in the wallet flow if/when it's relevant.
 function MonetisationProgress({ profile }: { profile: User }) {
   const followersVal = profile.followers_count ?? 0
   const postsVal     = profile.posts_count     ?? 0
-  const bvnDone       = profile.bvn_verified ?? false
+  const ninDone       = profile.nin_verified ?? false
   const accountAgeDays = Math.floor(
     (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24)
   )
@@ -159,14 +161,14 @@ function MonetisationProgress({ profile }: { profile: User }) {
           <ProgressBar pct={agePct} />
         </div>
 
-        {/* Informational only — never gates the CTA below. BVN is required
+        {/* Informational only — never gates the CTA below. NIN is required
             at withdrawal (see /wallet), not for monetisation eligibility. */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--color-text-secondary)' }}>
-            <Shield size={13} /> BVN Verified
+            <Shield size={13} /> NIN Verified
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: bvnDone ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
-            {bvnDone ? <><CheckCircle2 size={13} /> Done</> : <><XCircle size={13} /> Needed before withdrawal</>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: ninDone ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
+            {ninDone ? <><CheckCircle2 size={13} /> Done</> : <><XCircle size={13} /> Needed before withdrawal</>}
           </div>
         </div>
 

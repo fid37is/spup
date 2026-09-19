@@ -37,7 +37,7 @@ export default function AcceptMonetisationButton() {
         </span>
       </div>
       <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
-        Once enabled, you&apos;ll earn 70% of ad revenue shown against your posts. This does not require BVN — that&apos;s only needed later, when you withdraw.
+        Once enabled, you&apos;ll earn 70% of ad revenue shown against your posts. This does not require NIN — that&apos;s only needed later, when you withdraw.
       </p>
 
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12, cursor: 'pointer' }}>

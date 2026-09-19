@@ -21,7 +21,7 @@ export default async function SettingsPage() {
     .select(`
       id, username, display_name,
       email, phone_number,
-      is_private, bvn_verified,
+      is_private, bvn_verified, nin_verified,
       language_preference,
       notif_push, notif_email
     `)
@@ -29,12 +29,6 @@ export default async function SettingsPage() {
     .single()
 
   if (!profile) redirect('/login')
-
-  const { data: interestRows } = await supabase
-    .from('user_interests')
-    .select('interest')
-    .eq('user_id', profile.id)
-  const initialInterests = (interestRows || []).map(r => r.interest)
 
   return (
     <div>
@@ -69,7 +63,7 @@ export default async function SettingsPage() {
         </h1>
       </div>
 
-      <SettingsClient profile={profile} initialInterests={initialInterests} />
+      <SettingsClient profile={profile} />
     </div>
   )
 }

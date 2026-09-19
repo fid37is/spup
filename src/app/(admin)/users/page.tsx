@@ -35,6 +35,7 @@ type UserRow = {
   followers_count: number
   posts_count: number
   bvn_verified: boolean
+  nin_verified: boolean
   is_monetised: boolean
   created_at: string
 }
@@ -47,7 +48,7 @@ async function getUsers(query: string, status: string, page: number) {
   let req = admin
     .from('users')
     .select(
-      'id, username, display_name, status, role, verification_tier, followers_count, posts_count, bvn_verified, is_monetised, created_at',
+      'id, username, display_name, status, role, verification_tier, followers_count, posts_count, bvn_verified, nin_verified, is_monetised, created_at',
       { count: 'exact' }
     )
     .is('deleted_at', null)
@@ -123,6 +124,23 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
       render: u => <span className="text-[13px] text-secondary">{formatNumber(u.followers_count || 0)}</span>,
     },
     {
+      key: 'nin',
+      header: 'NIN',
+      align: 'center',
+      mobileHidden: true,
+      render: u => (
+        <span
+          className="rounded px-1.5 py-0.5 text-[10px] font-bold"
+          style={{
+            color: u.nin_verified ? '#1A9E5F' : '#44444A',
+            background: u.nin_verified ? '#1A9E5F18' : 'var(--color-surface-3)',
+          }}
+        >
+          {u.nin_verified ? 'VERIFIED' : 'NO'}
+        </span>
+      ),
+    },
+    {
       key: 'bvn',
       header: 'BVN',
       align: 'center',
@@ -131,8 +149,8 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
         <span
           className="rounded px-1.5 py-0.5 text-[10px] font-bold"
           style={{
-            color: u.bvn_verified ? '#1A9E5F' : '#44444A',
-            background: u.bvn_verified ? '#1A9E5F18' : 'var(--color-surface-3)',
+            color: u.bvn_verified ? '#D4A017' : '#44444A',
+            background: u.bvn_verified ? '#D4A01718' : 'var(--color-surface-3)',
           }}
         >
           {u.bvn_verified ? 'VERIFIED' : 'NO'}

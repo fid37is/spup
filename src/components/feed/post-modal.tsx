@@ -1,11 +1,16 @@
 'use client'
 
-import { useState, useRef, useTransition } from 'react'
+import { useState, useRef, useTransition, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, ImageIcon, Camera, Mic, BarChart2, MapPin, Tag } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import MediaGrid from './media-grid'
+import SchedulePicker, { formatScheduled } from './schedule-picker'
+import DraftsPanel from './drafts-panel'
+import { saveDraft, deleteDraft, hasMeaningfulContent, newDraftId, type LocalDraft } from '@/lib/local-drafts'
+import { useToast } from '@/components/layout/toast'
 
 const MAX_CHARS = 500
 
@@ -20,6 +25,11 @@ interface PostModalProps {
     display_name: string
     avatar_url?: string | null
   }
+  // Local drafts are scoped to this id - omitted (no signed-in profile) just
+  // skips autosave. Scheduling and Drafts are only offered for original
+  // posts (no parentPostId) - replies/quotes can't be scheduled (see
+  // createPostSchema) and aren't the kind of thing people draft for later.
+  userId?: string
 }
 
 const AvatarCircle = ({ name, url, size = 44 }: { name: string; url?: string | null; size?: number }) => {
@@ -41,23 +51,82 @@ const AvatarCircle = ({ name, url, size = 44 }: { name: string; url?: string | n
   )
 }
 
-export default function PostModal({ onClose, parentPostId, replyTo, viewer }: PostModalProps) {
+export default function PostModal({ onClose, parentPostId, replyTo, viewer, userId }: PostModalProps) {
   const router = useRouter()
   const [body, setBody] = useState('')
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
   const [showMedia, setShowMedia] = useState(false)
   const [isSelling, setIsSelling] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null)
+  const [showDrafts, setShowDrafts] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
-  const { media, uploading, progress, error: uploadError, upload, remove, clear } = useMediaUpload({ maxFiles: 4 })
+  const mediaUpload = useMediaUpload({ maxFiles: 4 })
+  const { media, uploading, progress, error: uploadError, upload, remove, clear } = mediaUpload
+  const restoreMedia = 'restore' in mediaUpload ? mediaUpload.restore : undefined
+  const { success: toastSuccess } = useToast()
+
+  // Scheduling/drafts only make sense for a genuinely new original post.
+  const canScheduleOrDraft = !parentPostId
+
+  const draftIdRef = useRef<string>(newDraftId())
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const charsLeft = MAX_CHARS - body.length
   const isOverLimit = charsLeft < 0
   const isWarning = charsLeft <= 30
   const hasContent = body.trim().length > 0 || media.length > 0
   const canPost = hasContent && !isOverLimit && !isPending && !uploading && (!isSelling || body.trim().length > 0)
+
+  // Debounced local autosave - see local-drafts.ts. Only saves media that
+  // has actually finished uploading (a real Cloudinary URL survives a
+  // reload; an in-flight blob doesn't).
+  useEffect(() => {
+    if (!userId || !canScheduleOrDraft) return
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+    const uploadedMedia = media.filter(m => m.cloudinary_id)
+    if (!hasMeaningfulContent(body, uploadedMedia.length)) return
+    draftSaveTimer.current = setTimeout(() => {
+      saveDraft(userId, {
+        id: draftIdRef.current,
+        body,
+        media: uploadedMedia.map(m => ({
+          url: m.url, thumbnail_url: m.thumbnail_url, media_type: m.media_type as 'image' | 'video',
+          width: m.width ?? undefined, height: m.height ?? undefined, duration_secs: m.duration_secs ?? undefined,
+          size_bytes: m.size_bytes ?? undefined, cloudinary_id: m.cloudinary_id,
+        })),
+        isSelling,
+        updatedAt: new Date().toISOString(),
+      })
+    }, 800)
+    return () => { if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current) }
+  }, [userId, canScheduleOrDraft, body, media, isSelling])
+
+  function handleEditDraft(draft: LocalDraft) {
+    draftIdRef.current = draft.id
+    setBody(draft.body)
+    setIsSelling(draft.isSelling)
+    restore(draft.media.map(m => ({
+      id: `draft_${draft.id}_${m.url}`,
+      url: m.url,
+      thumbnail_url: m.thumbnail_url ?? null,
+      media_type: m.media_type,
+      cloudinary_id: m.cloudinary_id || '',
+      width: m.width ?? null,
+      height: m.height ?? null,
+      duration_secs: m.duration_secs ?? null,
+      size_bytes: m.size_bytes ?? null,
+    })))
+    setShowMedia(draft.media.length > 0)
+    setShowDrafts(false)
+    setError('')
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current
+      if (ta) { ta.focus(); ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
+    })
+  }
 
   const radius = 11
   const circumference = 2 * Math.PI * radius
@@ -77,6 +146,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
         body: body.trim() || undefined,
         parent_post_id: parentPostId,
         is_selling: isSelling || undefined,
+        scheduled_at: canScheduleOrDraft ? (scheduledAt || undefined) : undefined,
         media: readyMedia.length > 0 ? readyMedia.map(m => ({
           url: m.url,
           thumbnail_url: m.thumbnail_url || undefined,
@@ -89,14 +159,34 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
         })) : undefined,
       })
       if ('error' in result && result.error) { setError(result.error); return }
-      clear(); setIsSelling(false); onClose(); router.refresh()
+      if (userId) deleteDraft(userId, draftIdRef.current)
+      const wasScheduled = 'scheduled' in result && result.scheduled
+      const scheduledFor = 'scheduledFor' in result ? result.scheduledFor : undefined
+      clear(); setIsSelling(false); setScheduledAt(null); onClose()
+      if (wasScheduled && scheduledFor) {
+        toastSuccess(`Scheduled for ${formatScheduled(scheduledFor)}`)
+        // Not visible anywhere yet (see createPostAction) - nothing new for
+        // the page to reflect.
+        return
+      }
+      router.refresh()
     })
   }
 
   const viewerName = viewer?.display_name || 'Me'
 
-  return (
+  return createPortal(
     <>
+      {/* Portaled to <body> - globals.css sets `body > * { position: relative;
+          z-index: 1 }`, which caps every direct child of body (like the
+          .main-layout this modal would otherwise render inside) to its own
+          stacking context. Nested here, this modal's z-index only ever
+          competed against its siblings inside .main-layout, never against
+          other real body-level layers like DraftsPanel - so it could render
+          behind them regardless of its own z-index number. Making this a
+          sibling of .main-layout (same fix already applied to the mobile
+          compose sheet in floating-compose-btn.tsx) lets its z-index (200)
+          actually compare against theirs (DraftsPanel: 400). */}
       <style>{`
         @keyframes modalIn {
           from { opacity: 0; transform: translateY(-12px) scale(0.98); }
@@ -125,9 +215,9 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
           maxHeight: 'calc(100vh - 80px)',
         }}>
 
-          {/* Header: X close only — Post button lives in the toolbar */}
+          {/* Header: X close, and Drafts for original posts (Post button lives in the toolbar) */}
           <div style={{
-            display: 'flex', alignItems: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '12px 16px',
             borderBottom: '1px solid var(--color-border)',
             flexShrink: 0,
@@ -146,9 +236,21 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
             >
               <X size={18} />
             </button>
+            {canScheduleOrDraft && userId && (
+              <button
+                onClick={() => setShowDrafts(true)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--color-brand)', fontFamily: "'Syne', sans-serif",
+                  fontWeight: 700, fontSize: 14, padding: 4,
+                }}
+              >
+                Drafts
+              </button>
+            )}
           </div>
 
-          {/* Body — scrollable */}
+          {/* Body - scrollable */}
           <div style={{ padding: '16px 16px 0', overflowY: 'auto', flex: 1 }}>
 
             {/* Reply-to preview with thread line */}
@@ -234,10 +336,10 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
               </div>
             )}
 
-            {/* Selling toggle — only for original posts, not replies. No
+            {/* Selling toggle - only for original posts, not replies. No
                 separate item field: the post's own text is the description,
                 and it auto-fills the buyer's payment note (still editable
-                by the buyer) — see pay-vendor-button.tsx. */}
+                by the buyer) - see pay-vendor-button.tsx. */}
             {!parentPostId && (
               <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -267,9 +369,18 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
 
                 {isSelling && (
                   <p style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: 8 }}>
-                    Buyers will see a Pay button on this post — write what you&rsquo;re selling in your post above, it&rsquo;ll pre-fill their payment note.
+                    Buyers will see a Pay button on this post - write what you&rsquo;re selling in your post above, it&rsquo;ll pre-fill their payment note.
                   </p>
                 )}
+              </div>
+            )}
+
+            {scheduledAt && canScheduleOrDraft && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6, marginTop: 12,
+                fontSize: 13, color: 'var(--color-brand)', fontWeight: 600,
+              }}>
+                Will post on {formatScheduled(scheduledAt)}
               </div>
             )}
           </div>
@@ -283,7 +394,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
             flexShrink: 0,
           }}>
             <div style={{ display: 'flex', gap: 2, overflowX: 'auto' }}>
-              {/* Media upload — one button, accepts photos and videos together, matching the floating composer */}
+              {/* Media upload - one button, accepts photos and videos together, matching the floating composer */}
               <input
                 ref={mediaInputRef}
                 type="file"
@@ -317,6 +428,9 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
               <ToolbarBtn icon={<span style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid currentColor', borderRadius: 4, padding: '1px 3px', lineHeight: 1 }}>GIF</span>} label="Add GIF (coming soon)" onClick={() => {}} disabled />
               <ToolbarBtn icon={<BarChart2 size={18} />} label="Poll (coming soon)" onClick={() => {}} disabled />
               <ToolbarBtn icon={<MapPin size={18} />} label="Location (coming soon)" onClick={() => {}} disabled />
+              {canScheduleOrDraft && (
+                <SchedulePicker value={scheduledAt} onChange={setScheduledAt} />
+              )}
             </div>
 
             {/* Char counter + Post button */}
@@ -356,8 +470,8 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
                 }}
               >
                 {isPending
-                  ? (parentPostId ? 'Replying…' : 'Posting…')
-                  : (parentPostId ? 'Reply' : 'Post')
+                  ? (parentPostId ? 'Replying…' : scheduledAt ? 'Scheduling…' : 'Posting…')
+                  : (parentPostId ? 'Reply' : scheduledAt ? 'Schedule' : 'Post')
                 }
               </button>
             </div>
@@ -365,7 +479,16 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer }: Po
 
         </div>
       </div>
-    </>
+
+      {showDrafts && canScheduleOrDraft && userId && (
+        <DraftsPanel
+          userId={userId}
+          onClose={() => setShowDrafts(false)}
+          onEditDraft={handleEditDraft}
+        />
+      )}
+    </>,
+    document.body
   )
 }
 
@@ -396,4 +519,25 @@ function ToolbarBtn({ icon, label, onClick, disabled = false }: {
       {icon}
     </button>
   )
+}
+
+function restore(items: {
+  id: string
+  url: string
+  thumbnail_url: string | null
+  media_type: 'image' | 'video'
+  cloudinary_id: string
+  width: number | null
+  height: number | null
+  duration_secs: number | null
+  size_bytes: number | null
+}[]) {
+  return items.map(item => ({
+    ...item,
+    thumbnail_url: item.thumbnail_url ?? undefined,
+    width: item.width ?? undefined,
+    height: item.height ?? undefined,
+    duration_secs: item.duration_secs ?? undefined,
+    size_bytes: item.size_bytes ?? undefined,
+  }))
 }

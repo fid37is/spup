@@ -4,57 +4,100 @@
 import { useState, useRef, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  saveUsernameAction, checkUsernameAvailableAction,
-  saveAvatarAction, saveBioAction,
-  saveInterestsAction, completeOnboardingAction,
+  saveUsernameAction,
+  checkUsernameAvailableAction,
+  saveAvatarAction,
+  saveBioAction,
+  saveInterestsAction,
+  completeOnboardingAction,
 } from '@/lib/actions'
-import { getSuggestedAccountsAction } from '@/lib/actions/follows'
-import { toggleFollowAction } from '@/lib/actions/follows'
+import { getSuggestedAccountsAction, toggleFollowAction } from '@/lib/actions/follows'
 import { Alert } from '@/components/auth/form-field'
 import { NIGERIAN_INTERESTS } from '@/types'
-import { Check, CheckCircle, Upload, Loader, XCircle, ChevronLeft } from 'lucide-react'
+import {
+  Check,
+  CheckCircle,
+  Upload,
+  Loader,
+  XCircle,
+  ChevronLeft,
+} from 'lucide-react'
 
 const STEPS = ['Username', 'Photo', 'Bio', 'Interests', 'Follow']
 
 const BASE: React.CSSProperties = {
-  width: '100%', background: '#131318', border: '1px solid #1E1E26',
-  borderRadius: 10, padding: '11px 14px', color: '#F0F0EC',
-  fontSize: 15, outline: 'none', fontFamily: "'DM Sans', sans-serif",
+  width: '100%',
+  background: '#131318',
+  border: '1px solid #1E1E26',
+  borderRadius: 10,
+  padding: '11px 14px',
+  color: '#F0F0EC',
+  fontSize: 15,
+  outline: 'none',
+  fontFamily: "'DM Sans', sans-serif",
 }
+
 const LBL: React.CSSProperties = {
-  fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500,
+  fontSize: 12,
+  color: '#8A8A85',
+  display: 'block',
+  marginBottom: 6,
+  fontWeight: 500,
 }
+
 const BTN: React.CSSProperties = {
-  width: '100%', background: '#1A9E5F', color: 'white', border: 'none',
-  borderRadius: 10, padding: '13px', fontFamily: "'Syne', sans-serif",
-  fontWeight: 700, fontSize: 15, cursor: 'pointer', letterSpacing: '0.01em',
+  width: '100%',
+  background: '#1A9E5F',
+  color: 'white',
+  border: 'none',
+  borderRadius: 10,
+  padding: '13px',
+  fontFamily: "'Syne', sans-serif",
+  fontWeight: 700,
+  fontSize: 15,
+  cursor: 'pointer',
+  letterSpacing: '0.01em',
   transition: 'opacity 0.15s',
 }
+
 const SKIP_BTN: React.CSSProperties = {
-  width: '100%', background: 'none', border: 'none',
-  fontSize: 13, color: '#44444A', cursor: 'pointer',
-  fontFamily: "'DM Sans', sans-serif", padding: '8px 0',
+  width: '100%',
+  background: 'none',
+  border: 'none',
+  fontSize: 13,
+  color: '#44444A',
+  cursor: 'pointer',
+  fontFamily: "'DM Sans', sans-serif",
+  padding: '8px 0',
 }
 
 export default function OnboardingPage() {
   const router = useRouter()
+
   const [step, setStep] = useState(0)
-  // Track the highest step reached so we know what's "unlocked" for back nav
   const [maxStep, setMaxStep] = useState(0)
   const [error, setError] = useState('')
 
   // One transition per step — no bleed
-  const [pendingUsername,  startUsername]  = useTransition()
-  const [pendingAvatar,    startAvatar]    = useTransition()
-  const [pendingBio,       startBio]       = useTransition()
+  const [pendingUsername, startUsername] = useTransition()
+  const [pendingAvatar, startAvatar] = useTransition()
+  const [pendingBio, startBio] = useTransition()
   const [pendingInterests, startInterests] = useTransition()
-  const [pendingFinish,    startFinish]    = useTransition()
+  const [pendingFinish, startFinish] = useTransition()
 
-  const anyPending = pendingUsername || pendingAvatar || pendingBio || pendingInterests || pendingFinish
+  const anyPending =
+    pendingUsername ||
+    pendingAvatar ||
+    pendingBio ||
+    pendingInterests ||
+    pendingFinish
 
   // Step 0 — username
   const [username, setUsername] = useState('')
-  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'ok' | 'taken'>('idle')
+  const [usernameStatus, setUsernameStatus] = useState<
+    'idle' | 'checking' | 'ok' | 'taken'
+  >('idle')
+
   const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Step 1 — avatar
@@ -72,16 +115,27 @@ export default function OnboardingPage() {
 
   // Step 4 — follow
   const [followed, setFollowed] = useState<Set<string>>(new Set())
-  const [suggested, setSuggested] = useState<{
-    id: string; username: string; display_name: string; avatar_url: string | null;
-    bio: string | null; followers_count: number; verification_tier: string; is_monetised: boolean
-  }[]>([])
+
+  const [suggested, setSuggested] = useState<
+    {
+      id: string
+      username: string
+      display_name: string
+      avatar_url: string | null
+      bio: string | null
+      followers_count: number
+      verification_tier: string
+      is_monetised: boolean
+    }[]
+  >([])
+
   const [loadingSuggested, setLoadingSuggested] = useState(false)
 
   // ── Navigation helpers ───────────────────────────────────────────────────────
+
   function goToStep(target: number) {
-    // Only allow going to completed steps or current step
     if (target < 0 || target > maxStep || anyPending) return
+
     setError('')
     setStep(target)
   }
@@ -93,12 +147,23 @@ export default function OnboardingPage() {
   }
 
   // ── Username ─────────────────────────────────────────────────────────────────
+
   const checkUsername = useCallback((val: string) => {
-    if (checkTimer.current) clearTimeout(checkTimer.current)
-    if (!val || val.length < 3 || !/^[a-zA-Z0-9_]+$/.test(val)) {
-      setUsernameStatus('idle'); return
+    if (checkTimer.current) {
+      clearTimeout(checkTimer.current)
     }
+
+    if (
+      !val ||
+      val.length < 3 ||
+      !/^[a-zA-Z0-9_]+$/.test(val)
+    ) {
+      setUsernameStatus('idle')
+      return
+    }
+
     setUsernameStatus('checking')
+
     checkTimer.current = setTimeout(async () => {
       const { available } = await checkUsernameAvailableAction(val)
       setUsernameStatus(available ? 'ok' : 'taken')
@@ -106,7 +171,11 @@ export default function OnboardingPage() {
   }, [])
 
   function handleUsernameChange(val: string) {
-    const clean = val.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20)
+    const clean = val
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '')
+      .slice(0, 20)
+
     setUsername(clean)
     setError('')
     checkUsername(clean)
@@ -114,34 +183,56 @@ export default function OnboardingPage() {
 
   function submitUsername() {
     setError('')
+
     startUsername(async () => {
       const r = await saveUsernameAction(username)
-      if (r.error) { setError(r.error); return }
+
+      if (r.error) {
+        setError(r.error)
+        return
+      }
+
       advanceTo(1)
     })
   }
 
   // ── Avatar ───────────────────────────────────────────────────────────────────
-  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+
+  async function handleFileSelect(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
     const file = e.target.files?.[0]
+
     if (!file) return
+
     setUploadError('')
     setAvatarPreview(URL.createObjectURL(file))
     setUploading(true)
+
     try {
       const form = new FormData()
       form.append('file', file)
       form.append('type', 'avatar')
-      const res = await fetch('/api/upload', { method: 'POST', body: form })
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: form,
+      })
+
       const data = await res.json()
+
       if (!res.ok || !data.media?.url) {
-        setUploadError(data.error || 'Upload failed. Please try again.')
+        setUploadError(
+          data.error || 'Upload failed. Please try again.'
+        )
         setAvatarPreview(null)
       } else {
         setAvatarUrl(data.media.url)
       }
     } catch {
-      setUploadError('Upload failed. Check your connection and try again.')
+      setUploadError(
+        'Upload failed. Check your connection and try again.'
+      )
       setAvatarPreview(null)
     } finally {
       setUploading(false)
@@ -150,29 +241,44 @@ export default function OnboardingPage() {
 
   function submitAvatar() {
     setError('')
+
     if (!avatarUrl) {
       advanceTo(2)
       return
     }
+
     startAvatar(async () => {
       const r = await saveAvatarAction(avatarUrl)
-      if (r.error) { setError(r.error); return }
+
+      if (r.error) {
+        setError(r.error)
+        return
+      }
+
       advanceTo(2)
     })
   }
 
   // ── Bio ──────────────────────────────────────────────────────────────────────
+
   function submitBio() {
     setError('')
+
     startBio(async () => {
       const r = await saveBioAction(bio)
-      if (r.error) { setError(r.error); return }
+
+      if (r.error) {
+        setError(r.error)
+        return
+      }
+
       advanceTo(3)
     })
   }
 
   function skipBio() {
     setError('')
+
     startBio(async () => {
       await saveBioAction('')
       advanceTo(3)
@@ -180,22 +286,40 @@ export default function OnboardingPage() {
   }
 
   // ── Interests ────────────────────────────────────────────────────────────────
+
   function toggleInterest(id: string) {
     setInterests(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : prev.length < 10 ? [...prev, id] : prev
+      prev.includes(id)
+        ? prev.filter(i => i !== id)
+        : prev.length < 10
+          ? [...prev, id]
+          : prev
     )
+
     setError('')
   }
 
   function submitInterests() {
-    if (interests.length < 3) { setError('Pick at least 3 interests'); return }
+    if (interests.length < 3) {
+      setError('Pick at least 3 interests')
+      return
+    }
+
     setError('')
+
     startInterests(async () => {
       const r = await saveInterestsAction({ interests })
-      if (r.error) { setError(r.error); return }
+
+      if (r.error) {
+        setError(r.error)
+        return
+      }
+
       advanceTo(4)
+
       // Fetch interest-based suggestions when entering follow step
       setLoadingSuggested(true)
+
       getSuggestedAccountsAction(interests).then(accounts => {
         setSuggested(accounts)
         setLoadingSuggested(false)
@@ -204,21 +328,35 @@ export default function OnboardingPage() {
   }
 
   // ── Finish ───────────────────────────────────────────────────────────────────
+
   function toggleFollow(userId: string, username: string) {
     setFollowed(prev => {
       const next = new Set(prev)
-      next.has(username) ? next.delete(username) : next.add(username)
+
+      if (next.has(username)) {
+        next.delete(username)
+      } else {
+        next.add(username)
+      }
+
       return next
     })
+
     // Fire follow action (don't await — optimistic)
     void toggleFollowAction(userId)
   }
 
   function finish() {
     setError('')
+
     startFinish(async () => {
       const r = await completeOnboardingAction()
-      if (r?.error) { setError(r.error); return }
+
+      if (r?.error) {
+        setError(r.error)
+        return
+      }
+
       router.refresh()
       router.push('/feed')
     })
@@ -228,101 +366,281 @@ export default function OnboardingPage() {
 
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif" }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <style>{`
+        @keyframes spin {
+          to {
+            transform: rotate(360deg)
+          }
+        }
+      `}</style>
 
       {/* ── Progress bar ── */}
+
       <div style={{ marginBottom: 32 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginBottom: 10,
+          }}
+        >
           {STEPS.map((s, i) => {
             const isCompleted = i < step
-            const isCurrent   = i === step
-            const isReachable = i < step && !anyPending  // can click back
+            const isCurrent = i === step
+            const isReachable = i < step && !anyPending
 
             return (
               <div
                 key={i}
-                onClick={() => isReachable ? goToStep(i) : undefined}
+                onClick={() =>
+                  isReachable ? goToStep(i) : undefined
+                }
                 style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 4,
                   cursor: isReachable ? 'pointer' : 'default',
                   opacity: i > maxStep ? 0.4 : 1,
                   transition: 'opacity 0.2s',
                 }}
-                title={isReachable ? `Go back to ${s}` : undefined}
+                title={
+                  isReachable
+                    ? `Go back to ${s}`
+                    : undefined
+                }
               >
-                <div style={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  background: isCompleted ? '#1A9E5F' : isCurrent ? '#1A9E5F' : '#1E1E26',
-                  border: `2px solid ${i <= step ? '#1A9E5F' : '#2A2A2A'}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'all 0.3s',
-                  // Subtle hover ring on clickable completed steps
-                  boxShadow: isReachable ? '0 0 0 2px rgba(26,158,95,0.25)' : 'none',
-                }}>
-                  {isCompleted
-                    ? <Check size={13} color="white" />
-                    : <span style={{ fontSize: 11, fontWeight: 700, color: isCurrent ? 'white' : '#444', fontFamily: "'Syne', sans-serif" }}>{i + 1}</span>
-                  }
+                <div
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: '50%',
+                    background:
+                      isCompleted || isCurrent
+                        ? '#1A9E5F'
+                        : '#1E1E26',
+                    border: `2px solid ${
+                      i <= step ? '#1A9E5F' : '#2A2A2A'
+                    }`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.3s',
+                    boxShadow: isReachable
+                      ? '0 0 0 2px rgba(26,158,95,0.25)'
+                      : 'none',
+                  }}
+                >
+                  {isCompleted ? (
+                    <Check size={13} color="white" />
+                  ) : (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: isCurrent ? 'white' : '#444',
+                        fontFamily: "'Syne', sans-serif",
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                  )}
                 </div>
-                <span style={{
-                  fontSize: 10, fontWeight: isCurrent ? 700 : 400,
-                  color: isCurrent ? '#F0F0EC' : isCompleted ? '#6A9E8A' : '#44444A',
-                  textDecoration: isReachable ? 'underline' : 'none',
-                  textUnderlineOffset: 2,
-                }}>
+
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: isCurrent ? 700 : 400,
+                    color: isCurrent
+                      ? '#F0F0EC'
+                      : isCompleted
+                        ? '#6A9E8A'
+                        : '#44444A',
+                    textDecoration: isReachable
+                      ? 'underline'
+                      : 'none',
+                    textUnderlineOffset: 2,
+                  }}
+                >
                   {s}
                 </span>
               </div>
             )
           })}
         </div>
-        <div style={{ height: 3, background: '#1E1E26', borderRadius: 2 }}>
-          <div style={{ height: '100%', background: '#1A9E5F', borderRadius: 2, width: `${pct}%`, transition: 'width 0.4s ease' }} />
+
+        <div
+          style={{
+            height: 3,
+            background: '#1E1E26',
+            borderRadius: 2,
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              background: '#1A9E5F',
+              borderRadius: 2,
+              width: `${pct}%`,
+              transition: 'width 0.4s ease',
+            }}
+          />
         </div>
       </div>
 
       {error && <Alert type="error" message={error} />}
 
       {/* ── Step 0: Username ── */}
+
       {step === 0 && (
         <div>
-          <div style={{ textAlign: 'center', marginBottom: 28 }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 6 }}>
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: 28,
+            }}
+          >
+            <h2
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 800,
+                fontSize: 24,
+                color: '#F0F0EC',
+                letterSpacing: '-0.02em',
+                marginBottom: 6,
+              }}
+            >
               Choose your username
             </h2>
-            <p style={{ fontSize: 14, color: '#6A6A60' }}>This is how people find and mention you</p>
+
+            <p
+              style={{
+                fontSize: 14,
+                color: '#6A6A60',
+              }}
+            >
+              This is how people find and mention you
+            </p>
           </div>
+
           <div style={{ marginBottom: 20 }}>
             <label style={LBL}>Username</label>
+
             <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#44444A', fontSize: 15 }}>@</span>
+              <span
+                style={{
+                  position: 'absolute',
+                  left: 14,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#44444A',
+                  fontSize: 15,
+                }}
+              >
+                @
+              </span>
+
               <input
                 value={username}
-                onChange={e => handleUsernameChange(e.target.value)}
+                onChange={e =>
+                  handleUsernameChange(e.target.value)
+                }
                 placeholder="yourhandle"
                 maxLength={20}
                 autoFocus
                 style={{
-                  ...BASE, paddingLeft: 30, paddingRight: 40,
-                  borderColor: usernameStatus === 'taken' ? '#E53935' : usernameStatus === 'ok' ? '#1A9E5F' : '#1E1E26',
+                  ...BASE,
+                  paddingLeft: 30,
+                  paddingRight: 40,
+                  borderColor:
+                    usernameStatus === 'taken'
+                      ? '#E53935'
+                      : usernameStatus === 'ok'
+                        ? '#1A9E5F'
+                        : '#1E1E26',
                 }}
               />
-              <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)' }}>
-                {usernameStatus === 'checking' && <Loader size={16} color="#44444A" style={{ animation: 'spin 0.8s linear infinite' }} />}
-                {usernameStatus === 'ok'       && <CheckCircle size={16} color="#1A9E5F" />}
-                {usernameStatus === 'taken'    && <XCircle size={16} color="#E53935" />}
+
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 14,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                }}
+              >
+                {usernameStatus === 'checking' && (
+                  <Loader
+                    size={16}
+                    color="#44444A"
+                    style={{
+                      animation:
+                        'spin 0.8s linear infinite',
+                    }}
+                  />
+                )}
+
+                {usernameStatus === 'ok' && (
+                  <CheckCircle
+                    size={16}
+                    color="#1A9E5F"
+                  />
+                )}
+
+                {usernameStatus === 'taken' && (
+                  <XCircle
+                    size={16}
+                    color="#E53935"
+                  />
+                )}
               </div>
             </div>
-            <div style={{ marginTop: 6, fontSize: 12 }}>
-              {usernameStatus === 'taken' && <span style={{ color: '#E53935' }}>That username is taken. Try another.</span>}
-              {usernameStatus === 'ok'    && <span style={{ color: '#1A9E5F' }}>✓ Available</span>}
-              {usernameStatus === 'idle'  && <span style={{ color: '#44444A' }}>3–20 characters. Letters, numbers, underscores only.</span>}
+
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 12,
+              }}
+            >
+              {usernameStatus === 'taken' && (
+                <span style={{ color: '#E53935' }}>
+                  That username is taken. Try another.
+                </span>
+              )}
+
+              {usernameStatus === 'ok' && (
+                <span style={{ color: '#1A9E5F' }}>
+                  ✓ Available
+                </span>
+              )}
+
+              {usernameStatus === 'idle' && (
+                <span style={{ color: '#44444A' }}>
+                  3–20 characters. Letters, numbers,
+                  underscores only.
+                </span>
+              )}
             </div>
           </div>
+
           <button
             onClick={submitUsername}
-            disabled={pendingUsername || username.length < 3 || usernameStatus === 'taken' || usernameStatus === 'checking'}
-            style={{ ...BTN, opacity: (pendingUsername || username.length < 3 || usernameStatus === 'taken' || usernameStatus === 'checking') ? 0.45 : 1 }}
+            disabled={
+              pendingUsername ||
+              username.length < 3 ||
+              usernameStatus === 'taken' ||
+              usernameStatus === 'checking'
+            }
+            style={{
+              ...BTN,
+              opacity:
+                pendingUsername ||
+                username.length < 3 ||
+                usernameStatus === 'taken' ||
+                usernameStatus === 'checking'
+                  ? 0.45
+                  : 1,
+            }}
           >
             {pendingUsername ? 'Saving…' : 'Continue'}
           </button>
@@ -330,56 +648,203 @@ export default function OnboardingPage() {
       )}
 
       {/* ── Step 1: Avatar ── */}
+
       {step === 1 && (
         <div>
-          <button onClick={() => goToStep(0)} disabled={anyPending} style={{ ...SKIP_BTN, width: 'auto', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 16, color: '#6A6A60' }}>
-            <ChevronLeft size={15} /> Back
+          <button
+            onClick={() => goToStep(0)}
+            disabled={anyPending}
+            style={{
+              ...SKIP_BTN,
+              width: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              marginBottom: 16,
+              color: '#6A6A60',
+            }}
+          >
+            <ChevronLeft size={15} />
+            Back
           </button>
-          <div style={{ textAlign: 'center', marginBottom: 28 }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 6 }}>
-              Add a profile photo
-            </h2>
-            <p style={{ fontSize: 14, color: '#6A6A60' }}>Help people recognise you (optional)</p>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-            <div
-              onClick={() => !uploading && fileRef.current?.click()}
+
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: 28,
+            }}
+          >
+            <h2
               style={{
-                width: 120, height: 120, borderRadius: '50%',
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                background: avatarPreview ? 'transparent' : 'linear-gradient(135deg, #1A9E5F, #D4A017)',
-                border: '3px solid #1E1E26', position: 'relative', overflow: 'hidden',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 800,
+                fontSize: 24,
+                color: '#F0F0EC',
+                letterSpacing: '-0.02em',
+                marginBottom: 6,
               }}
             >
-              {avatarPreview
-                ? <img src={avatarPreview} alt="Avatar preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : uploading
-                  ? <Loader size={32} color="white" style={{ animation: 'spin 0.8s linear infinite' }} />
-                  : <div style={{ textAlign: 'center' }}>
-                      <Upload size={28} color="white" />
-                      <div style={{ fontSize: 11, color: 'white', marginTop: 4 }}>Upload</div>
-                    </div>
+              Add a profile photo
+            </h2>
+
+            <p
+              style={{
+                fontSize: 14,
+                color: '#6A6A60',
+              }}
+            >
+              Help people recognise you (optional)
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              marginBottom: 16,
+            }}
+          >
+            <div
+              onClick={() =>
+                !uploading && fileRef.current?.click()
               }
+              style={{
+                width: 120,
+                height: 120,
+                borderRadius: '50%',
+                cursor: uploading
+                  ? 'not-allowed'
+                  : 'pointer',
+                background: avatarPreview
+                  ? 'transparent'
+                  : 'linear-gradient(135deg, #1A9E5F, #D4A017)',
+                border: '3px solid #1E1E26',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {avatarPreview ? (
+                <img
+                  src={avatarPreview}
+                  alt="Avatar preview"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                  }}
+                />
+              ) : uploading ? (
+                <Loader
+                  size={32}
+                  color="white"
+                  style={{
+                    animation:
+                      'spin 0.8s linear infinite',
+                  }}
+                />
+              ) : (
+                <div style={{ textAlign: 'center' }}>
+                  <Upload size={28} color="white" />
+
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'white',
+                      marginTop: 4,
+                    }}
+                  >
+                    Upload
+                  </div>
+                </div>
+              )}
+
               {uploading && avatarPreview && (
-                <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Loader size={28} color="white" style={{ animation: 'spin 0.8s linear infinite' }} />
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Loader
+                    size={28}
+                    color="white"
+                    style={{
+                      animation:
+                        'spin 0.8s linear infinite',
+                    }}
+                  />
                 </div>
               )}
             </div>
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleFileSelect} style={{ display: 'none' }} />
+
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+            />
           </div>
-          {uploadError && <p style={{ textAlign: 'center', fontSize: 13, color: '#E57373', marginBottom: 12 }}>{uploadError}</p>}
-          {avatarUrl && !uploading && <p style={{ textAlign: 'center', fontSize: 13, color: '#1A9E5F', marginBottom: 12 }}>✓ Photo uploaded</p>}
+
+          {uploadError && (
+            <p
+              style={{
+                textAlign: 'center',
+                fontSize: 13,
+                color: '#E57373',
+                marginBottom: 12,
+              }}
+            >
+              {uploadError}
+            </p>
+          )}
+
+          {avatarUrl && !uploading && (
+            <p
+              style={{
+                textAlign: 'center',
+                fontSize: 13,
+                color: '#1A9E5F',
+                marginBottom: 12,
+              }}
+            >
+              ✓ Photo uploaded
+            </p>
+          )}
+
           <button
             onClick={submitAvatar}
             disabled={pendingAvatar || uploading}
-            style={{ ...BTN, opacity: (pendingAvatar || uploading) ? 0.6 : 1, marginBottom: 12 }}
+            style={{
+              ...BTN,
+              opacity:
+                pendingAvatar || uploading ? 0.6 : 1,
+              marginBottom: 12,
+            }}
           >
-            {uploading ? 'Uploading…' : pendingAvatar ? 'Saving…' : 'Continue'}
+            {uploading
+              ? 'Uploading…'
+              : pendingAvatar
+                ? 'Saving…'
+                : 'Continue'}
           </button>
+
           {!avatarUrl && (
-            <button onClick={() => advanceTo(2)} disabled={uploading} style={{ ...SKIP_BTN, opacity: uploading ? 0.4 : 1 }}>
+            <button
+              onClick={() => advanceTo(2)}
+              disabled={uploading}
+              style={{
+                ...SKIP_BTN,
+                opacity: uploading ? 0.4 : 1,
+              }}
+            >
               Skip for now
             </button>
           )}
@@ -387,157 +852,538 @@ export default function OnboardingPage() {
       )}
 
       {/* ── Step 2: Bio ── */}
+
       {step === 2 && (
         <div>
-          <button onClick={() => goToStep(1)} disabled={anyPending} style={{ ...SKIP_BTN, width: 'auto', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 16, color: '#6A6A60' }}>
-            <ChevronLeft size={15} /> Back
+          <button
+            onClick={() => goToStep(1)}
+            disabled={anyPending}
+            style={{
+              ...SKIP_BTN,
+              width: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              marginBottom: 16,
+              color: '#6A6A60',
+            }}
+          >
+            <ChevronLeft size={15} />
+            Back
           </button>
-          <div style={{ textAlign: 'center', marginBottom: 28 }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 6 }}>
+
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: 28,
+            }}
+          >
+            <h2
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 800,
+                fontSize: 24,
+                color: '#F0F0EC',
+                letterSpacing: '-0.02em',
+                marginBottom: 6,
+              }}
+            >
               Tell your story
             </h2>
-            <p style={{ fontSize: 14, color: '#6A6A60' }}>A short bio helps people know what you&apos;re about (optional)</p>
+
+            <p
+              style={{
+                fontSize: 14,
+                color: '#6A6A60',
+              }}
+            >
+              A short bio helps people know what
+              you&apos;re about (optional)
+            </p>
           </div>
+
           <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginBottom: 6,
+              }}
+            >
               <label style={LBL}>Bio</label>
-              <span style={{ fontSize: 11, color: bio.length > 140 ? '#E53935' : '#44444A' }}>{bio.length}/160</span>
+
+              <span
+                style={{
+                  fontSize: 11,
+                  color:
+                    bio.length > 140
+                      ? '#E53935'
+                      : '#44444A',
+                }}
+              >
+                {bio.length}/160
+              </span>
             </div>
+
             <textarea
               value={bio}
-              onChange={e => setBio(e.target.value.slice(0, 160))}
+              onChange={e =>
+                setBio(e.target.value.slice(0, 160))
+              }
               placeholder="Nigerian creator, football lover, tech enthusiast…"
               rows={4}
-              style={{ ...BASE, resize: 'none' }}
+              style={{
+                ...BASE,
+                resize: 'none',
+              }}
             />
           </div>
-          <button onClick={submitBio} disabled={pendingBio} style={{ ...BTN, opacity: pendingBio ? 0.6 : 1, marginBottom: 12 }}>
+
+          <button
+            onClick={submitBio}
+            disabled={pendingBio}
+            style={{
+              ...BTN,
+              opacity: pendingBio ? 0.6 : 1,
+              marginBottom: 12,
+            }}
+          >
             {pendingBio ? 'Saving…' : 'Continue'}
           </button>
-          <button onClick={skipBio} disabled={pendingBio} style={{ ...SKIP_BTN, opacity: pendingBio ? 0.5 : 1 }}>
+
+          <button
+            onClick={skipBio}
+            disabled={pendingBio}
+            style={{
+              ...SKIP_BTN,
+              opacity: pendingBio ? 0.5 : 1,
+            }}
+          >
             Skip for now
           </button>
         </div>
       )}
 
       {/* ── Step 3: Interests ── */}
+
       {step === 3 && (
         <div>
-          <button onClick={() => goToStep(2)} disabled={anyPending} style={{ ...SKIP_BTN, width: 'auto', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 16, color: '#6A6A60' }}>
-            <ChevronLeft size={15} /> Back
+          <button
+            onClick={() => goToStep(2)}
+            disabled={anyPending}
+            style={{
+              ...SKIP_BTN,
+              width: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              marginBottom: 16,
+              color: '#6A6A60',
+            }}
+          >
+            <ChevronLeft size={15} />
+            Back
           </button>
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 6 }}>
+
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: 24,
+            }}
+          >
+            <h2
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 800,
+                fontSize: 24,
+                color: '#F0F0EC',
+                letterSpacing: '-0.02em',
+                marginBottom: 6,
+              }}
+            >
               What are you into?
             </h2>
-            <p style={{ fontSize: 14, color: '#6A6A60' }}>
-              Pick at least 3 — we&apos;ll personalise your feed
+
+            <p
+              style={{
+                fontSize: 14,
+                color: '#6A6A60',
+              }}
+            >
+              Pick at least 3 — we&apos;ll personalise
+              your feed
               <br />
-              <span style={{ color: interests.length >= 3 ? '#1A9E5F' : '#44444A' }}>{interests.length}/10 selected</span>
+              <span
+                style={{
+                  color:
+                    interests.length >= 3
+                      ? '#1A9E5F'
+                      : '#44444A',
+                }}
+              >
+                {interests.length}/10 selected
+              </span>
             </p>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginBottom: 24,
+            }}
+          >
             {NIGERIAN_INTERESTS.map(interest => {
               const sel = interests.includes(interest.id)
+
               return (
                 <button
                   key={interest.id}
-                  onClick={() => toggleInterest(interest.id)}
+                  onClick={() =>
+                    toggleInterest(interest.id)
+                  }
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '8px 14px', borderRadius: 100,
-                    border: `1.5px solid ${sel ? '#1A9E5F' : '#1E1E26'}`,
-                    background: sel ? 'rgba(26,158,95,0.12)' : '#131318',
-                    color: sel ? '#1A9E5F' : '#8A8A85',
-                    fontSize: 13, fontWeight: sel ? 600 : 400,
-                    cursor: 'pointer', transition: 'all 0.15s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 14px',
+                    borderRadius: 100,
+                    border: `1.5px solid ${
+                      sel ? '#1A9E5F' : '#1E1E26'
+                    }`,
+                    background: sel
+                      ? 'rgba(26,158,95,0.12)'
+                      : '#131318',
+                    color: sel
+                      ? '#1A9E5F'
+                      : '#8A8A85',
+                    fontSize: 13,
+                    fontWeight: sel ? 600 : 400,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
                     fontFamily: "'DM Sans', sans-serif",
                   }}
                 >
-                  <span>{interest.emoji}</span>
+                  <interest.icon
+                    size={16}
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  />
+
                   {interest.label}
+
                   {sel && <Check size={11} />}
                 </button>
               )
             })}
           </div>
+
           <button
             onClick={submitInterests}
-            disabled={pendingInterests || interests.length < 3}
-            style={{ ...BTN, opacity: (pendingInterests || interests.length < 3) ? 0.45 : 1 }}
+            disabled={
+              pendingInterests ||
+              interests.length < 3
+            }
+            style={{
+              ...BTN,
+              opacity:
+                pendingInterests ||
+                interests.length < 3
+                  ? 0.45
+                  : 1,
+            }}
           >
-            {pendingInterests ? 'Saving…' : `Continue with ${interests.length} interest${interests.length !== 1 ? 's' : ''}`}
+            {pendingInterests
+              ? 'Saving…'
+              : `Continue with ${interests.length} interest${
+                  interests.length !== 1 ? 's' : ''
+                }`}
           </button>
         </div>
       )}
 
       {/* ── Step 4: Follow ── */}
+
       {step === 4 && (
         <div>
-          <button onClick={() => goToStep(3)} disabled={anyPending} style={{ ...SKIP_BTN, width: 'auto', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 16, color: '#6A6A60' }}>
-            <ChevronLeft size={15} /> Back
+          <button
+            onClick={() => goToStep(3)}
+            disabled={anyPending}
+            style={{
+              ...SKIP_BTN,
+              width: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              marginBottom: 16,
+              color: '#6A6A60',
+            }}
+          >
+            <ChevronLeft size={15} />
+            Back
           </button>
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 6 }}>
+
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: 24,
+            }}
+          >
+            <h2
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 800,
+                fontSize: 24,
+                color: '#F0F0EC',
+                letterSpacing: '-0.02em',
+                marginBottom: 6,
+              }}
+            >
               Follow some accounts
             </h2>
-            <p style={{ fontSize: 14, color: '#6A6A60' }}>
-              Based on your interests, here are accounts you might like
+
+            <p
+              style={{
+                fontSize: 14,
+                color: '#6A6A60',
+              }}
+            >
+              Based on your interests, here are accounts
+              you might like
             </p>
           </div>
+
           <div style={{ marginBottom: 24 }}>
             {loadingSuggested ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: '#6A6A60', fontSize: 14 }}>
-                <Loader size={20} style={{ animation: 'spin .8s linear infinite', marginBottom: 8 }} />
-                <p style={{ margin: 0 }}>Finding accounts based on your interests…</p>
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '32px 0',
+                  color: '#6A6A60',
+                  fontSize: 14,
+                }}
+              >
+                <Loader
+                  size={20}
+                  style={{
+                    animation:
+                      'spin .8s linear infinite',
+                    marginBottom: 8,
+                  }}
+                />
+
+                <p style={{ margin: 0 }}>
+                  Finding accounts based on your interests…
+                </p>
               </div>
             ) : suggested.length === 0 ? (
-              <p style={{ textAlign: 'center', color: '#6A6A60', fontSize: 14, padding: '24px 0' }}>
-                No suggestions available yet. You can follow people from the Explore page.
+              <p
+                style={{
+                  textAlign: 'center',
+                  color: '#6A6A60',
+                  fontSize: 14,
+                  padding: '24px 0',
+                }}
+              >
+                No suggestions available yet. You can
+                follow people from the Explore page.
               </p>
-            ) : suggested.map(acc => {
-              const colors = ['#1A7A4A','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A','#1A6A6A']
-              const bg = acc.avatar_url ? 'transparent' : colors[acc.username.charCodeAt(0) % colors.length]
-              const isFollowed = followed.has(acc.username)
-              return (
-                <div key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid #1A1A20' }}>
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: bg, flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, color: 'white' }}>
-                    {acc.avatar_url
-                      ? <img src={acc.avatar_url} alt={acc.display_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : acc.display_name.slice(0, 2).toUpperCase()
-                    }
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#F0F0EC', fontFamily: "'Syne', sans-serif", display: 'flex', alignItems: 'center', gap: 5 }}>
-                      {acc.display_name}
-                      {acc.verification_tier !== 'none' && (
-                        <span style={{ fontSize: 9, background: '#1A9E5F', color: 'white', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>✓</span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 12, color: '#44444A' }}>@{acc.username} · {acc.followers_count.toLocaleString()} followers</div>
-                    {acc.bio && <div style={{ fontSize: 12, color: '#6A6A60', marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{acc.bio}</div>}
-                  </div>
-                  <button
-                    onClick={() => toggleFollow(acc.id, acc.username)}
+            ) : (
+              suggested.map(acc => {
+                const colors = [
+                  '#1A7A4A',
+                  '#7A3A1A',
+                  '#1A4A7A',
+                  '#4A1A7A',
+                  '#7A6A1A',
+                  '#1A6A6A',
+                ]
+
+                const bg = acc.avatar_url
+                  ? 'transparent'
+                  : colors[
+                      acc.username.charCodeAt(0) %
+                        colors.length
+                    ]
+
+                const isFollowed = followed.has(
+                  acc.username
+                )
+
+                return (
+                  <div
+                    key={acc.id}
                     style={{
-                      padding: '7px 16px', borderRadius: 20, flexShrink: 0,
-                      border: `1.5px solid ${isFollowed ? '#2A2A2A' : '#1A9E5F'}`,
-                      background: isFollowed ? 'transparent' : '#1A9E5F',
-                      color: isFollowed ? '#6A6A60' : 'white',
-                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                      fontFamily: "'Syne', sans-serif", transition: 'all 0.15s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      padding: '14px 0',
+                      borderBottom:
+                        '1px solid #1A1A20',
                     }}
                   >
-                    {isFollowed ? 'Following' : 'Follow'}
-                  </button>
-                </div>
-              )
-            })}
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: '50%',
+                        background: bg,
+                        flexShrink: 0,
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontFamily:
+                          "'Syne', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 14,
+                        color: 'white',
+                      }}
+                    >
+                      {acc.avatar_url ? (
+                        <img
+                          src={acc.avatar_url}
+                          alt={acc.display_name}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                          }}
+                        />
+                      ) : (
+                        acc.display_name
+                          .slice(0, 2)
+                          .toUpperCase()
+                      )}
+                    </div>
+
+                    <div
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: '#F0F0EC',
+                          fontFamily:
+                            "'Syne', sans-serif",
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 5,
+                        }}
+                      >
+                        {acc.display_name}
+
+                        {acc.verification_tier !==
+                          'none' && (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              background: '#1A9E5F',
+                              color: 'white',
+                              padding: '1px 5px',
+                              borderRadius: 4,
+                              fontWeight: 700,
+                            }}
+                          >
+                            ✓
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: '#44444A',
+                        }}
+                      >
+                        @{acc.username} ·{' '}
+                        {acc.followers_count.toLocaleString()}{' '}
+                        followers
+                      </div>
+
+                      {acc.bio && (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: '#6A6A60',
+                            marginTop: 2,
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {acc.bio}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() =>
+                        toggleFollow(
+                          acc.id,
+                          acc.username
+                        )
+                      }
+                      style={{
+                        padding: '7px 16px',
+                        borderRadius: 20,
+                        flexShrink: 0,
+                        border: `1.5px solid ${
+                          isFollowed
+                            ? '#2A2A2A'
+                            : '#1A9E5F'
+                        }`,
+                        background: isFollowed
+                          ? 'transparent'
+                          : '#1A9E5F',
+                        color: isFollowed
+                          ? '#6A6A60'
+                          : 'white',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontFamily:
+                          "'Syne', sans-serif",
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {isFollowed
+                        ? 'Following'
+                        : 'Follow'}
+                    </button>
+                  </div>
+                )
+              })
+            )}
           </div>
-          <button onClick={finish} disabled={pendingFinish} style={{ ...BTN, marginBottom: 12, opacity: pendingFinish ? 0.6 : 1 }}>
-            {pendingFinish ? 'Setting up your feed…' : 'Go to Spup →'}
+
+          <button
+            onClick={finish}
+            disabled={pendingFinish}
+            style={{
+              ...BTN,
+              marginBottom: 12,
+              opacity: pendingFinish ? 0.6 : 1,
+            }}
+          >
+            {pendingFinish
+              ? 'Setting up your feed…'
+              : 'Go to Spup →'}
           </button>
-          <button onClick={finish} disabled={pendingFinish} style={{ ...SKIP_BTN, opacity: pendingFinish ? 0.5 : 1 }}>
+
+          <button
+            onClick={finish}
+            disabled={pendingFinish}
+            style={{
+              ...SKIP_BTN,
+              opacity: pendingFinish ? 0.5 : 1,
+            }}
+          >
             Skip for now
           </button>
         </div>

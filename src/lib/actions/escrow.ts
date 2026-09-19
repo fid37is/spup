@@ -90,7 +90,7 @@ export async function payVendorAction({
 
   const { data: seller } = await admin
     .from('users')
-    .select('id, username, status, bvn_verified')
+    .select('id, username, status, nin_verified')
     .eq('username', sellerUsername)
     .single()
 
@@ -100,10 +100,12 @@ export async function payVendorAction({
   }
   if (seller.id === buyer.id) return { error: "You can't pay yourself" }
 
-  // Require the seller to have completed BVN verification before they can
-  // *receive* escrow - same gate already enforced at withdrawal time, just
-  // applied a step earlier. Ties every seller to a real, traceable identity.
-  if (!seller.bvn_verified) {
+  // Require the seller to have completed NIN verification before they can
+  // *receive* escrow - same baseline gate already enforced at withdrawal
+  // time, just applied a step earlier. Ties every seller to a real,
+  // traceable identity. (BVN isn't involved here — it's only an extra
+  // check for large withdrawals, not for selling.)
+  if (!seller.nin_verified) {
     return { error: 'This vendor has not completed identity verification and cannot receive escrow payments yet' }
   }
 

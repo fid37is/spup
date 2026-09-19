@@ -21,6 +21,7 @@ interface EditProps {
     birthday_visibility?: string | null
     email?: string | null
     bvn_verified?: boolean
+    nin_verified?: boolean
   }
   onCancel: () => void
   onSaved: () => void
@@ -290,14 +291,14 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
           </div>
         )}
 
-        {/* Phone & BVN */}
+        {/* Phone & NIN */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', ...DIVIDER }}
           onClick={() => window.location.href = '/settings/verify-phone'}>
           <Phone size={15} color="var(--color-text-muted)" />
           <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0 }}>Phone & BVN</p>
-            <p style={{ fontSize: 14, margin: '2px 0 0', color: profile.bvn_verified ? 'var(--color-brand)' : 'var(--color-text-secondary)' }}>
-              {profile.bvn_verified ? 'Verified - withdrawals enabled' : 'Tap to verify'}
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0 }}>Phone & NIN</p>
+            <p style={{ fontSize: 14, margin: '2px 0 0', color: profile.nin_verified ? 'var(--color-brand)' : 'var(--color-text-secondary)' }}>
+              {profile.nin_verified ? 'Verified - withdrawals enabled' : 'Tap to verify'}
             </p>
           </div>
           <span style={{ fontSize: 16, color: 'var(--color-text-muted)' }}>›</span>

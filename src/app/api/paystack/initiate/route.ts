@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { BIG_TRANSACTION_THRESHOLD_KOBO } from '@/lib/constants'
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!
 const PAYSTACK_BASE = 'https://api.paystack.co'
@@ -26,13 +27,13 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('users')
-      .select('id, bvn_verified')
+      .select('id, nin_verified, bvn_verified')
       .eq('auth_id', user.id)
       .single()
 
     if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-    if (!profile.bvn_verified) {
-      return NextResponse.json({ error: 'BVN verification required before withdrawal' }, { status: 403 })
+    if (!profile.nin_verified) {
+      return NextResponse.json({ error: 'NIN verification required before withdrawal' }, { status: 403 })
     }
 
     // 5 attempts per hour per user — independent of the 14-day payout-cycle
@@ -82,6 +83,15 @@ export async function POST(request: NextRequest) {
 
     if (amount_kobo > wallet.balance_kobo) {
       return NextResponse.json({ error: 'Withdrawal amount exceeds available balance' }, { status: 400 })
+    }
+
+    // BVN is a second, additional check — only required once a withdrawal
+    // is genuinely large. Below the threshold, NIN alone (checked above)
+    // is enough. This keeps BVN out of the way for everyday use.
+    if (amount_kobo >= BIG_TRANSACTION_THRESHOLD_KOBO && !profile.bvn_verified) {
+      return NextResponse.json({
+        error: `BVN verification is required for withdrawals of ₦${(BIG_TRANSACTION_THRESHOLD_KOBO / 100).toLocaleString()} or more.`,
+      }, { status: 403 })
     }
 
     // Step 1: Create or reuse Paystack transfer recipient

@@ -1,9 +1,9 @@
-// src/app/(main)/settings/verify-bvn/page.tsx
+// src/app/(main)/settings/verify-nin/page.tsx
 'use client'
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { verifyBvnAction } from '@/lib/actions/bvn-kyc'
+import { verifyNinAction } from '@/lib/actions/nin-kyc'
 import { ArrowLeft, ShieldCheck, CheckCircle, Lock } from 'lucide-react'
 import Link from 'next/link'
 
@@ -14,25 +14,25 @@ const INP: React.CSSProperties = {
   transition: 'border-color 0.15s', letterSpacing: '0.1em',
 }
 
-type Stage = 'enter-bvn' | 'success'
+type Stage = 'enter-nin' | 'success'
 
-export default function VerifyBvnPage() {
+export default function VerifyNinPage() {
   const router = useRouter()
-  const [stage, setStage] = useState<Stage>('enter-bvn')
-  const [bvn, setBvn]         = useState('')
+  const [stage, setStage] = useState<Stage>('enter-nin')
+  const [nin, setNin]         = useState('')
   const [error, setError]     = useState('')
   const [pending, setPending] = useState(false)
 
   function handleChange(val: string) {
-    setBvn(val.replace(/\D/g, '').slice(0, 11))
+    setNin(val.replace(/\D/g, '').slice(0, 11))
     setError('')
   }
 
   function handleSubmit() {
-    if (bvn.length !== 11) { setError('BVN must be exactly 11 digits.'); return }
+    if (nin.length !== 11) { setError('NIN must be exactly 11 digits.'); return }
     setError('')
     setPending(true)
-    verifyBvnAction(bvn).then(r => {
+    verifyNinAction(nin).then(r => {
       setPending(false)
       if (r.error) { setError(r.error); return }
       setStage('success')
@@ -52,10 +52,10 @@ export default function VerifyBvnPage() {
             <CheckCircle size={36} color="#1A9E5F" />
           </div>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 10 }}>
-            BVN verified!
+            NIN verified!
           </h1>
           <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, marginBottom: 32 }}>
-            You can now withdraw large amounts too.
+            You can now withdraw your earnings, and your verified badge will appear on your profile.
           </p>
           <button
             onClick={() => router.push('/wallet')}
@@ -72,10 +72,10 @@ export default function VerifyBvnPage() {
             </div>
             <div>
               <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 4 }}>
-                Verify your BVN
+                Verify your NIN
               </h1>
               <p style={{ fontSize: 14, color: '#6A6A60', lineHeight: 1.5 }}>
-                Only needed for large withdrawals, as required by the CBN. Most people never need to do this — you&apos;ll only be asked if a withdrawal crosses the threshold.
+                Required once, before your first withdrawal. You can keep using Spup and earning without this until then.
               </p>
             </div>
           </div>
@@ -88,7 +88,7 @@ export default function VerifyBvnPage() {
 
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>
-              Bank Verification Number (BVN)
+              National Identification Number (NIN)
             </label>
             <div style={{ position: 'relative' }}>
               <Lock size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#44444A', pointerEvents: 'none' }} />
@@ -96,7 +96,7 @@ export default function VerifyBvnPage() {
                 type="text"
                 inputMode="numeric"
                 placeholder="12345678901"
-                value={bvn}
+                value={nin}
                 onChange={e => handleChange(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleSubmit() }}
                 autoFocus
@@ -104,22 +104,22 @@ export default function VerifyBvnPage() {
               />
             </div>
             <p style={{ fontSize: 12, color: '#44444A', marginTop: 6 }}>
-              Dial *565*0# on your registered line if you don&apos;t know your BVN. We never store your raw BVN — only a verification reference.
+              Dial *346# on your registered line to retrieve your NIN if you don&apos;t have it saved. We never store your raw NIN — only a verification reference.
             </p>
           </div>
 
           <button
             onClick={handleSubmit}
-            disabled={pending || bvn.length !== 11}
+            disabled={pending || nin.length !== 11}
             style={{
               width: '100%', background: '#1A9E5F', color: 'white', border: 'none',
               borderRadius: 10, padding: '13px', fontFamily: "'Syne', sans-serif",
               fontWeight: 700, fontSize: 15, cursor: 'pointer', letterSpacing: '0.01em',
-              opacity: (pending || bvn.length !== 11) ? 0.5 : 1,
+              opacity: (pending || nin.length !== 11) ? 0.5 : 1,
               transition: 'opacity 0.15s',
             }}
           >
-            {pending ? 'Verifying…' : 'Verify BVN'}
+            {pending ? 'Verifying…' : 'Verify NIN'}
           </button>
         </div>
       )}

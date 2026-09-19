@@ -58,12 +58,13 @@ export async function createPostAction(data: CreatePostSchema) {
   if (error) return { error: 'Failed to post. Please try again.' }
 
   // Extract #hashtags from the body and link them via post_hashtags - this
-  // is what powers interest-based feed personalisation (getForYouFeedAction),
-  // hashtag search, and Explore's trending tab. The extraction itself
-  // (regex + upsert + posts_count) already existed as a DB function from day
-  // one; nothing in the app ever called it, so hashtags/post_hashtags stayed
-  // permanently empty and every feature reading from them was silently a
-  // no-op. Fire-and-forget: a failure here shouldn't block the post itself.
+  // is what powers interest-based feed personalisation, hashtag search, and
+  // Explore's trending tab. The extraction itself (regex + upsert +
+  // posts_count) already existed as a DB function from day one
+  // (001_initial_schema.sql); nothing in the app ever called it, so
+  // hashtags/post_hashtags stayed permanently empty and every feature
+  // reading from them was silently a no-op. Fire-and-forget: a failure
+  // here shouldn't block the post itself.
   if (body?.trim()) {
     void supabase.rpc('process_post_hashtags', { p_post_id: post.id, p_body: body })
       .then(({ error }) => { if (error) console.error('process_post_hashtags failed:', error.message) })
@@ -234,20 +235,32 @@ export async function toggleLikeAction(postId: string) {
     .maybeSingle()
 
   if (existing) {
-    // Unlike
-    await supabase.from('likes').delete().match({ user_id: profile.id, post_id: postId })
-    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
+    // Unlike. .select() confirms a row was actually removed before we
+    // decrement - if a racing/duplicate call already deleted it, this
+    // second delete matches 0 rows and must NOT also decrement the count.
+    const { data: deleted } = await supabase
+      .from('likes').delete().match({ user_id: profile.id, post_id: postId })
+      .select('user_id')
+    if (deleted && deleted.length > 0) {
+      await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
+    }
     revalidatePath('/feed')
     revalidatePath(`/post/${postId}`)
     return { liked: false }
   }
 
-  // Like - use upsert to prevent duplicate likes at DB level
-  const { error: insertError } = await supabase
+  // Like - upsert prevents a duplicate row at the DB level, but with
+  // ignoreDuplicates:true a racing/duplicate call still "succeeds" as a
+  // silent no-op. .select() tells us whether a NEW row was actually
+  // inserted - only then do we bump the counter, or two overlapping calls
+  // insert exactly one like row but increment likes_count by 2.
+  const { data: insertedRows, error: insertError } = await supabase
     .from('likes')
     .upsert({ user_id: profile.id, post_id: postId }, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
+    .select('user_id')
 
   if (insertError) return { error: 'Failed to like post' }
+  if (!insertedRows || insertedRows.length === 0) return { liked: true }
 
   await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_like')
@@ -261,12 +274,15 @@ export async function toggleRepostAction(postId: string) {
   if (!profile) return { error: 'Not authenticated' }
   const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).maybeSingle()
   if (existing) {
-    await supabase.from('posts').delete().match({ id: existing.id })
-    await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
+    const { data: deleted } = await supabase.from('posts').delete().match({ id: existing.id }).select('id')
+    if (deleted && deleted.length > 0) {
+      await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
+    }
     revalidatePath('/feed')
     return { reposted: false }
   }
-  await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId })
+  const { data: inserted } = await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).select('id')
+  if (!inserted || inserted.length === 0) return { reposted: true }
   await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
   revalidatePath('/feed')
@@ -278,12 +294,12 @@ export async function toggleBookmarkAction(postId: string) {
   if (!profile) return { error: 'Not authenticated' }
   const { data: existing } = await supabase.from('bookmarks').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
   if (existing) {
-    await supabase.from('bookmarks').delete().match({ user_id: profile.id, post_id: postId })
-    bumpCounter(supabase, 'posts', 'bookmarks_count', postId, -1)
+    const { data: deleted } = await supabase.from('bookmarks').delete().match({ user_id: profile.id, post_id: postId }).select('id')
+    if (deleted && deleted.length > 0) bumpCounter(supabase, 'posts', 'bookmarks_count', postId, -1)
     return { bookmarked: false }
   }
-  await supabase.from('bookmarks').insert({ user_id: profile.id, post_id: postId })
-  bumpCounter(supabase, 'posts', 'bookmarks_count', postId, 1)
+  const { data: inserted } = await supabase.from('bookmarks').insert({ user_id: profile.id, post_id: postId }).select('id')
+  if (inserted && inserted.length > 0) bumpCounter(supabase, 'posts', 'bookmarks_count', postId, 1)
   return { bookmarked: true }
 }
 

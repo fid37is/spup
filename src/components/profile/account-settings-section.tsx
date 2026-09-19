@@ -3,7 +3,7 @@
 
 /**
  * Account settings rendered on the owner's /profile page.
- * Contains: username, email (read-only), phone/BVN, change password.
+ * Contains: username, email (read-only), phone/NIN, change password.
  * Deliberately keeps the same UI primitives (Row, Panel, etc.) from settings.
  * No changes required to ProfileHeader or ProfileTabs.
  */
@@ -22,7 +22,7 @@ interface AccountSettingsSectionProps {
   username: string
   email?: string | null
   phone_number?: string | null
-  bvn_verified?: boolean
+  nin_verified?: boolean
 }
 
 type Panel = null | 'username'
@@ -136,7 +136,7 @@ export default function AccountSettingsSection({
   username: initialUsername,
   email,
   phone_number,
-  bvn_verified,
+  nin_verified,
 }: AccountSettingsSectionProps) {
   const router = useRouter()
   const [panel,      setPanel]    = useState<Panel>(null)
@@ -252,12 +252,12 @@ export default function AccountSettingsSection({
           <Row icon={Shield} label="Email address" desc={email} />
         )}
 
-        {/* Phone & BVN */}
+        {/* Phone & NIN */}
         <Row
           icon={Phone}
-          label="Phone & BVN verification"
-          desc={bvn_verified ? 'Verified — withdrawals enabled' : 'Required to withdraw earnings'}
-          accentDesc={!!bvn_verified}
+          label="Phone & NIN verification"
+          desc={nin_verified ? 'Verified — withdrawals enabled' : 'Required to withdraw earnings'}
+          accentDesc={!!nin_verified}
           onClick={() => router.push('/settings/verify-phone')}
           last
         />

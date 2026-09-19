@@ -6,11 +6,12 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 // ============================================================
 // Monetisation opt-in.
 //
-// Deliberately independent of phone/BVN verification — KYC stays
-// deferred until withdrawal (see bvn-kyc.ts, paystack/initiate).
+// Deliberately independent of phone/NIN verification — KYC stays
+// deferred until withdrawal (see nin-kyc.ts, paystack/initiate).
 // A user can meet these growth criteria and start monetisation
-// with zero KYC done; they'll only be asked for BVN once they
-// actually try to withdraw.
+// with zero KYC done; they'll only be asked for NIN once they
+// actually try to withdraw (and BVN too, on top of that, only if
+// the withdrawal is large — see lib/constants.ts).
 //
 // Gating earnings on is_monetised (rather than crediting from
 // day one) also raises the cost of running fake accounts purely
