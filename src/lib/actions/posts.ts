@@ -215,14 +215,20 @@ export async function deletePostAction(postId: string) {
     .eq('id', postId)
     .single()
 
-  const { error } = await supabase.from('posts').update({ deleted_at: new Date().toISOString() }).match({ id: postId, user_id: profile.id })
-  if (error) {
-    // Logged with the real Postgres/PostgREST message (RLS denial, missing
-    // column, etc.) - the generic string below was making every failure
-    // mode look identical and impossible to diagnose from a toast alone.
-    console.error('[deletePostAction] update failed:', { postId, userId: profile.id, error })
-    return { error: `Could not delete post: ${error.message}` }
-  }
+  // Soft delete needs the service-role client: posts_public_read hides rows
+  // where deleted_at IS NOT NULL, and Postgres also checks the NEW row of an
+  // UPDATE against that SELECT policy, so a user-scoped client always gets
+  // "new row violates row-level security policy". Ownership is still enforced
+  // here by matching user_id from the verified session. `.is('deleted_at', null)`
+  // + `.select()` make a repeat/no-op delete an error instead of a silent
+  // success that would decrement the counters twice.
+  const { data: deleted, error } = await createAdminClient()
+    .from('posts')
+    .update({ deleted_at: new Date().toISOString() })
+    .match({ id: postId, user_id: profile.id })
+    .is('deleted_at', null)
+    .select('id')
+  if (error || !deleted?.length) return { error: 'Could not delete post.' }
   bumpCounter(supabase, 'users', 'posts_count', profile.id, -1)
 
   if (existingPost?.parent_post_id) {
