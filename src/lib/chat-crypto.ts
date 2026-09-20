@@ -151,6 +151,33 @@ async function unwrapPrivateKeyJwk(wrappedB64: string, saltB64: string, ivB64: s
   }
 }
 
+/**
+ * For changing the chat PIN: re-wraps the E2E private key under the NEW
+ * PIN+pepper password, so a new device can still recover it with the new PIN.
+ *
+ * Uses this device's cached key when there is one; otherwise unwraps the
+ * server's copy with the OLD password (throws WrongPasswordError if that
+ * doesn't open it). Returns null when no identity exists yet - nothing to
+ * re-wrap. The result is ready for uploadWrappedKeyAction().
+ */
+export async function rewrapKeyForNewPassword(opts: {
+  oldPassword: string
+  newPassword: string
+  fetchWrapped: () => Promise<{ wrapped: string; salt: string; iv: string } | null>
+}): Promise<{ wrapped: string; salt: string; iv: string } | null> {
+  let privJwk: JsonWebKey | null = null
+  const stored = localStorage.getItem(STORE_KEY)
+  if (stored) {
+    try { privJwk = JSON.parse(stored).priv as JsonWebKey } catch { privJwk = null }
+  }
+  if (!privJwk) {
+    const remote = await opts.fetchWrapped()
+    if (!remote) return null
+    privJwk = await unwrapPrivateKeyJwk(remote.wrapped, remote.salt, remote.iv, opts.oldPassword)
+  }
+  return wrapPrivateKeyJwk(privJwk, opts.newPassword)
+}
+
 // ── Shared key derivation ─────────────────────────────────────────────────────
 
 export async function deriveSharedKey(
