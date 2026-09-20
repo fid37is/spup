@@ -34,6 +34,7 @@ import PayVendorButton from '@/components/escrow/pay-vendor-button'
 import { GatedMedia } from '@/components/media/media-gate'
 import { linkifyPostText } from '@/components/shared/linkify'
 import ConfirmModal from '@/components/ui/confirm-modal'
+import VerifiedBadge from '@/components/ui/verified-badge'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -745,7 +746,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
               {original.author.display_name}
             </span>
             {original.author.verification_tier !== 'none' && (
-              <span style={{ fontSize: 10, background: 'var(--color-brand)', color: 'white', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>✓</span>
+              <VerifiedBadge tier={original.author.verification_tier} size={14} />
             )}
             <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{original.author.username}</span>
             <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
@@ -979,7 +980,7 @@ export default function PostCard({
                 {author?.display_name}
               </span>
               {author?.verification_tier !== 'none' && (
-                <span style={{ fontSize: 10, background: 'var(--color-brand)', color: 'white', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>✓</span>
+                <VerifiedBadge tier={author.verification_tier} size={14} />
               )}
               <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{author?.username}</span>
               <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>

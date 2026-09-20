@@ -14,6 +14,7 @@ import {
 import { getSuggestedAccountsAction, toggleFollowAction } from '@/lib/actions/follows'
 import { Alert } from '@/components/auth/form-field'
 import { NIGERIAN_INTERESTS } from '@/types'
+import VerifiedBadge from '@/components/ui/verified-badge'
 import {
   Check,
   CheckCircle,
@@ -1280,18 +1281,7 @@ export default function OnboardingPage() {
 
                         {acc.verification_tier !==
                           'none' && (
-                          <span
-                            style={{
-                              fontSize: 9,
-                              background: '#1A9E5F',
-                              color: 'white',
-                              padding: '1px 5px',
-                              borderRadius: 4,
-                              fontWeight: 700,
-                            }}
-                          >
-                            ✓
-                          </span>
+                          <VerifiedBadge tier={acc.verification_tier} size={13} />
                         )}
                       </div>
 

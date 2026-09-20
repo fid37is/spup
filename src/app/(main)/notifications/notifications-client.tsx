@@ -15,6 +15,7 @@ import {
   getNotificationsAction,
 } from '@/lib/actions/notifications'
 import { formatRelativeTime } from '@/lib/utils'
+import VerifiedBadge from '@/components/ui/verified-badge'
 
 type ActorShape = {
   id: string
@@ -318,12 +319,9 @@ export default function NotificationsClient({
                     >
                       {actor.display_name}
                       {actor.verification_tier !== 'none' && (
-                        <span style={{
-                          display: 'inline-block', fontSize: 9,
-                          background: 'var(--color-brand)', color: 'white',
-                          padding: '1px 4px', borderRadius: 4, fontWeight: 700,
-                          marginLeft: 4, verticalAlign: 'middle',
-                        }}>✓</span>
+                        <span style={{ display: 'inline-flex', marginLeft: 4, verticalAlign: 'middle' }}>
+                          <VerifiedBadge tier={actor.verification_tier} size={13} />
+                        </span>
                       )}
                     </Link>
                   )}{' '}

@@ -1,8 +1,9 @@
 // src/components/explore/user-card.tsx
 import Link from 'next/link'
-import { BadgeCheck, Star, ArrowUpRight } from 'lucide-react'
+import { Star, ArrowUpRight } from 'lucide-react'
 import { formatNumber } from '@/lib/utils'
 import SidebarFollowBtn from '@/components/layout/sidebar-follow-btn'
+import VerifiedBadge from '@/components/ui/verified-badge'
 
 export interface UserResult {
   id: string
@@ -49,9 +50,7 @@ export function UserCard({
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-primary)' }}>{u.display_name}</span>
           {u.verification_tier && u.verification_tier !== 'none' && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: '50%', background: u.verification_tier === 'organisation' ? '#D4A017' : 'var(--color-brand)' }}>
-              <BadgeCheck size={11} color="white" />
-            </span>
+            <VerifiedBadge tier={u.verification_tier} size={15} />
           )}
           {u.is_monetised && <Star size={12} fill="var(--color-gold)" stroke="none" />}
         </div>

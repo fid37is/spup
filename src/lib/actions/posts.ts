@@ -216,7 +216,13 @@ export async function deletePostAction(postId: string) {
     .single()
 
   const { error } = await supabase.from('posts').update({ deleted_at: new Date().toISOString() }).match({ id: postId, user_id: profile.id })
-  if (error) return { error: 'Could not delete post.' }
+  if (error) {
+    // Logged with the real Postgres/PostgREST message (RLS denial, missing
+    // column, etc.) - the generic string below was making every failure
+    // mode look identical and impossible to diagnose from a toast alone.
+    console.error('[deletePostAction] update failed:', { postId, userId: profile.id, error })
+    return { error: `Could not delete post: ${error.message}` }
+  }
   bumpCounter(supabase, 'users', 'posts_count', profile.id, -1)
 
   if (existingPost?.parent_post_id) {

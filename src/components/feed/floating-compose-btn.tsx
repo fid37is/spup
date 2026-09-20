@@ -31,6 +31,7 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
   const ticking = useRef(false)
   const composerRef = useRef<PostComposerHandle>(null)
   const [sheetHeight, setSheetHeight] = useState<number | null>(null)
+  const [sheetOffsetTop, setSheetOffsetTop] = useState(0)
 
   // Track the *visual* viewport, not the layout viewport. `position: fixed`
   // sized via inset:0 stays pinned to the full layout viewport on most mobile
@@ -39,17 +40,32 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
   // sitting above it. Listening to visualViewport and applying an explicit
   // height keeps the sheet (and everything pinned to its bottom) tracking
   // what's actually visible above the keyboard.
+  //
+  // Height alone isn't enough, though: when the keyboard opens, some mobile
+  // browsers also shift the visual viewport *down* relative to the layout
+  // viewport (visualViewport.offsetTop > 0) - e.g. while settling the page
+  // after the focused textarea's native "scroll into view". A `top: 0`
+  // element stays pinned to the layout viewport's top, which is now above
+  // what's actually visible, so its bottom edge falls short of the
+  // keyboard and whatever is behind it (the feed) shows through the gap.
+  // Applying offsetTop as a transform keeps the sheet's top edge glued to
+  // the true visible top, not just its height glued to the visible bottom.
   useEffect(() => {
     if (!open || !isMobile) return
     const vv = window.visualViewport
     if (!vv) return
 
-    function updateHeight() {
+    function updateViewport() {
       setSheetHeight(vv!.height)
+      setSheetOffsetTop(vv!.offsetTop)
     }
-    updateHeight()
-    vv.addEventListener('resize', updateHeight)
-    return () => vv.removeEventListener('resize', updateHeight)
+    updateViewport()
+    vv.addEventListener('resize', updateViewport)
+    vv.addEventListener('scroll', updateViewport)
+    return () => {
+      vv.removeEventListener('resize', updateViewport)
+      vv.removeEventListener('scroll', updateViewport)
+    }
   }, [open, isMobile])
 
   // Lock the underlying page while the mobile sheet is open. Without this,
@@ -179,6 +195,7 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 300,
             height: sheetHeight ? `${sheetHeight}px` : '100dvh',
+            transform: sheetOffsetTop ? `translateY(${sheetOffsetTop}px)` : undefined,
             background: 'var(--color-bg)',
             display: 'flex', flexDirection: 'column',
             animation: 'fadeIn 0.15s ease',
@@ -228,7 +245,7 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
                 line + toolbar to the bottom of this space via flex, so the
                 compose area genuinely stretches instead of everything
                 clustering at the top. */}
-            <div style={{ flex: 1, minHeight: 0, padding: '0 16px', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, minHeight: 0, padding: '0 16px', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
               <PostComposer
                 ref={composerRef}
                 variant="fullscreen"
