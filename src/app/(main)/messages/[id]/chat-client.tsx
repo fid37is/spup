@@ -3,17 +3,15 @@
 // src/app/(main)/messages/[id]/chat-client.tsx
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
-import { createPortal } from 'react-dom'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
   sendMessageAction, deleteMessageAction, uploadPublicKeyAction, getPublicKeyAction,
-  uploadWrappedKeyAction, getWrappedKeyAction, verifyChatPinAction,
+  verifyChatPinAction, getWrappedKeyAction, uploadWrappedKeyAction,
 } from '@/lib/actions/messages'
-import { recoverOrCreateKeyPair, deriveSharedKey, encryptMessage, decryptMessage, isEncrypted } from '@/lib/chat-crypto'
-import { getSessionPinMaterial } from '@/lib/chat-pin-session'
-import { ArrowLeft, Send, X, Trash2, CornerUpLeft, Lock, CheckCheck, Check, AlertCircle } from 'lucide-react'
+import { recoverOrCreateKeyPair, deriveSharedKey, encryptMessage, decryptMessage, isEncrypted, WrongPasswordError } from '@/lib/chat-crypto'
+import { getSessionPinMaterial, setSessionPinMaterial } from '@/lib/chat-pin-session'
+import { ArrowLeft, Send, X, Trash2, CornerUpLeft, Lock, CheckCheck, Check } from 'lucide-react'
 import Link from 'next/link'
-import ConfirmModal from '@/components/ui/confirm-modal'
 
 const AVATAR_COLORS = ['#1A9E5F','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A']
 
@@ -48,63 +46,18 @@ export default function ChatClient({
   const [replyTo,      setReplyTo]     = useState<Message | null>(null)
   const [, startTransition]            = useTransition()
   const [sharedKey,    setSharedKey]   = useState<CryptoKey | null>(null)
-  const [cryptoReady,  setCryptoReady] = useState(false)
   const [sendSuccess,  setSendSuccess] = useState(false)
   const [isPending,    setIsPending]   = useState(false)
 
-  // ── New-device key recovery: PIN prompt fallback ──────────────────────────
-  // The common path needs no prompt at all — PinGate (mounted on every
-  // messages page, see pin-gate.tsx) already collects the PIN and stashes
-  // PIN+pepper via chat-pin-session, so getKeyMaterial() below usually
-  // resolves instantly with no UI shown here. This modal only appears in
-  // the rare case where that session material isn't available (e.g.
-  // PinGate unlocked via its sessionStorage fast path earlier and this
-  // tab's in-memory material was since cleared) but a new device still
-  // needs to recover its E2E key. Correctness is checked server-side via
-  // verifyChatPinAction before the promise ever resolves, so a wrong PIN
-  // just re-shows this same prompt rather than needing a retry loop
-  // around recoverOrCreateKeyPair itself.
-  const [pinPrompt, setPinPrompt] = useState<{ error: string | null } | null>(null)
-  // Portaled to document.body below — see the note on ConfirmModal for why.
-  // (This dialog's zIndex was also previously 100, identical to the mobile
-  // bottom nav's — a tie that let DOM order decide, and the nav always won,
-  // covering the "Not now" / submit buttons.)
-  const [portalMounted, setPortalMounted] = useState(false)
-  useEffect(() => setPortalMounted(true), [])
-  const [pinInput,  setPinInput]  = useState('')
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
-  const [deletingMsg, setDeletingMsg] = useState(false)
-  const pinResolveRef = useRef<((material: string | null) => void) | null>(null)
-
-  const getKeyMaterial = useCallback((): Promise<string | null> => {
-    const cached = getSessionPinMaterial()
-    if (cached) return Promise.resolve(`${cached.pin}:${cached.pepper}`)
-    return new Promise(resolve => {
-      pinResolveRef.current = resolve
-      setPinPrompt({ error: null })
-    })
-  }, [])
-
-  async function submitPin() {
-    if (!/^\d{4}$/.test(pinInput)) return
-    const result = await verifyChatPinAction(pinInput)
-    if (!result.valid || !result.pepper) {
-      setPinPrompt({ error: 'Incorrect PIN — try again.' })
-      setPinInput('')
-      return
-    }
-    pinResolveRef.current?.(`${pinInput}:${result.pepper}`)
-    pinResolveRef.current = null
-    setPinInput('')
-    setPinPrompt(null)
-  }
-
-  function cancelPinPrompt() {
-    pinResolveRef.current?.(null)
-    pinResolveRef.current = null
-    setPinInput('')
-    setPinPrompt(null)
-  }
+  // Fallback PIN prompt for recoverOrCreateKeyPair(): only shown when
+  // getSessionPinMaterial() is empty (e.g. this tab reloaded after PinGate
+  // already unlocked it — sessionStorage still says "unlocked" so PinGate
+  // won't re-ask, but the in-memory PIN+pepper was cleared on reload).
+  const [pinPromptOpen,  setPinPromptOpen]  = useState(false)
+  const [pinDigits,      setPinDigits]      = useState('')
+  const [pinPromptError, setPinPromptError] = useState('')
+  const [pinBusy,        setPinBusy]        = useState(false)
+  const pinResolverRef = useRef<((password: string | null) => void) | null>(null)
 
   const bottomRef  = useRef<HTMLDivElement>(null)
   const inputRef   = useRef<HTMLTextAreaElement>(null)
@@ -134,35 +87,74 @@ export default function ChatClient({
     })()
   }, [sharedKey]) // only runs when key is ready, not on every message change
 
+  // Supplies recoverOrCreateKeyPair() with `${pin}:${pepper}`. The common
+  // case (PinGate unlocked this same page load) resolves instantly from the
+  // in-memory session material with no UI. Only when that's empty do we
+  // show a prompt — and only submitPinPrompt() resolves it, and only after
+  // verifyChatPinAction confirms the PIN against the server-side bcrypt
+  // hash, so a wrong PIN never gets passed through to the unwrap step.
+  const getPassword = useCallback((): Promise<string | null> => {
+    const cached = getSessionPinMaterial()
+    if (cached) return Promise.resolve(`${cached.pin}:${cached.pepper}`)
+    setPinPromptError('')
+    setPinDigits('')
+    setPinPromptOpen(true)
+    return new Promise<string | null>(resolve => { pinResolverRef.current = resolve })
+  }, [])
+
+  async function submitPinPrompt() {
+    if (pinDigits.length !== 4 || pinBusy) return
+    setPinBusy(true)
+    const result = await verifyChatPinAction(pinDigits)
+    setPinBusy(false)
+    if (!result.valid || !result.pepper) {
+      setPinPromptError('noPin' in result && result.noPin ? "No chat PIN is set for this account yet." : 'Incorrect PIN. Try again.')
+      setPinDigits('')
+      return
+    }
+    setSessionPinMaterial(pinDigits, result.pepper)
+    setPinPromptOpen(false)
+    pinResolverRef.current?.(`${pinDigits}:${result.pepper}`)
+    pinResolverRef.current = null
+  }
+
+  function cancelPinPrompt() {
+    setPinPromptOpen(false)
+    pinResolverRef.current?.(null) // recoverOrCreateKeyPair treats this as "cancelled" and leaves messages unencrypted
+    pinResolverRef.current = null
+  }
+
   // ── E2E crypto init ────────────────────────────────────────────────────────
   useEffect(() => {
     ;(async () => {
       try {
-        // No retry loop needed here: getKeyMaterial() above only ever
-        // resolves with a PIN that's already been confirmed correct
-        // (either by PinGate's prior unlock, or by submitPin's own
-        // verifyChatPinAction check) — so a WrongPasswordError at this
-        // point means something's actually corrupted, not a mistyped PIN.
-        const pair = await recoverOrCreateKeyPair({
-          fetchWrapped: async () => (await getWrappedKeyAction()).wrapped,
+        const { publicKeyB64, privateKey } = await recoverOrCreateKeyPair({
+          fetchWrapped: async () => (await getWrappedKeyAction()).wrapped ?? null,
           uploadWrapped: async (wrapped, salt, iv) => { await uploadWrappedKeyAction(wrapped, salt, iv) },
-          getPassword: getKeyMaterial,
+          getPassword,
         })
-
-        await uploadPublicKeyAction(pair.publicKeyB64)
+        await uploadPublicKeyAction(publicKeyB64)
 
         const { publicKey: theirKey } = await getPublicKeyAction(otherUser.id)
         if (theirKey) {
-          const shared = await deriveSharedKey(pair.privateKey, theirKey)
+          const shared = await deriveSharedKey(privateKey, theirKey)
           setSharedKey(shared)
         }
       } catch (e) {
-        console.warn('Crypto init failed — messages will be unencrypted', e)
+        if (e instanceof WrongPasswordError) {
+          // Only possible if the stored pepper doesn't match the wrapped
+          // key at all (data inconsistency) — a wrong PIN is already
+          // rejected inside submitPinPrompt before it ever gets here.
+          console.warn('Chat key recovery: PIN did not unlock the saved key', e)
+        } else {
+          console.warn('Crypto init failed — messages will be unencrypted', e)
+        }
       } finally {
-        setCryptoReady(true)
+        setPinPromptOpen(false)
+        pinResolverRef.current = null
       }
     })()
-  }, [otherUser.id, getKeyMaterial])
+  }, [otherUser.id, getPassword])
 
   // ── Request notification permission ───────────────────────────────────────
   useEffect(() => {
@@ -306,21 +298,10 @@ export default function ChatClient({
   }
 
   function handleDelete(msgId: string) {
-    setDeleteConfirmId(msgId)
-  }
-
-  function confirmDeleteMessage() {
-    const msgId = deleteConfirmId
-    if (!msgId) return
-    setDeletingMsg(true)
     setMessages(prev => prev.map(m =>
       m.id === msgId ? { ...m, is_deleted: true, body: null, _plaintext: undefined } : m
     ))
-    startTransition(async () => {
-      await deleteMessageAction(msgId)
-      setDeletingMsg(false)
-      setDeleteConfirmId(null)
-    })
+    startTransition(async () => { await deleteMessageAction(msgId) })
   }
 
   // ── Group by date ──────────────────────────────────────────────────────────
@@ -526,13 +507,6 @@ export default function ChatClient({
         </div>
       )}
 
-      {/* Encryption status banner — shown briefly when crypto is ready */}
-      {cryptoReady && !sharedKey && (
-        <div style={{ padding: '6px 16px', background: 'rgba(229,57,53,0.08)', borderTop: '1px solid rgba(229,57,53,0.15)', fontSize: 12, color: 'var(--color-error)', textAlign: 'center', flexShrink: 0 }}>
-          ⚠️ Encryption unavailable — {otherUser.display_name} hasn't set up their key yet
-        </div>
-      )}
-
       {/* Input */}
       <div style={{
         padding: '10px 16px',
@@ -587,6 +561,76 @@ export default function ChatClient({
         </button>
       </div>
 
+      {/* Fallback PIN prompt — only shown when recoverOrCreateKeyPair() needs
+          PIN material getSessionPinMaterial() didn't have (see getPassword above) */}
+      {pinPromptOpen && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'var(--overlay-bg)' }} />
+          <div style={{ position: 'fixed', inset: 0, zIndex: 501, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div style={{
+              background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+              borderRadius: 20, padding: 24, width: '100%', maxWidth: 320,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                <div style={{
+                  width: 52, height: 52, borderRadius: '50%', background: 'var(--color-brand)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Lock size={22} color="white" />
+                </div>
+              </div>
+              <h3 style={{ margin: '0 0 6px', textAlign: 'center', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--color-text-primary)' }}>
+                Confirm your chat PIN
+              </h3>
+              <p style={{ margin: '0 0 18px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                Needed to unlock your message history on this device
+              </p>
+              <input
+                value={pinDigits}
+                onChange={e => { setPinDigits(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinPromptError('') }}
+                onKeyDown={e => { if (e.key === 'Enter') void submitPinPrompt() }}
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={4}
+                autoFocus
+                placeholder="••••"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: 'var(--input-bg)', border: '1px solid var(--color-border)', borderRadius: 10,
+                  padding: '12px 14px', color: 'var(--color-text-primary)',
+                  fontSize: 20, letterSpacing: '0.6em', textAlign: 'center', outline: 'none',
+                  fontFamily: "'DM Sans', sans-serif", marginBottom: 12,
+                }}
+              />
+              {pinPromptError && (
+                <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--color-error)', textAlign: 'center' }}>
+                  {pinPromptError}
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={cancelPinPrompt}
+                  disabled={pinBusy}
+                  className="para-btn-ghost"
+                  style={{ flex: 1, padding: '12px 0', fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 600 }}
+                >
+                  Skip
+                </button>
+                <button
+                  onClick={() => void submitPinPrompt()}
+                  disabled={pinDigits.length !== 4 || pinBusy}
+                  className="para-btn-primary"
+                  style={{ flex: 1, padding: 12, fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 700 }}
+                >
+                  {pinBusy ? 'Checking…' : 'Unlock'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       <style>{`
         .msg-actions { touch-action: none; }
         @media (hover: hover) {
@@ -598,98 +642,6 @@ export default function ChatClient({
           .msg-actions { opacity: 0.45 !important; }
         }
       `}</style>
-
-      {/* New-device password prompt — only shown when this device has no
-          cached key but the server has one wrapped from another device. */}
-      {pinPrompt && portalMounted && createPortal(
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 300,
-          background: 'rgba(0,0,0,0.6)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: 20,
-        }}>
-          <div style={{
-            width: '100%', maxWidth: 360,
-            background: 'var(--color-bg)', border: '1px solid var(--color-border)',
-            borderRadius: 16, padding: 24,
-          }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: '50%', background: 'var(--color-surface-2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14,
-            }}>
-              <Lock size={18} color="var(--color-brand)" />
-            </div>
-            <h3 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--color-text-primary)', marginBottom: 6 }}>
-              Unlock encrypted messages
-            </h3>
-            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
-              This is a new device. Enter your chat PIN to unlock your encrypted message history here — the same 4-digit PIN you use to open chat.
-            </p>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              autoFocus
-              value={pinInput}
-              onChange={e => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              onKeyDown={e => { if (e.key === 'Enter' && pinInput.length === 4) submitPin() }}
-              placeholder="4-digit PIN"
-              style={{
-                width: '100%', padding: '11px 14px', marginBottom: pinPrompt.error ? 8 : 16,
-                background: 'var(--color-surface-2)', border: '1px solid var(--color-border)',
-                borderRadius: 10, fontSize: 18, letterSpacing: 6, textAlign: 'center',
-                color: 'var(--color-text-primary)',
-                fontFamily: "'DM Sans', sans-serif", outline: 'none',
-              }}
-            />
-            {pinPrompt.error && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
-                <AlertCircle size={13} color="var(--color-error)" />
-                <span style={{ fontSize: 12, color: 'var(--color-error)' }}>{pinPrompt.error}</span>
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                onClick={cancelPinPrompt}
-                style={{
-                  flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--color-border)',
-                  background: 'none', color: 'var(--color-text-secondary)', fontWeight: 700,
-                  fontFamily: "'Syne', sans-serif", fontSize: 14, cursor: 'pointer',
-                }}
-              >
-                Not now
-              </button>
-              <button
-                onClick={submitPin}
-                disabled={pinInput.length !== 4}
-                style={{
-                  flex: 1, padding: '11px', borderRadius: 10, border: 'none',
-                  background: pinInput.length === 4 ? 'var(--color-brand)' : 'var(--color-surface-2)',
-                  color: pinInput.length === 4 ? 'white' : 'var(--color-text-muted)',
-                  fontWeight: 700, fontFamily: "'Syne', sans-serif", fontSize: 14,
-                  cursor: pinInput.length === 4 ? 'pointer' : 'not-allowed',
-                }}
-              >
-                Unlock
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Delete message confirmation */}
-      <ConfirmModal
-        open={!!deleteConfirmId}
-        title="Delete message?"
-        description="This can't be undone. It will be removed for you and, if this chat is encrypted, from this device's history."
-        confirmLabel="Delete"
-        confirmingLabel="Deleting…"
-        destructive
-        pending={deletingMsg}
-        onConfirm={confirmDeleteMessage}
-        onCancel={() => setDeleteConfirmId(null)}
-      />
     </div>
   )
 }
