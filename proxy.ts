@@ -132,7 +132,11 @@ export async function proxy(request: NextRequest) {
     const isAuthRoute = AUTH_PASS.some(r => pathname.startsWith(r))
 
     if (isAuthRoute || isStatic || pathname.startsWith('/_next')) {
-      return withRefreshedCookies(NextResponse.next())
+      // Pass { request } so the route handler / page sees the cookies refreshed
+      // above. Without it they read the ORIGINAL request cookies, try to refresh
+      // with a refresh token this proxy already consumed (single-use), and
+      // getUser() comes back null - "session expired" right after signing in.
+      return withRefreshedCookies(NextResponse.next({ request }))
     }
 
     const rewriteUrl = request.nextUrl.clone()
@@ -141,7 +145,9 @@ export async function proxy(request: NextRequest) {
       : pathname.startsWith('/dashboard') ? pathname   // avoid double-prefixing /dashboard/dashboard
       : `/dashboard${pathname}`
 
-    const response = NextResponse.rewrite(rewriteUrl)
+    // { request } for the same reason as above: forward the refreshed cookies
+    // to the page/layout/server actions rather than the stale originals.
+    const response = NextResponse.rewrite(rewriteUrl, { request })
     return withRefreshedCookies(response)
   }
 

@@ -13,8 +13,13 @@ import { buildUserDataExport } from '@/lib/admin/user-data-export'
 
 export async function requireAdmin(allowModerator = true) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated', admin: null }
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (!user) {
+    // Logged so a "session expired" report can be traced to its real cause
+    // (e.g. "Invalid Refresh Token: Already Used", or no auth cookie at all).
+    console.error('[requireAdmin] no authenticated user:', authError?.message ?? 'no session cookie received')
+    return { error: 'Not authenticated', admin: null }
+  }
 
   const admin = createAdminClient()
   const { data: profile } = await admin
