@@ -93,7 +93,10 @@ export async function adminDeletePostAction(postId: string, reason: string) {
     .update({ deleted_at: new Date().toISOString() })
     .eq('id', postId)
 
-  if (deleteError) return { error: 'Delete failed' }
+  if (deleteError) {
+    console.error('[adminDeletePostAction] update failed:', { postId, error: deleteError })
+    return { error: `Delete failed: ${deleteError.message}` }
+  }
 
   // Notify author
   const { data: post } = await admin.from('posts').select('user_id').eq('id', postId).single()

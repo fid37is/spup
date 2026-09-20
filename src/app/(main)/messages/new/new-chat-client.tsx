@@ -7,6 +7,7 @@ import { getOrCreateConversationAction } from '@/lib/actions/messages'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Search, Loader2, UserPlus } from 'lucide-react'
 import Link from 'next/link'
+import VerifiedBadge from '@/components/ui/verified-badge'
 
 const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
 
@@ -158,12 +159,7 @@ export default function NewChatClient({ following }: { following: FollowUser[] }
                   {u.display_name}
                 </span>
                 {u.verification_tier !== 'none' && (
-                  <span style={{
-                    width: 15, height: 15, borderRadius: '50%',
-                    background: u.verification_tier === 'gold' ? '#D4A017' : 'var(--color-brand)',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 8, color: 'white', flexShrink: 0,
-                  }}>✓</span>
+                  <VerifiedBadge tier={u.verification_tier} size={14} />
                 )}
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 2 }}>

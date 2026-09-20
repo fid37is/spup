@@ -10,6 +10,7 @@ import { updateAvatarAction, updateBannerAction } from '@/lib/actions/profiles'
 import CropModal from './crop-modal'
 import ProfileHeaderView from './profile-header-view'
 import ProfileHeaderEdit from './profile-header-edit'
+import VerifiedBadge from '@/components/ui/verified-badge'
 
 type UploadTarget = 'avatar' | 'banner'
 
@@ -276,11 +277,12 @@ export default function ProfileHeader({
             {!editing && profile.verification_tier !== 'none' && (
               <div style={{
                 position: 'absolute', bottom: 2, right: 2,
-                width: 20, height: 20, borderRadius: '50%',
-                background: 'var(--color-brand)', border: '2px solid var(--color-bg)',
+                borderRadius: '50%', border: '2px solid var(--color-bg)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, color: 'white',
-              }}>✓</div>
+                lineHeight: 0,
+              }}>
+                <VerifiedBadge tier={profile.verification_tier} size={16} />
+              </div>
             )}
             <input ref={avatarRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
               style={{ display: 'none' }} onChange={onFileChange('avatar')} />
