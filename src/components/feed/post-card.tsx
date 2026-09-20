@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   MessageCircle, Repeat2, Heart, Send, BarChart2,
@@ -28,6 +29,7 @@ import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import type { FeedPost } from '@/lib/actions/feed'
 import { useToast } from '@/components/layout/toast'
 import MediaViewer from '@/components/feed/media-viewer'
+import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
 import PayVendorButton from '@/components/escrow/pay-vendor-button'
 import { GatedMedia } from '@/components/media/media-gate'
 import { linkifyPostText } from '@/components/shared/linkify'
@@ -71,7 +73,7 @@ function Avatar({
       onMouseLeave={e => { if (clickable) e.currentTarget.style.opacity = '1' }}
     >
       {avatarUrl
-        ? <img src={avatarUrl} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ? <img src={cloudinaryImage(avatarUrl, 128)} alt={name} loading="lazy" decoding="async" onError={fallbackToOriginal(avatarUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         : name.slice(0, 2).toUpperCase()
       }
     </div>
@@ -138,7 +140,7 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
       <video
         ref={videoRef}
-        src={src} playsInline loop muted={muted}
+        src={src} playsInline loop muted={muted} preload="metadata"
         onTimeUpdate={handleTimeUpdate}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -227,7 +229,7 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
           {m.media_type === 'image'
             ? <GatedMedia render={() => (
                 <img
-                  src={m.url} alt=""
+                  src={cloudinaryImage(m.url, 900)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(m.url)}
                   style={ratio
                     ? { width: '100%', height: '100%', objectFit: 'cover' }
                     : { display: 'block', width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: cap }
@@ -275,7 +277,7 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
             }}
           >
             {m.media_type === 'image'
-              ? <GatedMedia render={() => <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
+              ? <GatedMedia render={() => <img src={cloudinaryImage(m.url, 480)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(m.url)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
               : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} />} />
             }
           </div>
@@ -301,6 +303,9 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
   const { success, error: toastError } = useToast()
+  // Portaled to document.body below — see the note on ConfirmModal for why.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   function handleQuote() {
     if (!body.trim()) { setError('Add something to your quote.'); return }
@@ -312,7 +317,9 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
     })
   }
 
-  return (
+  if (!mounted) return null
+
+  return createPortal(
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'var(--overlay-bg)', zIndex: 200 }} />
       <div style={{
@@ -350,7 +357,8 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
         </div>
       </div>
       <style>{`@keyframes modalIn { from { opacity:0;transform:translateY(-10px) scale(0.98); } to { opacity:1;transform:none; } }`}</style>
-    </>
+    </>,
+    document.body
   )
 }
 
@@ -705,7 +713,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
           fontSize: 8, color: 'white', fontWeight: 800,
         }}>
           {post.author.avatar_url
-            ? <img src={post.author.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ? <img src={cloudinaryImage(post.author.avatar_url, 128)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(post.author.avatar_url)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             : post.author.display_name.slice(0, 1).toUpperCase()
           }
         </div>
@@ -784,6 +792,11 @@ export default function PostCard({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
+  // Portaled to document.body below — see the note on ConfirmModal for why
+  // (the mobile "more" action sheet would otherwise render trapped under
+  // the mobile bottom nav, no matter its own z-index).
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
   const router = useRouter()
   const { success, error: toastError, info } = useToast()
   const articleRef = useRef<HTMLElement>(null)
@@ -986,7 +999,7 @@ export default function PostCard({
               >
                 <MoreHorizontal size={16} />
               </button>
-              {showMenu && (isMobile ? (
+              {showMenu && (isMobile ? (mounted && createPortal(
                 <>
                   <div
                     onClick={e => { e.stopPropagation(); setShowMenu(false) }}
@@ -1012,8 +1025,9 @@ export default function PostCard({
                       size={18} fontSize={15} gap={12} padding="14px 16px" />
                   </div>
                   <style>{`@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
-                </>
-              ) : (
+                </>,
+                document.body
+              )) : (
                 <>
                   <div onClick={e => { e.stopPropagation(); setShowMenu(false) }} style={{ position: 'fixed', inset: 0, zIndex: 200 }} />
                   <div

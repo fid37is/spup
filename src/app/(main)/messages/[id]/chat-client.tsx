@@ -3,6 +3,7 @@
 // src/app/(main)/messages/[id]/chat-client.tsx
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
   sendMessageAction, deleteMessageAction, uploadPublicKeyAction, getPublicKeyAction,
@@ -64,6 +65,12 @@ export default function ChatClient({
   // just re-shows this same prompt rather than needing a retry loop
   // around recoverOrCreateKeyPair itself.
   const [pinPrompt, setPinPrompt] = useState<{ error: string | null } | null>(null)
+  // Portaled to document.body below — see the note on ConfirmModal for why.
+  // (This dialog's zIndex was also previously 100, identical to the mobile
+  // bottom nav's — a tie that let DOM order decide, and the nav always won,
+  // covering the "Not now" / submit buttons.)
+  const [portalMounted, setPortalMounted] = useState(false)
+  useEffect(() => setPortalMounted(true), [])
   const [pinInput,  setPinInput]  = useState('')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [deletingMsg, setDeletingMsg] = useState(false)
@@ -594,9 +601,9 @@ export default function ChatClient({
 
       {/* New-device password prompt — only shown when this device has no
           cached key but the server has one wrapped from another device. */}
-      {pinPrompt && (
+      {pinPrompt && portalMounted && createPortal(
         <div style={{
-          position: 'fixed', inset: 0, zIndex: 100,
+          position: 'fixed', inset: 0, zIndex: 300,
           background: 'rgba(0,0,0,0.6)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: 20,
@@ -667,7 +674,8 @@ export default function ChatClient({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Delete message confirmation */}

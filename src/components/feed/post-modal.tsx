@@ -63,7 +63,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
-  const mediaUpload = useMediaUpload({ maxFiles: 4 })
+  const mediaUpload = useMediaUpload()
   const { media, uploading, progress, error: uploadError, upload, remove, clear } = mediaUpload
   const restoreMedia = 'restore' in mediaUpload ? mediaUpload.restore : undefined
   const { success: toastSuccess } = useToast()

@@ -3,6 +3,7 @@
 
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   X, ChevronLeft, ChevronRight, MessageCircle,
@@ -259,6 +260,9 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose }: 
   const [replies,  setReplies] = useState<FeedPost[]>([])
   const [loading,  setLoading] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
+  // Portaled to document.body below — see the note on ConfirmModal for why.
+  const [mounted,  setMounted]  = useState(false)
+  useEffect(() => setMounted(true), [])
 
   const current = media[idx]
   const hasPrev = idx > 0
@@ -294,7 +298,7 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose }: 
     }
   }, [handleKey])
 
-  if (!current) return null
+  if (!current || !mounted) return null
 
   const navBtnStyle: React.CSSProperties = {
     position: 'absolute', zIndex: 10,
@@ -305,8 +309,12 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose }: 
     backdropFilter: 'blur(4px)', transition: 'background 0.15s',
   }
 
-  return (
+  return createPortal(
     <>
+      {/* Portaled to document.body — globals.css's `body > * { z-index: 1 }`
+          otherwise traps this full-screen viewer under the mobile bottom
+          nav regardless of its own z-index (300). See ConfirmModal for the
+          full explanation. */}
       <style>{`
         @keyframes mvFadeIn  { from { opacity:0 } to { opacity:1 } }
         @keyframes mvSlideIn { from { transform:translateX(40px);opacity:0 } to { transform:translateX(0);opacity:1 } }
@@ -393,6 +401,7 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose }: 
           />
         )}
       </div>
-    </>
+    </>,
+    document.body
   )
 }

@@ -16,8 +16,12 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2000,
+      // Was a fixed 2000ms regardless of how fast the app was ready. Now a
+      // 500ms safety cap; NativeSplashHider hides it earlier, as soon as the
+      // web app has mounted.
+      launchShowDuration: 500,
       launchAutoHide: true,
+      launchFadeOutDuration: 200,
       backgroundColor: '#0A0A0A',
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',

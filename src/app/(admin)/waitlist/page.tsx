@@ -5,9 +5,25 @@ import { formatRelativeTime } from '@/lib/utils'
 import WaitlistInviteButton from './invite-button'
 import BulkInvitePanel from './bulk-invite-panel'
 import { DataTable, type Column } from '@/components/admin/data-table'
+import { AdminPagination } from '@/components/admin/pagination'
+import { ExportButton } from '@/components/admin/export-button'
 import { getWaitlistOpenStatus } from '@/lib/queries/settings'
 
-interface SearchParams { status?: string }
+const PAGE_SIZE = 25
+const STATUSES = ['waiting', 'invited', 'joined'] as const
+type WaitlistStatus = (typeof STATUSES)[number]
+
+interface SearchParams { status?: string; page?: string }
+
+// Anything unrecognised falls back to the default tab rather than querying a status that can't exist.
+function parseStatus(raw?: string): WaitlistStatus {
+  return (STATUSES as readonly string[]).includes(raw ?? '') ? (raw as WaitlistStatus) : 'waiting'
+}
+
+function parsePage(raw?: string): number {
+  const n = Math.floor(Number(raw))
+  return Number.isFinite(n) && n >= 1 ? n : 1
+}
 
 type WaitlistRow = {
   id: string
@@ -21,18 +37,21 @@ type WaitlistRow = {
   invited_at: string | null
 }
 
-async function getWaitlist(params: SearchParams) {
+// Newest signups first. `position` breaks ties for entries created in the same
+// instant, so page boundaries stay stable while people keep joining.
+async function getWaitlist(status: WaitlistStatus, page: number) {
   const admin = createAdminClient()
-  const status = params.status || 'waiting'
+  const from = (page - 1) * PAGE_SIZE
 
-  const { data, count } = await admin
+  const { data } = await admin
     .from('waitlist')
-    .select('id, full_name, phone, email, referrer, position, status, created_at, invited_at', { count: 'exact' })
+    .select('id, full_name, phone, email, referrer, position, status, created_at, invited_at')
     .eq('status', status)
-    .order('position', { ascending: true })
-    .limit(100)
+    .order('created_at', { ascending: false })
+    .order('position', { ascending: false })
+    .range(from, from + PAGE_SIZE - 1)
 
-  return { entries: (data || []) as WaitlistRow[], total: count || 0 }
+  return (data || []) as WaitlistRow[]
 }
 
 async function getWaitlistCounts() {
@@ -47,10 +66,19 @@ async function getWaitlistCounts() {
 
 export default async function AdminWaitlistPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams
-  const [{ entries }, counts, waitlistOpen] = await Promise.all([
-    getWaitlist(params), getWaitlistCounts(), getWaitlistOpenStatus(),
-  ])
-  const activeStatus = params.status || 'waiting'
+  const activeStatus = parseStatus(params.status)
+
+  const [counts, waitlistOpen] = await Promise.all([getWaitlistCounts(), getWaitlistOpenStatus()])
+
+  // The tab's total comes from the counts, so an out-of-range ?page= (e.g. a
+  // stale bookmark after invites shrank the list) clamps to the last page
+  // instead of asking Postgres for rows past the end.
+  const activeTotal = counts[activeStatus]
+  const totalPages = Math.max(1, Math.ceil(activeTotal / PAGE_SIZE))
+  const page = Math.min(parsePage(params.page), totalPages)
+  const entries = await getWaitlist(activeStatus, page)
+  const firstShown = activeTotal === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const lastShown = (page - 1) * PAGE_SIZE + entries.length
 
   const TABS = [
     { key: 'waiting',  label: 'Waiting',  count: counts.waiting },
@@ -93,9 +121,15 @@ export default async function AdminWaitlistPage({ searchParams }: { searchParams
 
   return (
     <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
-      <div className="mb-6">
-        <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Waitlist</h1>
-        <p className="mt-0.5 text-sm text-faint">{counts.waiting + counts.invited + counts.joined} total signups</p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-extrabold tracking-tight text-primary">Waitlist</h1>
+          <p className="mt-0.5 text-sm text-faint">{counts.waiting + counts.invited + counts.joined} total signups</p>
+        </div>
+        <div className="flex flex-wrap items-start gap-2">
+          <ExportButton href={`/api/admin/export/waitlist?status=${activeStatus}`} label={`Export ${activeStatus} emails`} />
+          <ExportButton href="/api/admin/export/waitlist?status=all" label="Export all emails" />
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -135,6 +169,14 @@ export default async function AdminWaitlistPage({ searchParams }: { searchParams
       </div>
 
       <DataTable columns={columns} rows={entries} keyField="id" emptyMessage={`No ${activeStatus} entries`} />
+
+      {activeTotal > 0 && (
+        <p className="mt-3 text-center text-xs text-faint">
+          Showing {firstShown}–{lastShown} of {activeTotal.toLocaleString()} · newest first
+        </p>
+      )}
+
+      <AdminPagination page={page} totalPages={totalPages} basePath="/waitlist" extraParams={`status=${activeStatus}`} />
     </div>
   )
 }

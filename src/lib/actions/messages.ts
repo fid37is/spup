@@ -20,6 +20,10 @@ async function getCallerProfile() {
 
 // ── PIN ───────────────────────────────────────────────────────────────────────
 
+// Shown to the user instead of the raw database message (which can expose
+// table/column names). The real error is logged on the server.
+const PIN_SAVE_ERROR = "We couldn't set your PIN right now. Please try again in a moment."
+
 export async function setChatPinAction(pin: string) {
   if (!/^\d{4}$/.test(pin)) return { error: 'PIN must be exactly 4 digits' }
   const { supabase, profile } = await getCallerProfile()
@@ -29,8 +33,15 @@ export async function setChatPinAction(pin: string) {
   // (their wrapped E2E key was derived from the old pepper + old PIN —
   // rotating the pepper here would orphan it). Only generate a fresh one
   // the first time a PIN is ever set.
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('chat_pins').select('key_pepper').eq('user_id', profile.id).maybeSingle()
+  if (lookupError) {
+    // Don't carry on and mint a new pepper if we couldn't read the old one -
+    // that could orphan an existing wrapped key. Log the real cause for us,
+    // show the user something they can act on.
+    console.error('[setChatPinAction] could not read existing chat_pins row:', lookupError)
+    return { error: PIN_SAVE_ERROR }
+  }
   const key_pepper = existing?.key_pepper ?? nodeCrypto.randomBytes(32).toString('base64')
 
   const pin_hash = await bcrypt.hash(pin, 10)
@@ -38,7 +49,10 @@ export async function setChatPinAction(pin: string) {
     { user_id: profile.id, pin_hash, key_pepper, updated_at: new Date().toISOString() },
     { onConflict: 'user_id' }
   )
-  if (error) return { error: error.message }
+  if (error) {
+    console.error('[setChatPinAction] could not save PIN:', error)
+    return { error: PIN_SAVE_ERROR }
+  }
   // Returned once, immediately after the PIN this user just chose — safe
   // to hand back here since they've just proven they know it.
   return { success: true, pepper: key_pepper }

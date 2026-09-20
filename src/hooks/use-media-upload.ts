@@ -1,6 +1,9 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { MAX_MEDIA_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, selectFilesForPost, totalMediaBytes, type MediaKind } from '@/lib/media-limits'
+import { compressImageForUpload } from '@/lib/media-client'
+import { uploadMedia } from '@/lib/upload-media'
 
 export interface UploadedMedia {
   id: string
@@ -20,7 +23,7 @@ interface UseMediaUploadOptions {
   type?: 'post' | 'avatar' | 'banner'
 }
 
-export function useMediaUpload({ maxFiles = 4, type = 'post' }: UseMediaUploadOptions = {}) {
+export function useMediaUpload({ maxFiles = MAX_MEDIA_PER_POST, type = 'post' }: UseMediaUploadOptions = {}) {
   const [media, setMedia] = useState<UploadedMedia[]>([])
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -28,19 +31,33 @@ export function useMediaUpload({ maxFiles = 4, type = 'post' }: UseMediaUploadOp
 
   const upload = useCallback(async (files: FileList | File[]) => {
     const fileArray = Array.from(files)
-    const remaining = maxFiles - media.length
-    const toUpload = fileArray.slice(0, remaining)
+
+    // Post media is checked against the shared limits (type, per-file size,
+    // 4 items max, 2 videos max, 25MB total) *before* anything is sent - no point
+    // spending someone's slow data on an upload the server would reject.
+    let toUpload: File[]
+    let selectError: string | null = null
+    if (type === 'post') {
+      const existing: MediaKind[] = media.map(m => (m.media_type === 'video' ? 'video' : 'image'))
+      const selected = selectFilesForPost(existing, fileArray)
+      toUpload = selected.accepted
+      selectError = selected.error
+    } else {
+      toUpload = fileArray.slice(0, Math.max(0, maxFiles - media.length))
+    }
 
     if (toUpload.length === 0) {
-      setError(`Maximum ${maxFiles} files allowed`)
+      setError(selectError ?? `Maximum ${maxFiles} files allowed`)
       return
     }
 
-    setError('')
+    setError(selectError ?? '')
     setUploading(true)
     setProgress(0)
 
     const results: UploadedMedia[] = []
+    // Bytes already in this post (photos + videos), plus what we add below.
+    let mediaBytes = totalMediaBytes(media)
 
     for (let i = 0; i < toUpload.length; i++) {
       const file = toUpload[i]
@@ -61,25 +78,29 @@ export function useMediaUpload({ maxFiles = 4, type = 'post' }: UseMediaUploadOp
       }
       setMedia(prev => [...prev, placeholder])
 
-      const form = new FormData()
-      form.append('file', file)
-      form.append('type', type === 'post' ? (file.type.startsWith('video') ? 'video' : 'image') : type)
+      // Phone photos are often 3-8MB; shrink before sending (photos only).
+      const toSend = file.type.startsWith('image/') ? await compressImageForUpload(file) : file
+
+      if (mediaBytes + toSend.size > MAX_POST_MEDIA_BYTES) {
+        setMedia(prev => prev.filter(m => m.id !== placeholder.id))
+        URL.revokeObjectURL(localPreview)
+        setError(POST_MEDIA_TOO_BIG)
+        continue
+      }
+      mediaBytes += toSend.size
 
       try {
-        const res = await fetch('/api/upload', { method: 'POST', body: form })
-        const data = await res.json()
+        // Straight to Cloudinary from the phone (signed by /api/upload/signature),
+        // with real progress and automatic retry if the connection drops.
+        const kind = type === 'post' ? (file.type.startsWith('video') ? 'video' : 'image') : type
+        const result = await uploadMedia(toSend, kind, pct => {
+          setProgress(Math.round(((i + pct / 100) / toUpload.length) * 100))
+        })
 
-        if (!res.ok || data.error) {
-          setMedia(prev => prev.filter(m => m.id !== placeholder.id))
-          setError(data.error || 'Upload failed')
-          URL.revokeObjectURL(localPreview)
-          continue
-        }
-
-        // API response has no `id` (DB insert happens later in createPostAction).
+        // No DB row yet (that happens later in createPostAction).
         // Use a stable client-side id so m.id is never undefined in MediaGrid.
         const uploaded: UploadedMedia = {
-          ...data.media,
+          ...result,
           id: `uploaded-${placeholder.id}`,
           localPreview,
         }
@@ -89,9 +110,9 @@ export function useMediaUpload({ maxFiles = 4, type = 'post' }: UseMediaUploadOp
         setMedia(prev => prev.map(m => m.id === placeholder.id ? uploaded : m))
         setProgress(Math.round(((i + 1) / toUpload.length) * 100))
 
-      } catch {
+      } catch (err) {
         setMedia(prev => prev.filter(m => m.id !== placeholder.id))
-        setError('Upload failed. Check your connection.')
+        setError(err instanceof Error && err.message ? err.message : 'Upload failed. Check your connection.')
         URL.revokeObjectURL(localPreview)
       }
     }

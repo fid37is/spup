@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { v2 as cloudinary } from 'cloudinary'
+import {
+  ALLOWED_IMAGE_TYPES, ALLOWED_VIDEO_TYPES,
+  MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MAX_IMAGE_LABEL, MAX_VIDEO_LABEL,
+} from '@/lib/media-limits'
 
 cloudinary.config({
   cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
@@ -9,11 +13,8 @@ cloudinary.config({
   secure: true,
 })
 
-// Allowed file types and size limits
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/mov', 'video/avi', 'video/webm']
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024   // 10MB
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024  // 100MB
+// Allowed file types and size limits live in one shared place so the
+// composers, this route and the post schema always agree.
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,13 +49,13 @@ export async function POST(request: NextRequest) {
 
     if (!isImage && !isVideo) {
       return NextResponse.json({
-        error: `File type ${mimeType} not allowed. Use JPEG, PNG, GIF, WebP, or MP4.`
+        error: `File type ${mimeType} not allowed. Use JPEG, PNG, GIF, WebP, MP4, MOV or WebM.`
       }, { status: 400 })
     }
 
-    const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE
+    const maxSize = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES
     if (file.size > maxSize) {
-      const limitLabel = isVideo ? '100MB' : '10MB'
+      const limitLabel = isVideo ? MAX_VIDEO_LABEL : MAX_IMAGE_LABEL
       return NextResponse.json({ error: `File too large. Maximum size is ${limitLabel}.` }, { status: 400 })
     }
 

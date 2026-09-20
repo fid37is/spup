@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle, Lock,
@@ -180,6 +181,10 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   const [lang,       setLang]       = useState(profile.language_preference || 'en')
   const [autoplay,   setAutoplay]   = useState(profile.autoplay_preference || 'wifi')
   const [showDelete,  setShowDelete]  = useState(false)
+  // The delete sheet is portaled to document.body (so it isn't trapped under
+  // the mobile bottom nav); document only exists once mounted on the client.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
   const [deleteInput, setDeleteInput] = useState('')
   const [deleting,    setDeleting]    = useState(false)
 
@@ -667,7 +672,7 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
       </Card>
 
       {/* ── Delete confirmation sheet ─────────────────────────────────────── */}
-      {showDelete && (
+      {showDelete && mounted && createPortal(
         <>
           <div
             onClick={() => { setShowDelete(false); setDeleteInput(''); setDeletePass(''); setDeletePassErr('') }}
@@ -785,7 +790,8 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
               </div>
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>

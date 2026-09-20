@@ -2,6 +2,8 @@
 // Server-only — never import this from client components.
 // Uses Resend (https://resend.com) to send transactional emails.
 
+import { toBase64 } from '@/lib/admin/export'
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY!
 const FROM_EMAIL     = process.env.EMAIL_FROM || 'Spup <noreply@spup.ng>'
 const APP_URL        = process.env.NEXT_PUBLIC_APP_URL || 'https://spup.ng'
@@ -25,7 +27,18 @@ interface SendEmailOptions {
 
 // ─── Core send function ───────────────────────────────────────────────────────
 
-async function sendEmail(to: string, subject: string, html: string): Promise<{ id?: string; error?: string }> {
+interface EmailAttachment {
+  filename: string
+  /** Base64-encoded file content. */
+  content: string
+}
+
+async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: EmailAttachment[],
+): Promise<{ id?: string; error?: string }> {
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -33,7 +46,10 @@ async function sendEmail(to: string, subject: string, html: string): Promise<{ i
         Authorization: `Bearer ${RESEND_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ from: FROM_EMAIL, to, subject, html }),
+      body: JSON.stringify({
+        from: FROM_EMAIL, to, subject, html,
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      }),
     })
 
     const data = await res.json()
@@ -47,7 +63,10 @@ async function sendEmail(to: string, subject: string, html: string): Promise<{ i
 
 // ─── Shared layout wrapper ────────────────────────────────────────────────────
 
-function wrap(content: string) {
+function wrap(content: string, footerHtml?: string) {
+  const footer = footerHtml ?? `You&apos;re receiving this because you have email notifications enabled.<br />
+      <a href="${APP_URL}/settings/notifications">Manage notification preferences</a> &nbsp;·&nbsp;
+      <a href="${APP_URL}/settings">Account settings</a>`
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -76,9 +95,7 @@ function wrap(content: string) {
     <div class="header"><span class="logo">Spup</span></div>
     <div class="body">${content}</div>
     <div class="footer">
-      You&apos;re receiving this because you have email notifications enabled.<br />
-      <a href="${APP_URL}/settings/notifications">Manage notification preferences</a> &nbsp;·&nbsp;
-      <a href="${APP_URL}/settings">Account settings</a>
+      ${footer}
     </div>
   </div>
 </body>
@@ -219,6 +236,43 @@ function waitlistInviteEmail(d: { name: string; subject: string; message: string
 export async function sendWaitlistInviteEmail(to: string, data: { name: string; subject: string; message: string }): Promise<{ id?: string; error?: string }> {
   const template = waitlistInviteEmail(data)
   return sendEmail(to, template.subject, template.html)
+}
+
+// ─── User data export (data-access request) ──────────────────────────────────
+// Sent by an admin via adminEmailUserDataAction, always to the address on the
+// account itself. The JSON export is attached; the body only describes it.
+
+function escapeHtml(s: string) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function userDataExportEmail(d: { name: string }) {
+  const firstName = escapeHtml(d.name.split(' ')[0] || 'there')
+  return {
+    subject: 'Your Spup data export',
+    html: wrap(`
+      <h1>Your data export is attached</h1>
+      <p>Hi ${firstName},</p>
+      <p>We received a request for a copy of the personal information Spup holds about your account. It&apos;s attached to this email as a JSON file you can open in any text editor.</p>
+      <p>It covers your profile, posts, wallet and transaction history, follows, notifications and related account activity. Direct messages are end-to-end encrypted, so they aren&apos;t included, and security credentials are left out on purpose.</p>
+      <p class="muted">This file contains personal information, so keep it somewhere safe and avoid forwarding it. If you didn&apos;t ask for this, please <a href="${APP_URL}/contact">contact us</a> straight away.</p>
+    `, `You&apos;re receiving this because a data request was made for your Spup account.<br />
+      <a href="${APP_URL}/contact">Contact us</a> &nbsp;·&nbsp; <a href="${APP_URL}/privacy">Privacy policy</a>`),
+  }
+}
+
+// Resend caps a whole message at 40MB (base64 inflates by ~1/3); stay well under.
+const MAX_EXPORT_BYTES = 20 * 1024 * 1024
+
+export async function sendUserDataExportEmail(
+  to: string,
+  data: { name: string; filename: string; json: string },
+): Promise<{ id?: string; error?: string }> {
+  if (new TextEncoder().encode(data.json).length > MAX_EXPORT_BYTES) {
+    return { error: 'The export is too large to email - download it instead' }
+  }
+  const template = userDataExportEmail(data)
+  return sendEmail(to, template.subject, template.html, [{ filename: data.filename, content: toBase64(data.json) }])
 }
 
 // ─── Public dispatch function ─────────────────────────────────────────────────

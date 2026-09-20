@@ -4,7 +4,10 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
-import { sendWaitlistInviteEmail } from '@/lib/email/send'
+import { sendWaitlistInviteEmail, sendUserDataExportEmail } from '@/lib/email/send'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { fetchAllRows, maskEmail } from '@/lib/admin/export'
+import { buildUserDataExport } from '@/lib/admin/user-data-export'
 
 // ─── Guard: caller must be admin or moderator ─────────────────────────────────
 
@@ -239,15 +242,26 @@ export async function adminBulkInviteWaitlistAction({
     return { error: 'Subject and message are required' }
   }
 
-  const { data: entries, error: fetchError } = await admin
-    .from('waitlist')
-    .select('id, full_name, email')
-    .eq('status', 'waiting')
-
-  if (fetchError) return { error: 'Could not load waitlist' }
-
   type WaitlistEntry = { id: string; full_name: string; email: string | null }
-  const all = (entries || []) as WaitlistEntry[]
+
+  // A plain .select() returns at most 1000 rows (PostgREST's default cap) with
+  // no error, so past 1000 waiting entries the rest were silently never emailed
+  // while the UI still showed the full count. Page through everything instead.
+  let all: WaitlistEntry[]
+  try {
+    const result = await fetchAllRows<WaitlistEntry>((from, to) =>
+      admin
+        .from('waitlist')
+        .select('id, full_name, email')
+        .eq('status', 'waiting')
+        .order('position', { ascending: true })
+        .order('id')
+        .range(from, to)
+    )
+    all = result.rows
+  } catch {
+    return { error: 'Could not load waitlist' }
+  }
   const recipients = all.filter((e: WaitlistEntry): e is WaitlistEntry & { email: string } => !!e.email)
   const skippedNoEmail = all.length - recipients.length
 
@@ -291,6 +305,36 @@ export async function adminBulkInviteWaitlistAction({
   })
 
   return { success: true, sending: recipients.length, skippedNoEmail }
+}
+
+// ─── User data export: email a copy to the user ─────────────────────────────
+// For data-access requests (see /privacy, "Your Rights"). Always sends to the
+// address stored on the account - never to an admin-typed address - so a
+// mistaken or malicious request can't route someone's data to a third party.
+// Downloading the same file is /api/admin/export/user/[id].
+
+export async function adminEmailUserDataAction(userId: string) {
+  const { error, admin, profile } = await requireAdmin(false) // admin only
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  // Keeps repeated clicks (or a compromised admin session) from flooding one inbox.
+  const allowed = await checkRateLimit(`user-data-email:${userId}`, 3, 60 * 60)
+  if (!allowed) return { error: 'This user was emailed their data recently - please wait before sending again.' }
+
+  const built = await buildUserDataExport(userId)
+  if (!built.ok) return { error: built.error }
+  if (!built.email) return { error: 'This user has no email address on file - download the export instead.' }
+
+  const sendResult = await sendUserDataExportEmail(built.email, {
+    name: built.displayName,
+    filename: built.filename,
+    json: built.json,
+  })
+  if (sendResult.error) return { error: `Email failed to send: ${sendResult.error}` }
+
+  await auditLog(profile.id, 'user_data_email', 'user', userId, { sections: built.sectionCounts })
+  revalidatePath(`/users/${userId}`)
+  return { success: true, sentTo: maskEmail(built.email) }
 }
 
 // ─── Waitlist form visibility (landing page) ────────────────────────────────

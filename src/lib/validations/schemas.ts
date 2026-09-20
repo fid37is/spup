@@ -1,5 +1,6 @@
 // src/lib/validations/schemas.ts
 import { z } from 'zod'
+import { MAX_MEDIA_PER_POST, MAX_VIDEOS_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, totalMediaBytes } from '@/lib/media-limits'
 
 export function toE164(phone: string): string {
   const cleaned = phone.replace(/\s+/g, '')
@@ -80,7 +81,11 @@ const mediaItemSchema = z.object({
 
 export const createPostSchema = z.object({
   body: z.string().max(500,'Max 500 characters').optional(),
-  media: z.array(mediaItemSchema).max(4).optional(),
+  media: z.array(mediaItemSchema)
+    .max(MAX_MEDIA_PER_POST, `You can add up to ${MAX_MEDIA_PER_POST} images per post`)
+    .refine(m => m.filter(i => i.media_type === 'video').length <= MAX_VIDEOS_PER_POST, `Only ${MAX_VIDEOS_PER_POST} videos per post`)
+    .refine(m => totalMediaBytes(m) <= MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG)
+    .optional(),
   parent_post_id: z.string().uuid().optional(),
   quoted_post_id: z.string().uuid().optional(),
   is_selling: z.boolean().optional(),

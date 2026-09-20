@@ -7,6 +7,7 @@ import AdminUserActions from './user-actions'
 import { AdminUserFilters } from './filters'
 import { DataTable, type Column } from '@/components/admin/data-table'
 import { AdminPagination } from '@/components/admin/pagination'
+import { ExportButton } from '@/components/admin/export-button'
 
 const STATUS_COLORS: Record<string, string> = {
   active:               '#1A9E5F',
@@ -71,7 +72,8 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
   const sp     = await searchParams
   const query  = sp.q      || ''
   const status = sp.status || ''
-  const page   = Number(sp.page) || 1
+  // Clamp to a positive integer - ?page=0, ?page=-2 or ?page=abc used to produce a negative range offset.
+  const page   = Math.max(1, Math.floor(Number(sp.page)) || 1)
 
   const { users, total } = await getUsers(query, status, page)
   const totalPages = Math.ceil(total / 20)
@@ -188,13 +190,22 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
   return (
     <div className="px-4 py-6 sm:px-6 sm:py-7 md:px-8">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="mb-1 font-display text-2xl font-extrabold tracking-tight text-primary sm:text-[26px]">
-          Users
-        </h1>
-        <p className="text-sm text-faint">
-          {formatNumber(total)} total{status ? ` · filtered by ${status}` : ''}
-        </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="mb-1 font-display text-2xl font-extrabold tracking-tight text-primary sm:text-[26px]">
+            Users
+          </h1>
+          <p className="text-sm text-faint">
+            {formatNumber(total)} total{status ? ` · filtered by ${status}` : ''}
+          </p>
+        </div>
+        {/* Exports every match for the current search/status filter, not just this page.
+            Always rendered: the admin layout already limits this page to staff, and
+            /api/admin/export/users enforces admin-only and reports a denial inline. */}
+        <ExportButton
+          href={`/api/admin/export/users${extraParams ? `?${extraParams}` : ''}`}
+          label={extraParams ? 'Export filtered emails' : 'Export all emails'}
+        />
       </div>
 
       {/* Filters - live search + instant status filter */}

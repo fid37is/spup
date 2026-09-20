@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { formatNaira, formatNumber, formatRelativeTime } from '@/lib/utils'
 import AdminUserActions from '../user-actions'
+import UserDataRequestPanel from './data-request-panel'
 
 async function getUserDetail(userId: string) {
   const admin = createAdminClient()
@@ -138,6 +139,13 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
             <div className="font-display text-base font-bold text-primary sm:text-lg">{s.value}</div>
           </div>
         ))}
+      </div>
+
+      {/* Data-access request: download the user's data, or email it to the address on their account */}
+      <div className="mb-5">
+        <Panel title="Data request">
+          <UserDataRequestPanel userId={user.id} email={user.email || null} />
+        </Panel>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

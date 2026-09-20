@@ -38,6 +38,22 @@ export async function createPostAction(data: CreatePostSchema) {
   if (!profile) return { error: 'Not authenticated' }
   if (profile.status === 'suspended' || profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
   const { body, parent_post_id, quoted_post_id, media, scheduled_at } = parsed.data
+
+  // Uploads now go straight from the phone to Cloudinary, so this action no
+  // longer sees the file - only the details the client reports back. Make sure
+  // every item really is in *this* user's post folder on *our* Cloudinary
+  // account, so a post can't be pointed at someone else's media or an
+  // arbitrary URL. (Folder name matches /api/upload and /api/upload/signature.)
+  if (media?.length) {
+    const cloudBase = `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/`
+    const folderPrefix = `para/${profile.id}/posts/`
+    const invalid = media.some(m =>
+      !m.cloudinary_id.startsWith(folderPrefix) ||
+      !m.url.startsWith(cloudBase) ||
+      (m.thumbnail_url && !m.thumbnail_url.startsWith(cloudBase))
+    )
+    if (invalid) return { error: 'Some media could not be verified. Please remove it and upload it again.' }
+  }
   const postType = parent_post_id ? 'reply' : quoted_post_id ? 'quote' : 'original'
   const isScheduled = !!scheduled_at
   const { data: post, error } = await supabase
