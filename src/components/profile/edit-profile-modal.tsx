@@ -11,6 +11,7 @@
  */
 
 import { useState, useTransition, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Check, Loader } from 'lucide-react'
 import { updateProfileAction } from '@/lib/actions/profiles'
 
@@ -54,6 +55,9 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
   const [website,     setWebsite]     = useState(profile.website_url || '')
   const [error,       setError]       = useState('')
   const [isPending,   startT]         = useTransition()
+  // Portaled to document.body below — see the note on ConfirmModal for why.
+  const [mounted,     setMounted]     = useState(false)
+  useEffect(() => setMounted(true), [])
 
   const isDirty = displayName !== (profile.display_name || '') ||
     bio !== (profile.bio || '') ||
@@ -99,7 +103,9 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
     })
   }
 
-  return (
+  if (!mounted) return null
+
+  return createPortal(
     <>
       {/* Backdrop */}
       <div
@@ -262,6 +268,7 @@ export default function EditProfileModal({ profile, onClose, onSaved }: EditProf
       </div>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-    </>
+    </>,
+    document.body
   )
 }

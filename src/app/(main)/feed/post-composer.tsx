@@ -8,9 +8,12 @@ import { useNetworkStatus } from '@/lib/network-status'
 import { queueOfflinePost, registerBackgroundSync } from '@/lib/offline-post-queue'
 import SchedulePicker, { formatScheduled } from '@/components/feed/schedule-picker'
 import { saveDraft, deleteDraft, hasMeaningfulContent, newDraftId, type LocalDraft } from '@/lib/local-drafts'
+import { MAX_MEDIA_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, selectFilesForPost, mediaKindOf } from '@/lib/media-limits'
+import { compressImageForUpload, createUploadQueue } from '@/lib/media-client'
+import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 
 const MAX_CHARS = 500
-const MAX_MEDIA = 4
+const MAX_MEDIA = MAX_MEDIA_PER_POST
 
 interface MediaItem {
   tempId: string         // local temp key for React list
@@ -23,6 +26,7 @@ interface MediaItem {
   duration_secs?: number | null
   size_bytes?: number
   uploading?: boolean
+  progress?: number       // 0-100 while uploading
   offlineQueued?: boolean  // network was degraded/offline when attached - raw file is held in fileMapRef, never uploaded to Cloudinary directly
   error?: string
   localPreview: string   // object URL for immediate preview
@@ -63,6 +67,14 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const mediaInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileMapRef = useRef<Map<string, File>>(new Map())
+  // Photos are compressed and uploaded a few at a time, not all at once -
+  // with up to 10 per post, a burst of parallel uploads on a slow
+  // connection makes every one of them crawl (and time out).
+  const uploadQueueRef = useRef(createUploadQueue(3))
+  // Size of each item in this post (photos after compression), to enforce the 25MB-per-post cap.
+  const mediaBytesRef = useRef<Map<string, number>>(new Map())
+  // In-flight uploads, so removing a photo mid-upload stops it (saves data).
+  const abortRef = useRef<Map<string, AbortController>>(new Map())
 
   // Stable id for the local draft this compose session autosaves to - kept
   // across edits so re-saving updates the same entry instead of piling up
@@ -156,6 +168,14 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
         tempId, url: localPreview, media_type: type, localPreview,
         uploading: false, offlineQueued: true,
       }])
+      // Shrink the held copy in the background so the eventual upload (on
+      // whatever connection comes back) is small. If the person taps Post
+      // before this finishes, the original is queued instead - still fine.
+      if (type === 'image') {
+        void compressImageForUpload(file).then(small => {
+          if (fileMapRef.current.has(tempId)) fileMapRef.current.set(tempId, small)
+        })
+      }
       return
     }
 
@@ -169,57 +189,80 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     }])
 
     try {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('type', type)
+      await uploadQueueRef.current(async () => {
+        // Removed while waiting its turn - don't spend data on it.
+        if (!fileMapRef.current.has(tempId)) return
 
-      const res = await fetch('/api/upload', { method: 'POST', body: form })
-      const data = await res.json()
+        // Phone photos are often 3-8MB; shrink before sending (photos only).
+        const toSend = type === 'image' ? await compressImageForUpload(file) : file
 
-      if (!res.ok || data.error) {
+        const others = Array.from(mediaBytesRef.current.entries())
+          .filter(([id]) => id !== tempId && fileMapRef.current.has(id))
+          .reduce((sum, [, bytes]) => sum + bytes, 0)
+        if (others + toSend.size > MAX_POST_MEDIA_BYTES) {
+          setMedia(prev => prev.map(m =>
+            m.tempId === tempId ? { ...m, uploading: false, error: POST_MEDIA_TOO_BIG } : m
+          ))
+          return
+        }
+        mediaBytesRef.current.set(tempId, toSend.size)
+
+        // Straight to Cloudinary from the phone (signed by /api/upload/signature),
+        // with real progress and automatic retry if the connection drops.
+        const controller = new AbortController()
+        abortRef.current.set(tempId, controller)
+        let uploaded
+        try {
+          uploaded = await uploadMedia(toSend, type, pct => {
+            setMedia(prev => prev.map(m => m.tempId === tempId ? { ...m, progress: pct } : m))
+          }, controller.signal)
+        } finally {
+          abortRef.current.delete(tempId)
+        }
+
+        // Replace temp with real Cloudinary data
         setMedia(prev => prev.map(m =>
-          m.tempId === tempId ? { ...m, uploading: false, error: data.error || 'Upload failed' } : m
+          m.tempId === tempId ? {
+            tempId,
+            cloudinary_id: uploaded.cloudinary_id,
+            url: uploaded.url,
+            media_type: uploaded.media_type,
+            thumbnail_url: uploaded.thumbnail_url,
+            width: uploaded.width ?? undefined,
+            height: uploaded.height ?? undefined,
+            duration_secs: uploaded.duration_secs,
+            size_bytes: uploaded.size_bytes,
+            localPreview,
+            uploading: false,
+          } : m
         ))
-        return
-      }
-
-      // Replace temp with real Cloudinary data
+      })
+    } catch (err) {
+      // Removed mid-upload - the item is already gone, nothing to report.
+      if (err instanceof UploadCancelledError) return
       setMedia(prev => prev.map(m =>
-        m.tempId === tempId ? {
-          tempId,
-          cloudinary_id: data.media.cloudinary_id,
-          url: data.media.url,
-          media_type: data.media.media_type,
-          thumbnail_url: data.media.thumbnail_url,
-          width: data.media.width,
-          height: data.media.height,
-          duration_secs: data.media.duration_secs,
-          size_bytes: data.media.size_bytes,
-          localPreview,
-          uploading: false,
-        } : m
-      ))
-    } catch {
-      setMedia(prev => prev.map(m =>
-        m.tempId === tempId ? { ...m, uploading: false, error: 'Upload failed. Try again.' } : m
+        m.tempId === tempId ? { ...m, uploading: false, error: err instanceof Error && err.message ? err.message : 'Upload failed. Try again.' } : m
       ))
     }
   }, [])
 
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
-    const validMedia = media.filter(m => !m.error)
-    const slots = MAX_MEDIA - validMedia.length
-    if (slots <= 0) return
+    // Check type, per-file size (photo 10MB / video 25MB), the 4-item cap
+    // and the 2-video cap up front, so nothing doomed gets uploaded.
+    const existing = media.filter(m => !m.error).map(m => m.media_type)
+    const { accepted, error: selectError } = selectFilesForPost(existing, Array.from(files))
+    setError(selectError ?? '')
 
-    Array.from(files).slice(0, slots).forEach(file => {
-      const type: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image'
-      uploadFile(file, type)
+    accepted.forEach(file => {
+      uploadFile(file, mediaKindOf(file) ?? 'image')
     })
   }
 
   function removeMedia(tempId: string) {
     fileMapRef.current.delete(tempId)
+    mediaBytesRef.current.delete(tempId)
+    abortRef.current.get(tempId)?.abort()
     setMedia(prev => {
       const item = prev.find(m => m.tempId === tempId)
       if (item?.localPreview) URL.revokeObjectURL(item.localPreview)
@@ -287,6 +330,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       // Cleanup object URLs
       media.forEach(m => { if (m.localPreview) URL.revokeObjectURL(m.localPreview) })
       fileMapRef.current.clear()
+      mediaBytesRef.current.clear()
       if (userId) deleteDraft(userId, draftIdRef.current)
       draftIdRef.current = newDraftId()
       const wasScheduled = 'scheduled' in result && result.scheduled
@@ -396,7 +440,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
                     alignItems: 'center', justifyContent: 'center', gap: 6,
                   }}>
                     <Loader2 size={24} color="white" style={{ animation: 'spin 0.8s linear infinite' }} />
-                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>Uploading…</span>
+                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>{m.progress ? `${m.progress}%` : 'Uploading…'}</span>
                   </div>
                 )}
 
@@ -531,7 +575,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
               label="Add photo or video"
               disabled={!canAddMore}
               onClick={() => mediaInputRef.current?.click()}
-              title={canAddMore ? 'Add photos or videos' : 'Max 4 media'}
+              title={canAddMore ? 'Add photos or videos' : `Max ${MAX_MEDIA} images per post`}
             />
             <input
               ref={cameraInputRef}
@@ -546,7 +590,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
               label="Take photo or video"
               disabled={!canAddMore}
               onClick={() => cameraInputRef.current?.click()}
-              title={canAddMore ? 'Take a photo or video' : 'Max 4 media'}
+              title={canAddMore ? 'Take a photo or video' : `Max ${MAX_MEDIA} images per post`}
             />
             <ToolbarBtn icon={<Mic size={18} />} label="Voice" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<span style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid currentColor', borderRadius: 4, padding: '1px 3px', lineHeight: 1 }}>GIF</span>} label="Add GIF" disabled title="Coming soon" onClick={() => {}} />

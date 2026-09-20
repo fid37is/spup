@@ -31,7 +31,7 @@ export default function ReplyComposer({
   const [error, setError] = useState('')
   const [showMedia, setShowMedia] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { media, uploading, progress, error: uploadError, upload, remove, clear } = useMediaUpload({ maxFiles: 4 })
+  const { media, uploading, progress, error: uploadError, upload, remove, clear } = useMediaUpload()
 
   const charsLeft = MAX_CHARS - body.length
   const isOverLimit = charsLeft < 0

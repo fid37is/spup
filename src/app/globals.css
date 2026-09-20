@@ -1,4 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap');
+/*
+ * Fonts (Syne, DM Sans) are self-hosted via @fontsource - see the imports at
+ * the top of src/app/layout.tsx. They used to come from a Google Fonts
+ * @import here, which blocked first paint until Google's server answered.
+ */
 
 /*
  * v4 fix: @tailwind base; @tailwind utilities; (the old v3 directives) are

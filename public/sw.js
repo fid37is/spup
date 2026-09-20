@@ -1,4 +1,4 @@
-// Spup Service Worker v3.0
+// Spup Service Worker v4.0
 // v2: network-first for _next/static chunks to prevent stale CSS flash
 // v3: only show the dedicated /offline page when the device is actually
 //     disconnected (navigator.onLine === false). A slow/flaky connection
@@ -6,8 +6,24 @@
 //     cached instead of telling the person they're offline when they're
 //     not, so they can keep reading while a spotty connection just quietly
 //     fails to fetch anything new.
-const CACHE_NAME = 'spup-v3'
+// v4: built for slow connections.
+//     - /_next/static/* is cache-first. Those files are content-hashed (a new
+//       deploy gets new URLs), so a cached copy can never be "stale" - and
+//       network-first meant every app open waited on the network for
+//       JavaScript and CSS the phone already had.
+//     - Page loads are still network-first, but only wait NAV_TIMEOUT_MS. On a
+//       slow connection the last cached copy of the page is shown instead of
+//       leaving the person on the launch screen; the network response keeps
+//       loading in the background and refreshes the cache for next time.
+const PAGES_CACHE = 'spup-pages-v4'
+const STATIC_CACHE = 'spup-static-v4'
 const OFFLINE_URL = '/offline'
+
+// How long a page load may wait on the network before falling back to the
+// cached copy (only applies when there is a cached copy).
+const NAV_TIMEOUT_MS = 3000
+// Old build chunks pile up in the static cache across deploys - cap it.
+const STATIC_CACHE_MAX_ENTRIES = 120
 
 const PRECACHE_ASSETS = [
   '/',
@@ -15,10 +31,17 @@ const PRECACHE_ASSETS = [
   '/manifest.json',
 ]
 
+async function trimCache(cacheName, maxEntries) {
+  const cache = await caches.open(cacheName)
+  const keys = await cache.keys()
+  // cache.keys() is in insertion order, so the oldest entries come first.
+  for (let i = 0; i < keys.length - maxEntries; i++) await cache.delete(keys[i])
+}
+
 // ─── Install ──────────────────────────────────────────────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
+    caches.open(PAGES_CACHE).then(cache => {
       return cache.addAll(PRECACHE_ASSETS.map(url => new Request(url, { cache: 'reload' })))
     })
   )
@@ -30,7 +53,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
-        keys.filter(key => key !== CACHE_NAME).map(key => {
+        keys.filter(key => key !== PAGES_CACHE && key !== STATIC_CACHE).map(key => {
           console.log('Spup SW: deleting old cache', key)
           return caches.delete(key)
         })
@@ -39,6 +62,46 @@ self.addEventListener('activate', event => {
   )
   self.clients.claim()
 })
+
+// ─── Page loads: network first, but never wait forever ───────────────────────
+async function handleNavigation(event) {
+  const request = event.request
+  const cache = await caches.open(PAGES_CACHE)
+
+  const networkPromise = fetch(request).then(response => {
+    if (response.ok) cache.put(request, response.clone())
+    return response
+  })
+  // Keep the worker alive so the cache refresh finishes even when we
+  // answered from cache before the network came back.
+  event.waitUntil(networkPromise.catch(() => {}))
+
+  const offlineFallback = async () => {
+    if (!self.navigator.onLine) {
+      // Genuinely disconnected (wifi/data off, airplane mode) - this is
+      // the case the offline page exists for.
+      return (await caches.match(OFFLINE_URL)) || (await caches.match('/'))
+    }
+    // A live network interface is present, so this is a slow/flaky
+    // connection or a one-off failed request rather than "no internet" -
+    // don't claim they're offline. Serve whatever's cached for this page
+    // (or the app shell) so they can keep reading.
+    return (await caches.match(request)) || (await caches.match('/')) || Response.error()
+  }
+
+  const cached = await cache.match(request)
+  if (!cached) {
+    // Nothing to fall back on yet (first visit to this page) - wait it out.
+    return networkPromise.catch(offlineFallback)
+  }
+
+  const timeout = new Promise(resolve => setTimeout(() => resolve(null), NAV_TIMEOUT_MS))
+  const winner = await Promise.race([networkPromise.catch(() => null), timeout])
+  if (winner) return winner
+  // Slow or failed network: show the cached copy (or the offline page when
+  // the device really is disconnected).
+  return self.navigator.onLine ? cached : offlineFallback()
+}
 
 // ─── Fetch strategy ───────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {
@@ -61,49 +124,28 @@ self.addEventListener('fetch', event => {
     return
   }
 
-  // ── HTML: always network-first ────────────────────────────────────────────
+  // ── HTML: network-first with a timeout ────────────────────────────────────
   if (request.headers.get('accept')?.includes('text/html')) {
-    event.respondWith(
-      fetch(request)
-        .then(response => {
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(CACHE_NAME).then(cache => cache.put(request, clone))
-          }
-          return response
-        })
-        .catch(async () => {
-          if (!self.navigator.onLine) {
-            // Genuinely disconnected (wifi/data off, airplane mode) - this
-            // is the case the offline page exists for.
-            return (await caches.match(OFFLINE_URL)) || (await caches.match('/'))
-          }
-          // A live network interface is present, so this is a slow/flaky
-          // connection or a one-off failed request rather than "no
-          // internet" - don't claim they're offline. Serve whatever's
-          // cached for this page (or the app shell) so they can keep
-          // reading instead of hitting the offline screen.
-          return (await caches.match(request)) || (await caches.match('/')) || Response.error()
-        })
-    )
+    event.respondWith(handleNavigation(event))
     return
   }
 
-  // ── Next.js JS/CSS chunks: network-first, cache as fallback ──────────────
-  // These are content-hashed by Next.js so they change on every build.
-  // Cache-first here means stale CSS gets served after a deploy - the root
-  // cause of the theme flash on hard refresh.
+  // ── Next.js JS/CSS chunks: cache-first ───────────────────────────────────
+  // Content-hashed by Next.js: every deploy produces new file names, so a
+  // cached file is always exactly the file its URL promises. (The old
+  // "stale CSS flash" came from old HTML, not from cached chunks - and old
+  // HTML plus its own old chunks is a consistent pair.)
   if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(
-      fetch(request)
-        .then(response => {
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(CACHE_NAME).then(cache => cache.put(request, clone))
-          }
-          return response
-        })
-        .catch(() => caches.match(request))
+      caches.open(STATIC_CACHE).then(async cache => {
+        const cached = await cache.match(request)
+        if (cached) return cached
+        const response = await fetch(request)
+        if (response.ok) {
+          cache.put(request, response.clone()).then(() => trimCache(STATIC_CACHE, STATIC_CACHE_MAX_ENTRIES))
+        }
+        return response
+      })
     )
     return
   }
@@ -115,7 +157,7 @@ self.addEventListener('fetch', event => {
       return fetch(request).then(response => {
         if (response.ok && response.status < 300) {
           const clone = response.clone()
-          caches.open(CACHE_NAME).then(cache => cache.put(request, clone))
+          caches.open(PAGES_CACHE).then(cache => cache.put(request, clone))
         }
         return response
       }).catch(() => cached)

@@ -2,6 +2,7 @@
 'use client'
 
 import { useRef, useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { X, ZoomIn, ZoomOut, Check } from 'lucide-react'
 
 interface CropModalProps {
@@ -33,6 +34,11 @@ export default function CropModal({ file, aspect, onCancel, onDone }: CropModalP
   const [maxZoom,   setMaxZoom]   = useState(4)
   const [ready,     setReady]     = useState(false)
   const [exporting, setExporting] = useState(false)
+  // Portaled to document.body below — see the note on ConfirmModal for why
+  // (globals.css's `body > * { z-index: 1 }` otherwise traps this modal
+  // under the mobile bottom nav, no matter its own z-index).
+  const [mounted,   setMounted]   = useState(false)
+  useEffect(() => setMounted(true), [])
 
   // ── Load image ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -159,7 +165,9 @@ export default function CropModal({ file, aspect, onCancel, onDone }: CropModalP
     }, 'image/jpeg', 0.92)
   }
 
-  return (
+  if (!mounted) return null
+
+  return createPortal(
     <>
       <div
         onClick={onCancel}
@@ -303,6 +311,7 @@ export default function CropModal({ file, aspect, onCancel, onDone }: CropModalP
 
         <style>{`@keyframes crop-spin { to { transform: rotate(360deg) } }`}</style>
       </div>
-    </>
+    </>,
+    document.body
   )
 }

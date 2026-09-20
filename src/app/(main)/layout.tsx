@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { getAuthUser, createAdminClient } from '@/lib/supabase/server'
 import { getProfileByAuthId, getOnboardingProgress, getUnreadNotificationCount } from '@/lib/queries'
 import { getWallet } from '@/lib/queries'
 import SidebarNav from '@/components/layout/sidebar-nav'
@@ -11,8 +11,7 @@ import { AppThemeProvider } from '@/components/layout/theme-provider'
 import PushNotificationsProvider from '@/components/layout/push-notifications-provider'
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getAuthUser()
   if (!user) redirect('/login')
 
   // ── Step 1: profile + onboarding in parallel (both need auth_id, not profile.id) ──

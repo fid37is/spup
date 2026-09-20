@@ -13,10 +13,11 @@
  * here) so a client that skips these checks can't bypass them.
  */
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/mov', 'video/avi', 'video/webm', 'video/quicktime']
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024   // 10MB
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024  // 100MB
+import {
+  ALLOWED_IMAGE_TYPES, ALLOWED_VIDEO_TYPES,
+  MAX_IMAGE_BYTES as MAX_IMAGE_SIZE, MAX_VIDEO_BYTES as MAX_VIDEO_SIZE,
+  MAX_IMAGE_LABEL, MAX_VIDEO_LABEL,
+} from '@/lib/media-limits'
 
 const MAX_RETRIES = 2
 const RETRY_BASE_DELAY_MS = 1500
@@ -52,7 +53,7 @@ function validateFile(file: File, kind: UploadKind): string | null {
   }
   const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE
   if (file.size > maxSize) {
-    return `File too large. Maximum size is ${isVideo ? '100MB' : '10MB'}.`
+    return `File too large. Maximum size is ${isVideo ? MAX_VIDEO_LABEL : MAX_IMAGE_LABEL}.`
   }
   return null
 }
@@ -64,17 +65,25 @@ function deriveVideoThumbnail(secureUrl: string): string {
   return secureUrl.replace('/upload/', '/upload/so_0/').replace(/\.\w+$/, '.jpg')
 }
 
-async function getSignature(type: UploadKind) {
-  const res = await fetch('/api/upload/signature', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type }),
-  })
-  const data = await res.json()
+async function getSignature(type: UploadKind, file: File) {
+  let res: Response
+  try {
+    res = await fetch('/api/upload/signature', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, size: file.size, mime: file.type }),
+    })
+  } catch {
+    throw new Error('NETWORK')
+  }
+  const data = await res.json().catch(() => ({}))
   if (!res.ok || data.error) throw new Error(data.error || 'Could not start upload')
+  // `fields` is everything the server signed (folder, transformation,
+  // allowed_formats, timestamp, signature, ...). It's sent to Cloudinary
+  // exactly as given - changing any of it invalidates the signature.
   return data as {
-    signature: string; timestamp: number; api_key: string; cloud_name: string
-    folder: string; transformation: string; public_id: string | null; resource_type: 'image' | 'video'
+    cloud_name: string; api_key: string; resource_type: 'image' | 'video'
+    fields: Record<string, string | number>
   }
 }
 
@@ -116,11 +125,7 @@ function xhrUploadOnce(
     const form = new FormData()
     form.append('file', file)
     form.append('api_key', sig.api_key)
-    form.append('timestamp', String(sig.timestamp))
-    form.append('signature', sig.signature)
-    form.append('folder', sig.folder)
-    form.append('transformation', sig.transformation)
-    if (sig.public_id) form.append('public_id', sig.public_id)
+    for (const [key, value] of Object.entries(sig.fields)) form.append(key, String(value))
 
     xhr.send(form)
   })
@@ -143,13 +148,16 @@ export async function uploadMedia(
 
   const isVideo = kind === 'video'
   const timeoutMs = isVideo ? VIDEO_TIMEOUT_MS : IMAGE_TIMEOUT_MS
-  const sig = await getSignature(kind)
+  // Fetched lazily inside the retry loop so a dropped connection while asking
+  // for the signature is retried (and reported) like any other network failure.
+  let sig: Awaited<ReturnType<typeof getSignature>> | null = null
 
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (signal?.aborted) throw new UploadCancelledError('Upload cancelled')
     try {
       if (attempt > 0) onProgress?.(0)
+      if (!sig) sig = await getSignature(kind, file)
       const result = await xhrUploadOnce(file, sig, pct => onProgress?.(pct), timeoutMs, signal)
       const isVideoResult = kind === 'video'
       return {
@@ -175,7 +183,7 @@ export async function uploadMedia(
 
   throw new Error(
     lastError?.message === 'NETWORK'
-      ? 'Upload failed - your connection dropped. Tap to retry.'
+      ? 'Upload failed - your connection dropped. Please try again.'
       : (lastError?.message || 'Upload failed')
   )
 }

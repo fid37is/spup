@@ -1,7 +1,8 @@
 // src/components/profile/profile-header.tsx
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect, isValidElement, cloneElement } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Settings, Camera, Loader, ArrowLeft } from 'lucide-react'
@@ -58,10 +59,18 @@ export default function ProfileHeader({
   const [cropTarget, setCropTarget] = useState<UploadTarget | null>(null)
   const [uploadErr,  setUploadErr]  = useState('')
   const [showAvatarLightbox, setShowAvatarLightbox] = useState(false)
+  // Portaled to document.body below — see the note on ConfirmModal for why.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
   const router = useRouter()
 
   const avatarRef = useRef<HTMLInputElement>(null)
   const bannerRef = useRef<HTMLInputElement>(null)
+  // Target for ProfileActionBar's "···" more-options button, portaled here so
+  // it sits on the banner next to the back button instead of taking up room
+  // in the button row below the avatar (see the note on moreSlotRef in
+  // profile-action-bar.tsx for why).
+  const moreSlotRef = useRef<HTMLDivElement>(null)
 
   const initials = profile.display_name?.slice(0, 2).toUpperCase() || 'SP'
 
@@ -135,7 +144,7 @@ export default function ProfileHeader({
       )}
 
       {/* Avatar lightbox — full-size view, opens on click when not editing */}
-      {showAvatarLightbox && avatarSrc && (
+      {showAvatarLightbox && avatarSrc && mounted && createPortal(
         <div
           onClick={() => setShowAvatarLightbox(false)}
           style={{
@@ -154,7 +163,8 @@ export default function ProfileHeader({
               boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
             }}
           />
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
@@ -191,6 +201,13 @@ export default function ProfileHeader({
           <ArrowLeft size={18} color="white" strokeWidth={2.2} />
         </button>
 
+        {/* Portal target for ProfileActionBar's "···" more-options button —
+            mirrors the back button on the opposite side of the banner. Only
+            needed in view mode for someone else's profile. */}
+        {!isOwner && !editing && (
+          <div ref={moreSlotRef} style={{ position: 'absolute', top: 12, right: 12, zIndex: 2 }} />
+        )}
+
         {editing && (
           <div style={{
             position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.38)',
@@ -214,8 +231,8 @@ export default function ProfileHeader({
       {/* ── Avatar + top action row ────────────────────────────────────────── */}
       <div style={{ padding: '0 16px', position: 'relative' }}>
         <div style={{
-          display: 'flex', justifyContent: 'space-between',
-          alignItems: 'flex-end', marginBottom: 12,
+          display: 'flex', flexWrap: 'wrap',
+          alignItems: 'flex-end', marginBottom: 12, rowGap: 10,
         }}>
           {/* Avatar */}
           <div
@@ -271,12 +288,16 @@ export default function ProfileHeader({
 
           {/* Settings + Edit profile (view mode) */}
           {isOwner && !editing && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{
+              display: 'flex', gap: 8, alignItems: 'center',
+              flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto',
+            }}>
               <Link href="/settings" aria-label="Settings" style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 38, height: 38, borderRadius: '50%',
                 border: '1px solid var(--color-border)',
                 color: 'var(--color-text-primary)', textDecoration: 'none',
+                flexShrink: 0,
               }}>
                 <Settings size={16} />
               </Link>
@@ -285,6 +306,7 @@ export default function ProfileHeader({
                 background: 'none', color: 'var(--color-text-primary)',
                 fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 600,
                 cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+                flexShrink: 0, whiteSpace: 'nowrap',
               }}>
                 Edit profile
               </button>
@@ -293,7 +315,14 @@ export default function ProfileHeader({
 
           {/* Non-owner action slot */}
           {!isOwner && actionSlot && (
-            <div style={{ display: 'flex', gap: 8 }}>{actionSlot}</div>
+            <div style={{
+              display: 'flex', gap: 8, flexWrap: 'wrap',
+              justifyContent: 'flex-end', marginLeft: 'auto', rowGap: 8,
+            }}>
+              {isValidElement(actionSlot)
+                ? cloneElement(actionSlot as React.ReactElement<any>, { moreSlotRef })
+                : actionSlot}
+            </div>
           )}
         </div>
 

@@ -17,6 +17,10 @@ const ACTION_STYLE: Record<string, { color: string; label: string }> = {
   ad_rejected:          { color: '#E53935', label: 'Rejected ad' },
   waitlist_invite:      { color: '#378ADD', label: 'Invited from waitlist' },
   approve_monetisation: { color: '#1A9E5F', label: 'Approved monetisation' },
+  export_user_emails:     { color: '#378ADD', label: 'Exported user emails' },
+  export_waitlist_emails: { color: '#378ADD', label: 'Exported waitlist emails' },
+  user_data_export:       { color: '#D4A017', label: 'Downloaded a user\'s data' },
+  user_data_email:        { color: '#D4A017', label: 'Emailed a user their data' },
 }
 
 async function getActivityLog(page = 1) {

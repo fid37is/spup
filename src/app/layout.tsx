@@ -7,6 +7,7 @@ import { getWaitlistOpenStatus } from '@/lib/queries/settings'
 import { GoogleAnalytics } from '@next/third-parties/google'
 import { ToastProvider } from '@/components/layout/toast'
 import { NetworkStatusProvider } from '@/lib/network-status'
+import NativeSplashHider from '@/components/layout/native-splash-hider'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
 
@@ -80,8 +81,7 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'Spup',
     startupImage: [
-      { url: '/splash/splash-1170x2532.png', media: '(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)' },
-      { url: '/splash/splash-1284x2778.png', media: '(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)' },
+      { url: '/splash/splash-1242x2688.png', media: '(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)' },
     ],
   },
   formatDetection: { telephone: false },
@@ -107,8 +107,12 @@ export const metadata: Metadata = {
   generator: 'Next.js',
 }
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const waitlistOpen = await getWaitlistOpenStatus()
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // Deliberately NOT awaited. This used to block the HTML for every page in
+  // the app (including /feed) on a database round trip, when the value is
+  // only needed if someone opens the waitlist modal. WaitlistProvider
+  // unwraps the promise lazily, at that point.
+  const waitlistOpen = getWaitlistOpenStatus().catch(() => true)
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
@@ -128,8 +132,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en-NG" data-theme="dark" suppressHydrationWarning>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-96x96.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-72x72.png" />
@@ -166,6 +168,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </head>
       <body>
         <PWAProvider />
+        <NativeSplashHider />
         <NetworkStatusProvider>
           <ToastProvider>
             <WaitlistProvider waitlistOpen={waitlistOpen}>

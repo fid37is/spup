@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useToast } from '@/components/layout/toast'
 
 const TIERS = [
@@ -13,6 +14,11 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
   const [selected, setSelected] = useState<typeof TIERS[number]['id']>('boost')
   const [loading, setLoading] = useState(false)
   const { error: toastError } = useToast()
+  // Portaled to document.body below — see the note on ConfirmModal for why.
+  // (This modal's zIndex was also previously 100, identical to the mobile
+  // bottom nav's — a tie that let DOM order decide, and the nav always won.)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   async function handlePromote() {
     setLoading(true)
@@ -35,9 +41,9 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
     }
   }
 
-  return (
+  return (!mounted) ? null : createPortal(
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
       onClick={onClose}
     >
       <div
@@ -89,6 +95,7 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

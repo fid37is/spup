@@ -1,10 +1,20 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+
 // ── ConfirmModal ──────────────────────────────────────────────────────────────
 // Shared confirmation dialog: centered card + backdrop, used for anything that
 // needs an "are you sure?" step (deleting a post, deleting a message, replacing
 // a pinned post, etc). Owns the overlay, animation, and pending/disabled state
 // so individual call sites don't have to re-implement it each time.
+//
+// Portaled to document.body: globals.css sets `body > * { z-index: 1 }`,
+// which pins .main-layout and .mobile-nav to the same stacking-context tier.
+// Since .mobile-nav renders after .main-layout in the DOM, it always painted
+// over this modal's buttons when the modal was left nested inside page
+// content, no matter how high its own z-index was set. Portaling makes this
+// a sibling of .mobile-nav instead, so it stacks correctly above it.
 export default function ConfirmModal({
   open,
   title,
@@ -31,9 +41,12 @@ export default function ConfirmModal({
   onConfirm: () => void
   onCancel: () => void
 }) {
-  if (!open) return null
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
-  return (
+  if (!open || !mounted) return null
+
+  return createPortal(
     <>
       <div
         onClick={e => { e.stopPropagation(); if (!pending) onCancel() }}
@@ -94,6 +107,7 @@ export default function ConfirmModal({
         from { opacity: 0; transform: translate(-50%,-50%) translateY(-10px) scale(0.98); }
         to   { opacity: 1; transform: translate(-50%,-50%); }
       }`}</style>
-    </>
+    </>,
+    document.body
   )
 }
