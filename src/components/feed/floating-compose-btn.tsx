@@ -3,7 +3,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Pencil, X, Loader2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Pencil, X } from 'lucide-react'
 import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-composer'
 import DraftsPanel from './drafts-panel'
 import type { LocalDraft } from '@/lib/local-drafts'
@@ -12,7 +13,10 @@ import type { LocalDraft } from '@/lib/local-drafts'
 // Visible when user is scrolled near the bottom (recent posts).
 // Hides when scrolled to top. Opens the composer on click:
 //   - Desktop: centered modal dialog
-//   - Mobile:  full-screen sheet (X-style), Post button lives in the header
+//   - Mobile:  the /compose PAGE (app/(main)/compose). It used to be a sheet
+//     drawn over the feed; with the feed still underneath, the page could move
+//     when the keyboard opened and leave a gap above the keyboard. As a page
+//     there is nothing underneath.
 
 interface FloatingComposeBtnProps {
   onPosted?: (post: unknown) => void
@@ -26,86 +30,10 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
   const [open, setOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [showDrafts, setShowDrafts] = useState(false)
-  const [composerState, setComposerState] = useState({ canPost: false, isPending: false, hasUploading: false, isScheduled: false })
   const lastScrollY = useRef(0)
   const ticking = useRef(false)
   const composerRef = useRef<PostComposerHandle>(null)
-  const [sheetHeight, setSheetHeight] = useState<number | null>(null)
-  const [sheetOffsetTop, setSheetOffsetTop] = useState(0)
-
-  // Track the *visual* viewport, not the layout viewport. `position: fixed`
-  // sized via inset:0 stays pinned to the full layout viewport on most mobile
-  // browsers even when the on-screen keyboard opens — it doesn't shrink, so a
-  // bottom-pinned toolbar ends up hidden behind the keyboard instead of
-  // sitting above it. Listening to visualViewport and applying an explicit
-  // height keeps the sheet (and everything pinned to its bottom) tracking
-  // what's actually visible above the keyboard.
-  //
-  // Height alone isn't enough, though: when the keyboard opens, some mobile
-  // browsers also shift the visual viewport *down* relative to the layout
-  // viewport (visualViewport.offsetTop > 0) - e.g. while settling the page
-  // after the focused textarea's native "scroll into view". A `top: 0`
-  // element stays pinned to the layout viewport's top, which is now above
-  // what's actually visible, so its bottom edge falls short of the
-  // keyboard and whatever is behind it (the feed) shows through the gap.
-  // Applying offsetTop as a transform keeps the sheet's top edge glued to
-  // the true visible top, not just its height glued to the visible bottom.
-  useEffect(() => {
-    if (!open || !isMobile) return
-    const vv = window.visualViewport
-    if (!vv) return
-
-    function updateViewport() {
-      setSheetHeight(vv!.height)
-      setSheetOffsetTop(vv!.offsetTop)
-    }
-    updateViewport()
-    vv.addEventListener('resize', updateViewport)
-    vv.addEventListener('scroll', updateViewport)
-    return () => {
-      vv.removeEventListener('resize', updateViewport)
-      vv.removeEventListener('scroll', updateViewport)
-    }
-  }, [open, isMobile])
-
-  // Lock the underlying page while the mobile sheet is open. Without this,
-  // the sheet itself tracks the visual viewport correctly (see above), but
-  // focusing the textarea still triggers the browser's native "scroll this
-  // input into view" behavior on the outer document — which scrolls the
-  // whole page up underneath the fixed sheet as the keyboard opens, even
-  // though the sheet's own position never changes. Locking body (and html,
-  // for browsers that scroll that instead) removes anything for that
-  // native behavior to scroll, so the sheet stays pinned above the keyboard
-  // with no page movement at all.
-  useEffect(() => {
-    if (!open || !isMobile) return
-    const scrollY = window.scrollY
-    const { style: bodyStyle } = document.body
-    const { style: htmlStyle } = document.documentElement
-
-    const prev = {
-      bodyPosition: bodyStyle.position, bodyTop: bodyStyle.top,
-      bodyLeft: bodyStyle.left, bodyRight: bodyStyle.right,
-      bodyOverflow: bodyStyle.overflow, htmlOverflow: htmlStyle.overflow,
-    }
-
-    bodyStyle.position = 'fixed'
-    bodyStyle.top = `-${scrollY}px`
-    bodyStyle.left = '0'
-    bodyStyle.right = '0'
-    bodyStyle.overflow = 'hidden'
-    htmlStyle.overflow = 'hidden'
-
-    return () => {
-      bodyStyle.position = prev.bodyPosition
-      bodyStyle.top = prev.bodyTop
-      bodyStyle.left = prev.bodyLeft
-      bodyStyle.right = prev.bodyRight
-      bodyStyle.overflow = prev.bodyOverflow
-      htmlStyle.overflow = prev.htmlOverflow
-      window.scrollTo(0, scrollY)
-    }
-  }, [open, isMobile])
+  const router = useRouter()
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
@@ -114,6 +42,12 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [])
+
+  // Warm the compose page as soon as we know we're on a phone, so tapping the
+  // button opens it without waiting on a slow connection.
+  useEffect(() => {
+    if (isMobile) router.prefetch('/compose')
+  }, [isMobile, router])
 
   useEffect(() => {
     function onScroll() {
@@ -142,11 +76,6 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
     composerRef.current?.loadDraft(draft)
   }
 
-  const { canPost, isPending, isScheduled } = composerState
-  const postLabel = isPending
-    ? (isScheduled ? 'Scheduling…' : 'Posting…')
-    : (isScheduled ? 'Schedule' : 'Post')
-
   return (
     <>
       {/* FAB */}
@@ -155,7 +84,7 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
         @media (max-width: 767px) { .spup-fab { display: flex; } }
       `}</style>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => (isMobile ? router.push('/compose') : setOpen(true))}
         aria-label="New post"
         className="spup-fab"
         style={{
@@ -181,90 +110,10 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
         <Pencil size={22} />
       </button>
 
-      {open && (
-        isMobile ? createPortal(
-          /* ── Mobile: full-screen sheet, portaled to <body> ──────────────
-             .main-layout and .mobile-nav are BOTH direct children of body
-             (ToastProvider/AppThemeProvider render no wrapping DOM node),
-             and `body > * { z-index: 1 }` in globals.css pins them to the
-             same stacking context tier. Since .mobile-nav comes later in
-             DOM order, it always painted over anything nested inside
-             .main-layout, regardless of internal z-index. Portaling here
-             makes this sheet a sibling of both, so its own z-index actually
-             applies. */
-          <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 300,
-            height: sheetHeight ? `${sheetHeight}px` : '100dvh',
-            transform: sheetOffsetTop ? `translateY(${sheetOffsetTop}px)` : undefined,
-            background: 'var(--color-bg)',
-            display: 'flex', flexDirection: 'column',
-            animation: 'fadeIn 0.15s ease',
-          }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '12px 16px',
-              paddingTop: 'calc(12px + env(safe-area-inset-top))',
-            }}>
-              <button
-                onClick={() => setOpen(false)}
-                aria-label="Close"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-primary)', display: 'flex', padding: 4 }}
-              >
-                <X size={22} />
-              </button>
-              {userId && (
-                <button
-                  onClick={() => setShowDrafts(true)}
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--color-brand)', fontFamily: "'Syne', sans-serif",
-                    fontWeight: 700, fontSize: 14, padding: 4,
-                  }}
-                >
-                  Drafts
-                </button>
-              )}
-              <button
-                onClick={() => composerRef.current?.submit()}
-                disabled={!canPost}
-                style={{
-                  background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)',
-                  color: canPost ? 'white' : 'var(--color-text-muted)',
-                  border: 'none', borderRadius: 20, padding: '8px 20px',
-                  fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
-                  cursor: canPost ? 'pointer' : 'not-allowed',
-                  display: 'flex', alignItems: 'center', gap: 6, minHeight: 36,
-                }}
-              >
-                {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
-                {postLabel}
-              </button>
-            </div>
-
-            {/* Fills all remaining height — PostComposer pins its audience
-                line + toolbar to the bottom of this space via flex, so the
-                compose area genuinely stretches instead of everything
-                clustering at the top. */}
-            <div style={{ flex: 1, minHeight: 0, padding: '0 16px', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-              <PostComposer
-                ref={composerRef}
-                variant="fullscreen"
-                authorAvatarUrl={authorAvatarUrl}
-                authorName={authorName}
-                userId={userId}
-                onStateChange={setComposerState}
-                onPosted={handlePosted}
-              />
-            </div>
-          </div>,
-          document.body
-        ) : (
-          /* ── Desktop: centered modal — also portaled to <body> (see the
-             comment on the mobile sheet above, and on PostModal): otherwise
-             this renders inside .main-layout, which globals.css caps to its
-             own stacking context, so its z-index (150/151) never actually
-             compares against real body-level layers like DraftsPanel
-             (400). */
+      {open && !isMobile && (
+        /* Desktop: centered modal, portaled to <body> so its z-index compares
+           against real body-level layers (DraftsPanel is 400) rather than being
+           capped inside .main-layout's stacking context. */
           createPortal(
           <>
             <div
@@ -319,14 +168,12 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
                 authorAvatarUrl={authorAvatarUrl}
                 authorName={authorName}
                 userId={userId}
-                onStateChange={setComposerState}
                 onPosted={handlePosted}
               />
             </div>
           </>,
           document.body
           )
-        )
       )}
 
       {showDrafts && userId && (

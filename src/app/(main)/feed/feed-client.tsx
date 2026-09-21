@@ -67,12 +67,27 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
     if (initialPosts.length === 0) {
       startTransition(async () => {
         const { posts: fresh, nextCursor } = await getForYouFeedAction()
-        setPosts(fresh)
+        // Keep anything already on screen (e.g. a post just written on /compose)
+        setPosts(prev => [...prev.filter(p => !fresh.some(f => f.id === p.id)), ...fresh])
         setCursor(nextCursor)
         setHasMore(!!nextCursor)
       })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A post just written on the /compose page: show it at the top right away.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('spup:just-posted')
+      if (!raw) return
+      sessionStorage.removeItem('spup:just-posted')
+      const post = JSON.parse(raw) as FeedPost
+      if (post?.id) {
+        setPosts(prev => (prev.some(p => p.id === post.id) ? prev : [post, ...prev]))
+        window.scrollTo(0, 0)
+      }
+    } catch { /* ignore */ }
   }, [])
 
   function switchTab(tab: Tab) {
