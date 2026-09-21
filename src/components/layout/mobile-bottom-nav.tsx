@@ -3,16 +3,19 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Home, Search, Bell, MessageSquare } from 'lucide-react'
+import { useChatUnread } from '@/hooks/use-chat-unread'
 
 const NAV = [
   { href: '/feed',          icon: Home,          label: 'Home' },
   { href: '/explore',       icon: Search,        label: 'Explore' },
-  { href: '/notifications', icon: Bell,          label: 'Alerts',  badge: true },
-  { href: '/messages',      icon: MessageSquare, label: 'Chat' },
+  { href: '/notifications', icon: Bell,          label: 'Alerts',  badge: 'alerts' },
+  { href: '/messages',      icon: MessageSquare, label: 'Chat',    badge: 'chat' },
 ]
 
-export default function MobileBottomNav({ unreadCount }: { unreadCount: number }) {
+export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { unreadCount: number; unreadChat: number; userId: string }) {
   const pathname = usePathname()
+  // Live count for the Chat tab (hooks must run before the early return below).
+  const chatUnread = useChatUnread(unreadChat, userId)
 
   // Focused, full-screen sub-pages hide the nav entirely, matching how X's own
   // Post Activity screen has no bottom tab bar — these are drill-down detail
@@ -25,34 +28,35 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
       position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
       background: 'var(--nav-bg)',
       backdropFilter: 'blur(16px)',
-      borderTop: '1px solid var(--border)',
+      borderTop: '1px solid var(--color-border)',
       display: 'flex',
       paddingBottom: 'env(safe-area-inset-bottom)',
     }}>
       {NAV.map(({ href, icon: Icon, label, badge }) => {
         const isActive = pathname === href || (href !== '/feed' && pathname.startsWith(href))
-        const showBadge = badge && unreadCount > 0
+        const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
+        const showBadge = badgeCount > 0
         return (
           <Link key={href} href={href} style={{
             flex: 1, display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
             gap: 4, padding: '10px 0',
-            color: isActive ? 'var(--spup-green)' : 'var(--text-muted)',
+            color: isActive ? 'var(--color-brand)' : 'var(--color-text-muted)',
             textDecoration: 'none', transition: 'color 0.12s',
             WebkitTapHighlightColor: 'transparent', position: 'relative',
           }}>
             <div style={{ position: 'relative' }}>
               <Icon size={22} strokeWidth={isActive ? 2.5 : 1.8} />
               {showBadge && (
-                <span style={{
+                <span data-testid={`nav-badge-${badge}`} aria-label={`${badgeCount} unread`} style={{
                   position: 'absolute', top: -4, right: -6,
                   minWidth: 16, height: 16,
-                  background: 'var(--spup-green)',
+                  background: 'var(--color-brand)',
                   borderRadius: 8, fontSize: 10, fontWeight: 700,
                   color: 'white', display: 'flex',
                   alignItems: 'center', justifyContent: 'center', padding: '0 3px',
                 }}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
+                  {badge === 'chat' ? (badgeCount > 99 ? '99+' : badgeCount) : (badgeCount > 9 ? '9+' : badgeCount)}
                 </span>
               )}
             </div>
@@ -62,7 +66,7 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
                 position: 'absolute', top: 0, left: '50%',
                 transform: 'translateX(-50%)',
                 width: 24, height: 2,
-                background: 'var(--spup-green)',
+                background: 'var(--color-brand)',
                 borderRadius: '0 0 2px 2px',
               }} />
             )}

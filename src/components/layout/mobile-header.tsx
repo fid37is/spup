@@ -45,10 +45,12 @@ export default function MobileHeader({ profile, unreadCount, mutualsCount, title
   // Only render portals after hydration
   useEffect(() => { setMounted(true) }, [])
 
-  // Lock body scroll when drawer open
+  // Lock body scroll when drawer open. Only touch body.overflow while the drawer
+  // is open: this used to write '' on every mount, which clobbered the scroll
+  // lock a full-screen page (the chat thread) had set.
   useEffect(() => {
-    if (!mounted) return
-    document.body.style.overflow = drawerOpen ? 'hidden' : ''
+    if (!mounted || !drawerOpen) return
+    document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [drawerOpen, mounted])
 

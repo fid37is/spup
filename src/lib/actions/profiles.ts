@@ -38,7 +38,7 @@ const updateProfileSchema = z.object({
   display_name:        z.string().min(2).max(50).optional(),
   bio:                 z.string().max(160).nullable().optional(),
   location:            z.string().max(60).nullable().optional(),
-  website_url:         z.string().url().nullable().optional().or(z.literal('')),
+  website_url:         z.string().url('Enter a valid link, for example https://yoursite.com').nullable().optional().or(z.literal('')),
   occupation:          z.string().max(60).nullable().optional(),
   date_of_birth:       z.string().nullable().optional().refine(v => !v || !isNaN(Date.parse(v)), 'Invalid date'),
   birthday_visibility: z.enum(['everyone', 'followers', 'only_me']).optional(),
@@ -58,13 +58,25 @@ export async function updateProfileAction(data: UpdateProfileData) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
 
+  // Nothing to change: succeed without writing anything.
+  if (Object.keys(parsed.data).length === 0) return { success: true }
+
   const { error } = await supabase
     .from('users')
     .update({ ...parsed.data, updated_at: new Date().toISOString() })
     .eq('id', profile.id)
 
   if (error) {
-    console.error('updateProfileAction error:', error.message)
+    console.error('updateProfileAction error:', error.code, error.message)
+    // 42703 = Postgres "column does not exist"; PGRST204 = PostgREST can't see
+    // the column. Both mean the database is behind the code (a migration has not
+    // been run) - say so in the server log, and give the user something honest.
+    if (error.code === '42703' || error.code === 'PGRST204') {
+      console.error('updateProfileAction: the users table is missing a profile column - run supabase/migrations/021_profile_fields.sql')
+      return { error: "Some profile fields can't be saved yet. Please try again later." }
+    }
+    // 23514 = a CHECK constraint (e.g. an invalid birthday privacy value)
+    if (error.code === '23514') return { error: 'One of the values is not allowed. Please check and try again.' }
     return { error: 'Failed to update profile.' }
   }
 
