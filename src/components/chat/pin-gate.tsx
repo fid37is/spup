@@ -120,7 +120,9 @@ export default function PinGate({ children }: PinGateProps) {
       if (result.pepper) setSessionPinMaterial(pinStr, result.pepper)
       setStatus('unlocked')
     } else {
-      setError('Incorrect PIN. Try again.')
+      setError('rateLimited' in result && result.rateLimited
+        ? 'Too many attempts. Please wait a few minutes and try again.'
+        : 'Incorrect PIN. Try again.')
       setPin(['', '', '', ''])
       inputRefs[0].current?.focus()
     }

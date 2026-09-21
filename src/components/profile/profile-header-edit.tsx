@@ -7,7 +7,9 @@ import { Loader, Check, X, Shield, Phone } from 'lucide-react'
 import {
   updateProfileAction,
   changeUsernameAction,
+  type UpdateProfileData,
 } from '@/lib/actions/profiles'
+import { buildProfileChanges, normaliseWebsite, type ProfileFormValues } from '@/lib/profile-diff'
 
 interface EditProps {
   profile: {
@@ -61,11 +63,10 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
   const [occupation,   setOccupation]   = useState(profile.occupation ?? '')
   const [location,     setLocation]     = useState(profile.location ?? '')
   const [website,      setWebsite]      = useState(profile.website_url ?? '')
-  const [dob,          setDob]          = useState(
-    profile.date_of_birth
-      ? new Date(profile.date_of_birth).toISOString().split('T')[0]
-      : ''
-  )
+  const initialDob = profile.date_of_birth
+    ? new Date(profile.date_of_birth).toISOString().split('T')[0]
+    : ''
+  const [dob,          setDob]          = useState(initialDob)
   const [birthdayVis, setBirthdayVis] = useState<'everyone' | 'followers' | 'only_me'>(
     (profile.birthday_visibility as any) ?? 'followers'
   )
@@ -83,16 +84,33 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
   function handleSave() {
     if (!displayName.trim()) { setSaveError('Display name is required'); return }
     setSaveError('')
+
+    // Compare against what the form opened with and send ONLY what changed.
+    const before: ProfileFormValues = {
+      display_name:        (profile.display_name ?? '').trim(),
+      bio:                 (profile.bio ?? '').trim()        || null,
+      occupation:          (profile.occupation ?? '').trim() || null,
+      location:            (profile.location ?? '').trim()   || null,
+      website_url:         normaliseWebsite(profile.website_url ?? ''),
+      date_of_birth:       initialDob || null,
+      birthday_visibility: ((profile.birthday_visibility as ProfileFormValues['birthday_visibility'] | null) ?? 'followers'),
+    }
+    const next: ProfileFormValues = {
+      display_name:        displayName.trim(),
+      bio:                 bio.trim()        || null,
+      occupation:          occupation.trim() || null,
+      location:            location.trim()   || null,
+      website_url:         normaliseWebsite(website),
+      date_of_birth:       dob || null,
+      birthday_visibility: birthdayVis,
+    }
+    const changes = buildProfileChanges(before, next)
+
+    // Nothing changed: nothing to save - just leave, no error, no server call.
+    if (Object.keys(changes).length === 0) { onSaved(); return }
+
     startT(async () => {
-      const r = await updateProfileAction({
-        display_name:        displayName.trim(),
-        bio:                 bio.trim()        || null,
-        occupation:          occupation.trim() || null,
-        location:            location.trim()   || null,
-        website_url:         website.trim()    || null,
-        date_of_birth:       dob               || null,
-        birthday_visibility: birthdayVis,
-      })
+      const r = await updateProfileAction(changes as UpdateProfileData)
       if (r.error) { setSaveError(r.error); return }
       router.refresh()
       onSaved()

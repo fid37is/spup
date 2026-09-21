@@ -6,7 +6,12 @@
 
 const KEY_ALGO  = { name: 'ECDH', namedCurve: 'P-256' } as const
 const ENC_ALGO  = { name: 'AES-GCM', length: 256 }      as const
-const STORE_KEY = 'spup_chat_keypair'
+// The keypair used to live under ONE localStorage key for the whole browser, so a
+// second account signing in on the same device silently reused (and re-published)
+// the first account's identity key. It is now stored per account. The old key is
+// only ever adopted by the account whose server-side public key matches it.
+const LEGACY_STORE_KEY = 'spup_chat_keypair'
+const storeKeyFor = (userId: string) => `${LEGACY_STORE_KEY}:${userId}`
 const ENC_PREFIX = 'enc:'
 const WRAP_ITERATIONS = 250_000
 
@@ -21,6 +26,9 @@ function bs(u: Uint8Array): BufferSource {
   return u as unknown as BufferSource
 }
 
+/** What decryptMessage() returns when a message can't be opened - the UI styles it. */
+export const UNDECRYPTABLE = '[Unable to decrypt]'
+
 export class WrongPasswordError extends Error {
   constructor() { super('Incorrect password') }
 }
@@ -29,38 +37,70 @@ export class WrongPasswordError extends Error {
 
 type KeyPairResult = { publicKeyB64: string; privateKey: CryptoKey }
 
-/**
- * Fast path only — returns the keypair already cached in this browser, or
- * null if this device has never generated/recovered one. Callers that can
- * prompt for a password should fall back to recoverOrCreateKeyPair() below
- * when this returns null, rather than silently minting a fresh identity.
- */
-export async function getStoredKeyPair(): Promise<KeyPairResult | null> {
-  const stored = localStorage.getItem(STORE_KEY)
-  if (!stored) return null
+type StoredPair = { pub: string; priv: JsonWebKey }
+
+function readStored(storeKey: string): StoredPair | null {
   try {
-    const { pub, priv } = JSON.parse(stored)
-    const privateKey = await crypto.subtle.importKey('jwk', priv, KEY_ALGO, true, ['deriveKey'])
-    return { publicKeyB64: pub, privateKey }
+    const raw = localStorage.getItem(storeKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed?.pub && parsed?.priv ? parsed : null
   } catch {
-    return null // corrupted — treat as absent
+    return null // corrupted - treat as absent
   }
 }
 
-async function generateAndStoreKeyPair(): Promise<KeyPairResult & { privateKeyJwk: JsonWebKey }> {
+async function importPair(stored: StoredPair): Promise<KeyPairResult> {
+  const privateKey = await crypto.subtle.importKey('jwk', stored.priv, KEY_ALGO, true, ['deriveKey'])
+  return { publicKeyB64: stored.pub, privateKey }
+}
+
+/**
+ * Fast path only - returns the keypair already cached in this browser FOR THIS
+ * ACCOUNT, or null if this device has never generated/recovered one for it.
+ * Callers that can prompt for a password should use recoverOrCreateKeyPair()
+ * below, rather than silently minting a fresh identity.
+ */
+export async function getStoredKeyPair(userId: string): Promise<KeyPairResult | null> {
+  const stored = readStored(storeKeyFor(userId))
+  if (!stored) return null
+  try { return await importPair(stored) } catch { return null }
+}
+
+/**
+ * The old shared-slot key, but ONLY if it provably belongs to this account:
+ * its public half equals the public key the server holds for them. Adopting it
+ * unchecked would hand one account another account's identity.
+ */
+async function adoptLegacyKeyPair(userId: string, fetchPublicKey?: () => Promise<string | null>): Promise<KeyPairResult | null> {
+  if (!fetchPublicKey) return null
+  const legacy = readStored(LEGACY_STORE_KEY)
+  if (!legacy) return null
+  const serverPub = await fetchPublicKey().catch(() => null)
+  if (!serverPub || serverPub !== legacy.pub) return null
+  try {
+    const pair = await importPair(legacy)
+    localStorage.setItem(storeKeyFor(userId), JSON.stringify(legacy))
+    return pair
+  } catch {
+    return null
+  }
+}
+
+async function generateAndStoreKeyPair(userId: string): Promise<KeyPairResult & { privateKeyJwk: JsonWebKey }> {
   const keypair = await crypto.subtle.generateKey(KEY_ALGO, true, ['deriveKey'])
   const pubRaw  = await crypto.subtle.exportKey('raw',  keypair.publicKey)
   const privJwk = await crypto.subtle.exportKey('jwk',  keypair.privateKey) as JsonWebKey
   const publicKeyB64 = uint8ToBase64(new Uint8Array(pubRaw))
-  localStorage.setItem(STORE_KEY, JSON.stringify({ pub: publicKeyB64, priv: privJwk }))
+  localStorage.setItem(storeKeyFor(userId), JSON.stringify({ pub: publicKeyB64, priv: privJwk }))
   return { publicKeyB64, privateKey: keypair.privateKey, privateKeyJwk: privJwk }
 }
 
-async function storeRecoveredKeyPair(privJwk: JsonWebKey): Promise<KeyPairResult> {
+async function storeRecoveredKeyPair(userId: string, privJwk: JsonWebKey): Promise<KeyPairResult> {
   const privateKey = await crypto.subtle.importKey('jwk', privJwk, KEY_ALGO, true, ['deriveKey'])
   const pubRaw = await crypto.subtle.exportKey('raw', await derivePublicKey(privateKey, privJwk))
   const publicKeyB64 = uint8ToBase64(new Uint8Array(pubRaw))
-  localStorage.setItem(STORE_KEY, JSON.stringify({ pub: publicKeyB64, priv: privJwk }))
+  localStorage.setItem(storeKeyFor(userId), JSON.stringify({ pub: publicKeyB64, priv: privJwk }))
   return { publicKeyB64, privateKey }
 }
 
@@ -71,45 +111,83 @@ async function derivePublicKey(_privateKey: CryptoKey, privJwk: JsonWebKey): Pro
   return crypto.subtle.importKey('jwk', pubJwk, KEY_ALGO, true, [])
 }
 
+// Key acquisition may generate an identity and upload it. Two overlapping runs
+// (React StrictMode's double effect in dev, or two tabs) would each generate a
+// DIFFERENT keypair, and whichever finished last would win locally while the
+// other one's public key / wrapped key sat on the server - permanently
+// mismatched, i.e. "[Unable to decrypt]" for every message. So: one run at a
+// time per account, in this tab (in-flight promise) and across tabs (Web Locks).
+const inflight = new Map<string, Promise<unknown>>()
+
+function withKeyLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inflight.get(userId) as Promise<T> | undefined
+  if (existing) return existing
+  const locks = typeof navigator !== 'undefined' ? (navigator as Navigator & { locks?: LockManager }).locks : undefined
+  const run: Promise<T> = locks?.request
+    ? (locks.request(`spup-chat-key:${userId}`, fn) as Promise<T>)
+    : fn()
+  inflight.set(userId, run)
+  const clear = () => { if (inflight.get(userId) === run) inflight.delete(userId) }
+  run.then(clear, clear)
+  return run
+}
+
 /**
  * The full cross-device-aware key acquisition flow. Call this instead of
  * relying on getStoredKeyPair() alone.
  *
- *  1. Already cached on this device → return it, no prompts, no network.
- *  2. Not cached, but the server has a wrapped key from another device →
- *     this is a "new device for an existing identity" — ask for the
+ *  1. Already cached on this device for this account -> return it. No prompts.
+ *  1b. Only the legacy shared slot has a key, and it matches this account's
+ *     server-side public key -> adopt it (existing users keep their history).
+ *  2. Not cached, but the server has a wrapped key from another device ->
+ *     this is a "new device for an existing identity" - ask for the
  *     account password via getPassword(), unwrap, cache locally, return.
  *     A wrong password throws WrongPasswordError; caller should let the
  *     user retry rather than falling through to key generation, or a
  *     mistyped password would silently fork the identity.
- *  3. Not cached, and the server has nothing wrapped yet → brand new
+ *  3. Not cached, and the server has nothing wrapped yet -> brand new
  *     identity. Generate it, and if getPassword() is provided, also wrap
  *     and upload it immediately so a future device can recover it.
+ *     `replacedExistingIdentity` is true when the server already had a public
+ *     key for this account that this replaces (older encrypted messages
+ *     can no longer be opened) - worth telling the person.
  */
 export async function recoverOrCreateKeyPair(opts: {
+  userId: string
+  fetchPublicKey?: () => Promise<string | null>
   fetchWrapped: () => Promise<{ wrapped: string; salt: string; iv: string } | null>
   uploadWrapped: (wrapped: string, salt: string, iv: string) => Promise<void>
   getPassword: () => Promise<string | null> // null = user cancelled
-}): Promise<KeyPairResult & { recoveredFromServer: boolean }> {
-  const cached = await getStoredKeyPair()
-  if (cached) return { ...cached, recoveredFromServer: false }
+}): Promise<KeyPairResult & { recoveredFromServer: boolean; replacedExistingIdentity: boolean }> {
+  const { userId } = opts
+  return withKeyLock(userId, async () => {
+    const cached = await getStoredKeyPair(userId)
+    if (cached) return { ...cached, recoveredFromServer: false, replacedExistingIdentity: false }
 
-  const remote = await opts.fetchWrapped()
-  if (remote) {
-    const password = await opts.getPassword()
-    if (password === null) throw new Error('Password entry cancelled')
-    const privJwk = await unwrapPrivateKeyJwk(remote.wrapped, remote.salt, remote.iv, password)
-    const pair = await storeRecoveredKeyPair(privJwk)
-    return { ...pair, recoveredFromServer: true }
-  }
+    const legacy = await adoptLegacyKeyPair(userId, opts.fetchPublicKey)
+    if (legacy) return { ...legacy, recoveredFromServer: false, replacedExistingIdentity: false }
 
-  const generated = await generateAndStoreKeyPair()
-  const password = await opts.getPassword().catch(() => null)
-  if (password) {
-    const { wrapped, salt, iv } = await wrapPrivateKeyJwk(generated.privateKeyJwk, password)
-    await opts.uploadWrapped(wrapped, salt, iv)
-  }
-  return { publicKeyB64: generated.publicKeyB64, privateKey: generated.privateKey, recoveredFromServer: false }
+    const remote = await opts.fetchWrapped()
+    if (remote) {
+      const password = await opts.getPassword()
+      if (password === null) throw new Error('Password entry cancelled')
+      const privJwk = await unwrapPrivateKeyJwk(remote.wrapped, remote.salt, remote.iv, password)
+      const pair = await storeRecoveredKeyPair(userId, privJwk)
+      return { ...pair, recoveredFromServer: true, replacedExistingIdentity: false }
+    }
+
+    const hadServerKey = opts.fetchPublicKey ? !!(await opts.fetchPublicKey().catch(() => null)) : false
+    const generated = await generateAndStoreKeyPair(userId)
+    const password = await opts.getPassword().catch(() => null)
+    if (password) {
+      const { wrapped, salt, iv } = await wrapPrivateKeyJwk(generated.privateKeyJwk, password)
+      await opts.uploadWrapped(wrapped, salt, iv)
+    }
+    return {
+      publicKeyB64: generated.publicKeyB64, privateKey: generated.privateKey,
+      recoveredFromServer: false, replacedExistingIdentity: hadServerKey,
+    }
+  })
 }
 
 // ── Password-based key wrapping (cross-device sync) ───────────────────────────
@@ -161,14 +239,18 @@ async function unwrapPrivateKeyJwk(wrappedB64: string, saltB64: string, ivB64: s
  * re-wrap. The result is ready for uploadWrappedKeyAction().
  */
 export async function rewrapKeyForNewPassword(opts: {
+  userId: string
+  fetchPublicKey?: () => Promise<string | null>
   oldPassword: string
   newPassword: string
   fetchWrapped: () => Promise<{ wrapped: string; salt: string; iv: string } | null>
 }): Promise<{ wrapped: string; salt: string; iv: string } | null> {
-  let privJwk: JsonWebKey | null = null
-  const stored = localStorage.getItem(STORE_KEY)
-  if (stored) {
-    try { privJwk = JSON.parse(stored).priv as JsonWebKey } catch { privJwk = null }
+  let privJwk: JsonWebKey | null = readStored(storeKeyFor(opts.userId))?.priv ?? null
+  if (!privJwk) {
+    // Same ownership rule as recoverOrCreateKeyPair: only trust the legacy slot
+    // if it matches this account's public key on the server.
+    const adopted = await adoptLegacyKeyPair(opts.userId, opts.fetchPublicKey)
+    if (adopted) privJwk = readStored(storeKeyFor(opts.userId))?.priv ?? null
   }
   if (!privJwk) {
     const remote = await opts.fetchWrapped()
@@ -224,7 +306,7 @@ export async function decryptMessage(
     const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bs(iv) }, sharedKey, bs(ciphertext))
     return new TextDecoder().decode(decrypted)
   } catch {
-    return '[Unable to decrypt]'
+    return UNDECRYPTABLE
   }
 }
 
@@ -235,7 +317,12 @@ export function isEncrypted(text: string | null): boolean {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function uint8ToBase64(buf: Uint8Array): string {
-  return btoa(String.fromCharCode(...buf))
+  // Chunked: spreading a large array into String.fromCharCode(...) overflows the call stack.
+  let bin = ''
+  for (let i = 0; i < buf.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + 0x8000)))
+  }
+  return btoa(bin)
 }
 
 function base64ToUint8(b64: string): Uint8Array {

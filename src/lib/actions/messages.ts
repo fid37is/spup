@@ -3,10 +3,12 @@
 // src/lib/actions/messages.ts
 
 import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
 import bcrypt from 'bcryptjs'
 import nodeCrypto from 'crypto'
 import { createNotification } from '@/lib/notifications'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { fetchMessagePage, type MessagePage } from '@/lib/chat-queries'
+import { getUnreadChatCount } from '@/lib/queries/chat'
 
 async function getCallerProfile() {
   const supabase = await createClient()
@@ -63,16 +65,28 @@ export async function verifyChatPinAction(pin: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { valid: false }
 
+  // A 4-digit PIN is only 10,000 combinations, and a correct guess also hands
+  // back the pepper that protects the E2E key backup - so guessing has to be
+  // slow. 20 tries / 15 min is far above normal use (one unlock per session,
+  // plus the occasional re-prompt after a reload). Fails open if the limiter
+  // itself is down (see lib/rate-limit.ts).
+  if (!(await checkRateLimit(`chat-pin-verify:${profile.id}`, 20, 15 * 60))) {
+    return { valid: false, rateLimited: true as const }
+  }
+
   const { data } = await supabase
     .from('chat_pins').select('pin_hash, key_pepper').eq('user_id', profile.id).single()
   if (!data) return { valid: false, noPin: true }
 
   const valid = await bcrypt.compare(pin, data.pin_hash)
-  // The pepper is only ever handed back on a correct PIN — this is what
+  // The pepper is only ever handed back on a correct PIN - this is what
   // makes it useless to an attacker who only has a stolen wrapped-key
   // blob (see 022_chat_pin_pepper.sql): they'd still have to pass this
-  // live, rate-limitable check to get it.
-  return valid ? { valid: true, pepper: data.key_pepper as string | null } : { valid: false }
+  // live, rate-limited check to get it. userId lets the browser scope its
+  // locally-stored E2E key to this account (see lib/chat-crypto.ts).
+  return valid
+    ? { valid: true, pepper: data.key_pepper as string | null, userId: profile.id as string }
+    : { valid: false }
 }
 
 export async function hasChatPinAction() {
@@ -166,18 +180,23 @@ export async function getConversationsAction() {
 export async function getOrCreateConversationAction(targetUserId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
+  if (!targetUserId) return { error: 'Missing user' }
+  if (targetUserId === profile.id) return { error: "You can't start a chat with yourself" }
 
-  // Check if conversation already exists
-  const { data: existing } = await supabase
+  // Check if conversation already exists. limit(1) instead of maybeSingle():
+  // maybeSingle() ERRORS when two rows match (e.g. two chats created by a
+  // double-tap), which made this fall through and create a third one.
+  const { data: existingRows } = await supabase
     .from('conversations')
     .select('id')
     .or(
       `and(participant_1.eq.${profile.id},participant_2.eq.${targetUserId}),` +
       `and(participant_1.eq.${targetUserId},participant_2.eq.${profile.id})`
     )
-    .maybeSingle()
+    .order('created_at', { ascending: true })
+    .limit(1)
 
-  if (existing) return { conversationId: existing.id }
+  if (existingRows && existingRows.length > 0) return { conversationId: existingRows[0].id }
 
   // Create new conversation
   const { data: conv, error } = await supabase
@@ -187,116 +206,210 @@ export async function getOrCreateConversationAction(targetUserId: string) {
 
   if (error || !conv) return { error: error?.message || 'Failed to create conversation' }
 
-  // Create member records for both participants
-  await supabase.from('conversation_members').insert([
+  // Create member records for both participants (they carry the unread counts)
+  const { error: memberError } = await supabase.from('conversation_members').insert([
     { conversation_id: conv.id, user_id: profile.id },
     { conversation_id: conv.id, user_id: targetUserId },
   ])
+  if (memberError) console.error('[getOrCreateConversationAction] could not create conversation_members:', memberError.message)
 
   return { conversationId: conv.id }
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
-export async function getMessagesAction(conversationId: string, limit = 50, before?: string) {
+const MAX_WIRE_LENGTH = 20_000 // ciphertext is ~1.4x the plaintext; the UI caps text at 4,000 chars
+
+/** The conversation, only if the caller is one of its two participants. */
+async function getMyConversation(
+  supabase: Awaited<ReturnType<typeof createClient>>, profileId: string, conversationId: string,
+) {
+  const { data } = await supabase
+    .from('conversations')
+    .select('id, participant_1, participant_2')
+    .eq('id', conversationId)
+    .or(`participant_1.eq.${profileId},participant_2.eq.${profileId}`)
+    .maybeSingle()
+  return data as { id: string; participant_1: string; participant_2: string } | null
+}
+
+/**
+ * A page of messages (newest page by default, or the page before `before`).
+ * PURE READ: it no longer marks anything as read. It used to do that as a side
+ * effect of the page render, which told the sender "read" before the recipient
+ * had even passed the PIN gate (or when Next merely prefetched the route). Read
+ * state now changes only via markConversationReadAction, called by the chat
+ * screen once the messages are actually on screen.
+ *
+ * Errors are RETURNED, not swallowed - see lib/chat-queries.ts for why.
+ */
+export async function loadMessagesAction(conversationId: string, before?: string): Promise<MessagePage> {
   const { supabase, profile } = await getCallerProfile()
-  if (!profile) return []
+  if (!profile) return { messages: [], hasMore: false, error: 'Not authenticated' }
+  if (!(await getMyConversation(supabase, profile.id, conversationId))) {
+    return { messages: [], hasMore: false, error: 'Conversation not found' }
+  }
+  return fetchMessagePage(supabase, conversationId, { before })
+}
 
-  let query = supabase
+/**
+ * The recipient's app has the messages (delivered) and/or is showing them
+ * (read). Also clears the unread badge for this conversation. Safe to call
+ * repeatedly - it only touches rows that still need it.
+ *
+ * `delivered_at` comes from migration 026; if it hasn't been applied yet that
+ * one update fails, is logged, and read receipts keep working.
+ */
+export async function markConversationReadAction(conversationId: string, level: 'read' | 'delivered' = 'read') {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!(await getMyConversation(supabase, profile.id, conversationId))) return { error: 'Conversation not found' }
+
+  const now = new Date().toISOString()
+
+  if (level === 'read') {
+    const { error } = await supabase
+      .from('messages')
+      .update({ read_at: now })
+      .eq('conversation_id', conversationId)
+      .neq('sender_id', profile.id)
+      .is('read_at', null)
+    if (error) { console.error('[markConversationReadAction] read_at update failed:', error.message); return { error: error.message } }
+  }
+
+  const { error: dErr } = await supabase
     .from('messages')
-    .select(`
-      id, body, media_url, media_type, created_at, read_at, is_deleted,
-      sender_id,
-      sender:users!messages_sender_id_fkey(id, username, display_name, avatar_url),
-      reply_to:messages!messages_reply_to_id_fkey(id, body, sender_id,
-        sender:users!messages_sender_id_fkey(display_name)
-      )
-    `)
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: false })
-    .limit(limit)
-
-  if (before) query = query.lt('created_at', before)
-
-  const { data } = await query
-
-  // Mark messages as read
-  await supabase
-    .from('messages')
-    .update({ read_at: new Date().toISOString() })
+    .update({ delivered_at: now })
     .eq('conversation_id', conversationId)
     .neq('sender_id', profile.id)
-    .is('read_at', null)
+    .is('delivered_at', null)
+  if (dErr) console.warn('[markConversationReadAction] delivered_at update skipped (run migration 026?):', dErr.message)
 
-  // Reset unread count
-  await supabase
-    .from('conversation_members')
-    .update({ unread_count: 0, last_read_at: new Date().toISOString() })
-    .match({ conversation_id: conversationId, user_id: profile.id })
+  if (level === 'read') {
+    const { error: uErr } = await supabase
+      .from('conversation_members')
+      .update({ unread_count: 0, last_read_at: now })
+      .match({ conversation_id: conversationId, user_id: profile.id })
+    if (uErr) console.error('[markConversationReadAction] unread reset failed:', uErr.message)
+  }
+  return { success: true }
+}
 
-  return (data || []).reverse()
+/**
+ * The messages list is open on the recipient's device: everything sent to them
+ * in any conversation counts as delivered (not read).
+ */
+export async function markAllDeliveredAction() {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+
+  const { data: convs } = await supabase
+    .from('conversations')
+    .select('id')
+    .or(`participant_1.eq.${profile.id},participant_2.eq.${profile.id}`)
+    .limit(200)
+  const ids = (convs ?? []).map((c: { id: string }) => c.id)
+  if (ids.length === 0) return { success: true }
+
+  const { error } = await supabase
+    .from('messages')
+    .update({ delivered_at: new Date().toISOString() })
+    .in('conversation_id', ids)
+    .neq('sender_id', profile.id)
+    .is('delivered_at', null)
+  if (error) console.warn('[markAllDeliveredAction] skipped (run migration 026?):', error.message)
+  return { success: true }
+}
+
+/** Client-callable refresh for the Chat tab badge (see hooks/use-chat-unread.ts). */
+export async function getUnreadChatCountAction(): Promise<number> {
+  const { profile } = await getCallerProfile()
+  if (!profile) return 0
+  return getUnreadChatCount(profile.id)
 }
 
 export async function sendMessageAction(conversationId: string, body: string, replyToId?: string) {
-  if (!body.trim()) return { error: 'Message cannot be empty' }
+  const text = body.trim()
+  if (!text) return { error: 'Message cannot be empty' }
+  if (text.length > MAX_WIRE_LENGTH) return { error: 'Message is too long' }
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
+
+  // Only participants may post (also gives us the recipient for the notification).
+  const conv = await getMyConversation(supabase, profile.id, conversationId)
+  if (!conv) return { error: 'Conversation not found' }
+
+  if (replyToId) {
+    const { data: target } = await supabase
+      .from('messages').select('id').eq('id', replyToId).eq('conversation_id', conversationId).maybeSingle()
+    if (!target) return { error: 'The message you are replying to no longer exists' }
+  }
 
   const { data: msg, error } = await supabase
     .from('messages')
     .insert({
       conversation_id: conversationId,
       sender_id: profile.id,
-      body: body.trim(),
+      body: text,
       reply_to_id: replyToId || null,
     })
     .select('id, created_at')
     .single()
 
-  if (error || !msg) return { error: error?.message || 'Failed to send' }
-
-  // Update conversation preview
-  await supabase.from('conversations').update({
-    last_message_at: msg.created_at,
-    last_message_preview: body.trim().startsWith('enc:') ? '[Encrypted message]' : body.trim().slice(0, 80),
-  }).eq('id', conversationId)
-
-  // Increment unread for the other participant
-  await supabase.rpc('increment_unread', {
-    p_conversation_id: conversationId,
-    p_sender_id: profile.id,
-  })
-
-  // Notify the recipient - this was previously never wired up, so new
-  // messages produced no in-app notification and no push.
-  const { data: conv } = await supabase
-    .from('conversations')
-    .select('participant_1, participant_2')
-    .eq('id', conversationId)
-    .single()
-  if (conv) {
-    const recipientId = conv.participant_1 === profile.id ? conv.participant_2 : conv.participant_1
-    void createNotification({
-      recipientId,
-      actorId: profile.id,
-      type: 'new_message',
-      entityId: conversationId,
-      entityType: 'conversation',
-    })
+  if (error || !msg) {
+    console.error('[sendMessageAction] insert failed:', error?.message)
+    return { error: error?.message || 'Failed to send' }
   }
 
-  revalidatePath(`/messages/${conversationId}`)
-  return { success: true, messageId: msg.id }
+  // The message is saved - everything below is bookkeeping. Run it together,
+  // and never fail the send because of it (but do log, it used to be silent).
+  const recipientId = conv.participant_1 === profile.id ? conv.participant_2 : conv.participant_1
+  const [previewRes, unreadRes] = await Promise.all([
+    supabase.from('conversations').update({
+      last_message_at: msg.created_at,
+      last_message_preview: text.startsWith('enc:') ? '[Encrypted message]' : text.slice(0, 80),
+    }).eq('id', conversationId),
+    supabase.rpc('increment_unread', { p_conversation_id: conversationId, p_sender_id: profile.id }),
+  ])
+  if (previewRes.error) console.error('[sendMessageAction] preview update failed:', previewRes.error.message)
+  if (unreadRes.error) console.error('[sendMessageAction] increment_unread failed:', unreadRes.error.message)
+
+  // One in-app notification per burst, not one per message (the push still goes
+  // out and collapses per conversation via its tag).
+  createNotification({
+    recipientId,
+    actorId: profile.id,
+    type: 'new_message',
+    entityId: conversationId,
+    entityType: 'conversation',
+    dedupeUnread: true,
+  }).catch(e => console.error('[sendMessageAction] notification failed:', e))
+
+  // No revalidatePath here: the chat screen owns its own state, and revalidating
+  // re-rendered the whole page on the server after every single send.
+  return { success: true as const, messageId: msg.id as string, createdAt: msg.created_at as string }
 }
 
 export async function deleteMessageAction(messageId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
 
-  await supabase
+  const { data, error } = await supabase
     .from('messages')
     .update({ is_deleted: true, body: null })
     .match({ id: messageId, sender_id: profile.id })
+    .select('conversation_id, created_at')
+    .maybeSingle()
+
+  if (error) return { error: error.message }
+  if (!data) return { error: 'Message not found' }
+
+  // If this was the latest message, the list preview still showed its text.
+  await supabase
+    .from('conversations')
+    .update({ last_message_preview: 'Message deleted' })
+    .eq('id', data.conversation_id)
+    .eq('last_message_at', data.created_at)
 
   return { success: true }
 }

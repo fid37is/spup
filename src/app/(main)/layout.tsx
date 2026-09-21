@@ -3,12 +3,15 @@ import { Suspense } from 'react'
 import { getAuthUser, createAdminClient } from '@/lib/supabase/server'
 import { getProfileByAuthId, getOnboardingProgress, getUnreadNotificationCount } from '@/lib/queries'
 import { getWallet } from '@/lib/queries'
+import { getUnreadChatCount } from '@/lib/queries/chat'
 import SidebarNav from '@/components/layout/sidebar-nav'
 import RightSidebar from '@/components/layout/right-sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import MobileHeader from '@/components/layout/mobile-header'
 import { AppThemeProvider } from '@/components/layout/theme-provider'
 import PushNotificationsProvider from '@/components/layout/push-notifications-provider'
+import ActivityBeacon from '@/components/layout/activity-beacon' 
+
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const user = await getAuthUser()
@@ -27,9 +30,10 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
   // ── Step 2: onboarding + sidebar data all in parallel ──────────────────────
   const admin = createAdminClient()
-  const [onboardingProgress, unreadCount, wallet, youFollow, followYou] = await Promise.all([
+  const [onboardingProgress, unreadCount, unreadChat, wallet, youFollow, followYou] = await Promise.all([
     getOnboardingProgress(profile.id),
     getUnreadNotificationCount(profile.id),
+    getUnreadChatCount(profile.id),
     getWallet(profile.id),
     admin.from('follows').select('following_id').eq('follower_id', profile.id),
     admin.from('follows').select('follower_id').eq('following_id', profile.id),
@@ -47,6 +51,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   return (
     <AppThemeProvider>
       <PushNotificationsProvider userId={profile.id} />
+      <ActivityBeacon />
       <style>{`
         .main-layout {
           display: flex;
@@ -78,6 +83,10 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           .mobile-nav    { display: flex; }
           .mobile-header { display: block; }
         }
+        /* A chat thread owns the whole screen on phones (its own header + composer),
+           so the app's top bar and bottom tab bar step aside. Set by ChatViewport. */
+        html[data-chat-open] .mobile-nav,
+        html[data-chat-open] .mobile-header { display: none !important; }
         @media (min-width: 768px) and (max-width: 1100px) {
           .sidebar-right { display: none; }
           .main-content  { border-right: none; }
@@ -86,7 +95,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
       <div className="main-layout">
         <div className="sidebar-left">
-          <SidebarNav profile={profile} unreadCount={unreadCount} />
+          <SidebarNav profile={profile} unreadCount={unreadCount} unreadChat={unreadChat} />
         </div>
 
         <main className="main-content">
@@ -104,7 +113,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       </div>
 
       <div className="mobile-nav">
-        <MobileBottomNav unreadCount={unreadCount} />
+        <MobileBottomNav unreadCount={unreadCount} unreadChat={unreadChat} userId={profile.id} />
       </div>
     </AppThemeProvider>
   )

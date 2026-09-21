@@ -58,6 +58,7 @@ export async function createNotification({
   entityId,
   entityType = 'post',
   metadata = {},
+  dedupeUnread = false,
 }: {
   recipientId: string
   actorId: string | null
@@ -65,24 +66,46 @@ export async function createNotification({
   entityId?: string
   entityType?: string
   metadata?: Record<string, unknown>
+  /**
+   * Skip the in-app row if the recipient already has an UNREAD notification of
+   * the same type for the same entity (still sends the push). For chat: ten
+   * messages in a row are one "sent you a message" alert, not ten - and they
+   * no longer inflate the Alerts badge.
+   */
+  dedupeUnread?: boolean
 }) {
   const admin = createAdminClient()
 
   // Don't notify yourself about your own action (e.g. liking your own post).
   if (actorId === recipientId) return
 
-  const { error } = await admin.from('notifications').insert({
-    recipient_id: recipientId,
-    actor_id: actorId,
-    type,
-    entity_id: entityId ?? null,
-    entity_type: entityType,
-    metadata,
-  })
+  let skipInsert = false
+  if (dedupeUnread && entityId) {
+    const { data: existing } = await admin
+      .from('notifications')
+      .select('id')
+      .eq('recipient_id', recipientId)
+      .eq('type', type)
+      .eq('entity_id', entityId)
+      .eq('is_read', false)
+      .limit(1)
+    skipInsert = !!existing && existing.length > 0
+  }
 
-  if (error) {
-    console.error('createNotification: insert failed', error)
-    return
+  if (!skipInsert) {
+    const { error } = await admin.from('notifications').insert({
+      recipient_id: recipientId,
+      actor_id: actorId,
+      type,
+      entity_id: entityId ?? null,
+      entity_type: entityType,
+      metadata,
+    })
+
+    if (error) {
+      console.error('createNotification: insert failed', error)
+      return
+    }
   }
 
   let actorName: string | null = null

@@ -5,7 +5,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { getConversationsAction } from '@/lib/actions/messages'
+import { getConversationsAction, markAllDeliveredAction } from '@/lib/actions/messages'
+import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
 import { formatRelativeTime } from '@/lib/utils'
 import Link from 'next/link'
 
@@ -26,32 +27,70 @@ interface Props {
 
 export default function MessagesListClient({ initialConversations, currentUserId }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations)
-  const supabase = useRef(createBrowserClient())
+  const supabase = useRef<ReturnType<typeof createBrowserClient> | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const busy = useRef(false)
 
   // ── Realtime: refresh list when any message arrives ────────────────────────
   useEffect(() => {
-    const sb = supabase.current
+    const sb = (supabase.current ??= createBrowserClient())
 
+    // Bursts of events (a message INSERT plus the conversation UPDATE that
+    // follows it) collapse into one refresh.
     async function refresh() {
-      const fresh = await getConversationsAction()
-      setConversations(fresh as Conversation[])
+      if (busy.current) return
+      busy.current = true
+      try {
+        const fresh = await getConversationsAction()
+        setConversations(fresh as Conversation[])
+        notifyChatUnreadChanged()          // keep the Chat tab badge in step with this list
+      } catch (e) {
+        console.error('[chat list] refresh failed:', e)
+      } finally {
+        busy.current = false
+      }
+    }
+    const scheduleRefresh = () => {
+      if (timer.current) clearTimeout(timer.current)
+      timer.current = setTimeout(() => {
+        void refresh()
+        // This device now has whatever was sent to me: that's "delivered".
+        void markAllDeliveredAction()
+      }, 250)
     }
 
+    // The list is on screen, so anything already sent to me counts as delivered
+    // (done here, in the browser, not while the server renders the page).
+    void markAllDeliveredAction()
+
     const channel = sb
-      .channel('conversations-list')
+      .channel(`conversations-list:${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'conversations',
-      }, () => refresh())
+      }, scheduleRefresh)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'messages',
-      }, () => refresh())
+      }, scheduleRefresh)
       .subscribe()
 
-    return () => { sb.removeChannel(channel) }
+    // Safety net: keeps the list right even if realtime isn't delivering, and
+    // catches up after the phone slept.
+    const wake = () => { if (document.visibilityState === 'visible') scheduleRefresh() }
+    const poll = setInterval(wake, 30_000)
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('online', wake)
+
+    return () => {
+      if (timer.current) clearTimeout(timer.current)
+      clearInterval(poll)
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('online', wake)
+      void sb.removeChannel(channel)
+    }
   }, [currentUserId])
 
   if (conversations.length === 0) return null
@@ -64,7 +103,9 @@ export default function MessagesListClient({ initialConversations, currentUserId
         const color    = AVATAR_COLORS[(other?.username?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]
         const preview  = conv.last_message_preview === '[Encrypted message]'
           ? '🔒 Encrypted message'
-          : (conv.last_message_preview ?? 'No messages yet')
+          : conv.last_message_preview === 'Message deleted'
+            ? '🚫 Message deleted'
+            : (conv.last_message_preview ?? 'No messages yet')
 
         return (
           <Link key={conv.id} href={`/messages/${conv.id}`} style={{ textDecoration: 'none', display: 'block' }}>

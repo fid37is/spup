@@ -14,7 +14,7 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { KeyRound, ChevronRight, Loader, Check } from 'lucide-react'
-import { verifyChatPinAction, getWrappedKeyAction, uploadWrappedKeyAction } from '@/lib/actions/messages'
+import { verifyChatPinAction, getWrappedKeyAction, uploadWrappedKeyAction, getPublicKeyAction } from '@/lib/actions/messages'
 import { changeChatPinAction } from '@/lib/actions/chat-pin'
 import { rewrapKeyForNewPassword, WrongPasswordError } from '@/lib/chat-crypto'
 import { setSessionPinMaterial } from '@/lib/chat-pin-session'
@@ -75,16 +75,25 @@ export default function ChangeChatPinRow({ last = false }: { last?: boolean }) {
       // 1. Check the current PIN and get the pepper the key is wrapped with.
       const check = await verifyChatPinAction(oldPin)
       if (!check.valid) {
-        setError('noPin' in check && check.noPin ? "You haven't set a chat PIN yet." : 'Current PIN is incorrect.')
+        setError(
+          'rateLimited' in check && check.rateLimited ? 'Too many attempts. Please wait a few minutes and try again.'
+          : 'noPin' in check && check.noPin ? "You haven't set a chat PIN yet."
+          : 'Current PIN is incorrect.'
+        )
         return
       }
       const pepper = check.pepper ?? null
+      // The chat key is stored per account on this device (see lib/chat-crypto.ts).
+      const userId = check.userId
+      if (!userId) { setError('Something went wrong. Please try again.'); return }
+      const fetchPublicKey = async () => (await getPublicKeyAction(userId)).publicKey
 
       // 2. Re-wrap the E2E key under the new PIN (needs the pepper).
       let rewrapped: { wrapped: string; salt: string; iv: string } | null = null
       if (pepper) {
         try {
           rewrapped = await rewrapKeyForNewPassword({
+            userId, fetchPublicKey,
             oldPassword: `${oldPin}:${pepper}`,
             newPassword: `${newPin}:${pepper}`,
             fetchWrapped: async () => (await getWrappedKeyAction()).wrapped ?? null,
@@ -111,6 +120,7 @@ export default function ChangeChatPinRow({ last = false }: { last?: boolean }) {
       if (r.pepperIsNew) {
         try {
           const w = await rewrapKeyForNewPassword({
+            userId, fetchPublicKey,
             oldPassword: '', newPassword: `${newPin}:${r.pepper}`, fetchWrapped: async () => null,
           })
           if (w) await uploadWrappedKeyAction(w.wrapped, w.salt, w.iv)

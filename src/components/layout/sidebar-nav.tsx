@@ -7,12 +7,13 @@ import { Home, Bell, User, Search, Wallet, Settings, PenSquare, MessageSquare } 
 import { signOutAction } from '@/lib/actions'
 import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
+import { useChatUnread } from '@/hooks/use-chat-unread'
 
 const NAV = [
   { href: '/feed',          icon: Home,          label: 'Home' },
   { href: '/explore',       icon: Search,        label: 'Explore' },
-  { href: '/notifications', icon: Bell,          label: 'Notifications', badge: true },
-  { href: '/messages',      icon: MessageSquare, label: 'Chat' },
+  { href: '/notifications', icon: Bell,          label: 'Notifications', badge: 'alerts' },
+  { href: '/messages',      icon: MessageSquare, label: 'Chat',          badge: 'chat' },
   { href: '/wallet',        icon: Wallet,        label: 'Wallet' },
   { href: '/profile',       icon: User,          label: 'Profile' },
   { href: '/settings',      icon: Settings,      label: 'Settings' },
@@ -28,10 +29,12 @@ interface SidebarNavProps {
     verification_tier: string
   }
   unreadCount: number
+  unreadChat: number
 }
 
-export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
+export default function SidebarNav({ profile, unreadCount, unreadChat }: SidebarNavProps) {
   const pathname = usePathname()
+  const chatUnread = useChatUnread(unreadChat, profile.id)
   const [, startTransition] = useTransition()
   const [showPostModal, setShowPostModal] = useState(false)
   const { theme } = useTheme()
@@ -84,7 +87,8 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
         <nav style={{ flex: 1 }}>
           {NAV.map(({ href, icon: Icon, label, badge }) => {
             const isActive = pathname === href || (href !== '/feed' && pathname.startsWith(href))
-            const showBadge = badge && unreadCount > 0
+            const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
+            const showBadge = badgeCount > 0
             return (
               <Link key={href} href={href} style={{ textDecoration: 'none', display: 'block' }}>
                 <div
@@ -112,7 +116,7 @@ export default function SidebarNav({ profile, unreadCount }: SidebarNavProps) {
                         fontSize: 9, fontWeight: 800, color: 'white',
                         padding: '0 3px', fontFamily: "'Syne', sans-serif",
                       }}>
-                        {unreadCount > 99 ? '99+' : unreadCount}
+                        {badgeCount > 99 ? '99+' : badgeCount}
                       </div>
                     )}
                   </div>

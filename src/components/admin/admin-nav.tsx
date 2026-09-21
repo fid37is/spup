@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, FileText, Megaphone,
   Flag, ShieldAlert, LogOut, Activity, Radio,
-  Wallet, BadgeCheck, UserPlus, Menu, X, Quote, Scale,
+  Wallet, BadgeCheck, UserPlus, Menu, X, Quote,BarChart2, Scale,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { cn } from '@/lib/utils'
@@ -22,6 +22,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { href: '/activity-feed', icon: Radio,           label: 'Live activity' },
+      { href: '/analytics', icon: BarChart2, label: 'Insights' }
     ],
   },
   {

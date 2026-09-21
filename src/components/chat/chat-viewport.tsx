@@ -51,6 +51,10 @@ export default function ChatViewport({ children }: { children: React.ReactNode }
       if (l && stickToBottom) l.scrollTop = l.scrollHeight
     }
 
+    // Tell the app shell a chat thread is open so it hides the mobile bottom nav
+    // and top bar (see the html[data-chat-open] rules in (main)/layout.tsx).
+    document.documentElement.dataset.chatOpen = 'true'
+
     apply()
     const l = list()
     l?.addEventListener('scroll', onListScroll, { passive: true })
@@ -63,6 +67,7 @@ export default function ChatViewport({ children }: { children: React.ReactNode }
       vv?.removeEventListener('resize', apply)
       vv?.removeEventListener('scroll', apply)
       mobile.removeEventListener('change', apply)
+      delete document.documentElement.dataset.chatOpen
       document.body.style.overflow = ''
     }
   }, [])
