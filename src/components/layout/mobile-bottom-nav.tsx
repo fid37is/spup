@@ -20,7 +20,7 @@ export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { u
   // Focused, full-screen sub-pages hide the nav entirely, matching how X's own
   // Post Activity screen has no bottom tab bar — these are drill-down detail
   // views, not top-level destinations.
-  const hiddenOn = [/^\/post\/[^/]+\/activity/]
+  const hiddenOn = [/^\/post\/[^/]+\/activity/, /^\/messages\/[^/]+/, /^\/compose/]
   if (hiddenOn.some(re => re.test(pathname))) return null
 
   return (
