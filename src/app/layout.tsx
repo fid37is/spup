@@ -139,6 +139,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="mobile-web-app-capable" content="yes" />
 
         {/* WhatsApp / LinkedIn / Facebook additional OG tags not covered by Next metadata */}
+        <meta name="facebook-domain-verification" content="68oged2m46v5yyuiij11m0q5bxbxeh" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta property="fb:app_id" content={process.env.NEXT_PUBLIC_FB_APP_ID ?? ''} />
