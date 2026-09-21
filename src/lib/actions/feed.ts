@@ -598,6 +598,42 @@ export async function getProfileMutualsAction(profileUserId: string): Promise<Mu
   return (users || []) as MutualUser[]
 }
 
+// ─── Posts by id, in the order given ──────────────────────────────────────────
+// Used by the notifications "New posts" view: it already knows WHICH posts
+// (from the notifications, in the order they came in) and needs them fully
+// hydrated so they render exactly like feed posts.
+
+export async function getPostsByIdsAction(ids: string[]): Promise<FeedPost[]> {
+  const unique = [...new Set(ids)].slice(0, 100)
+  if (!unique.length) return []
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { data: profile } = await supabase
+    .from('users').select('id').eq('auth_id', user.id).single()
+  if (!profile) return []
+
+  const { data: posts } = await supabase
+    .from('posts')
+    .select(`
+      id, body, post_type, likes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `)
+    .in('id', unique)
+    .is('deleted_at', null)
+    .lte('created_at', nowIso())
+
+  if (!posts?.length) return []
+  const hydrated = await hydrateEngagement(supabase, profile.id, posts)
+  const byId = new Map(hydrated.map(p => [p.id, p]))
+  return unique.map(id => byId.get(id)).filter(Boolean) as FeedPost[]
+}
+
 // ─── Internal: batch-hydrate like/repost/bookmark state ──────────────────────
 
 async function hydrateEngagement(

@@ -5,15 +5,72 @@
 // On first use - prompts to create a 4-digit PIN.
 // On subsequent logins - prompts to enter existing PIN.
 // PIN is stored as bcrypt hash in the DB, never in plaintext.
-// Session-level unlock is stored in sessionStorage so user
-// doesn't need to re-enter the PIN on every page navigation within the same session.
+//
+// The unlock is scoped to the current AUTH SESSION, not the browser tab and
+// not the account. It's stored in localStorage (survives closing the tab/app
+// and relaunching - the auth cookie itself lives for 30 days, see
+// lib/supabase/cookie-options.ts, so the PIN gate has to survive at least
+// that long too) keyed by the Supabase session's `session_id` JWT claim.
+// That claim is stable across access-token refreshes within one login, but
+// changes on every fresh sign-in - so:
+//   - relaunching the app / reopening the tab while still logged in: same
+//     session_id -> stays unlocked, no re-prompt.
+//   - sign out, sign back in (even as the same user): a brand new session is
+//     minted server-side -> new session_id -> PIN asked once more.
+//   - a different device/browser has no entry for this session_id at all ->
+//     PIN asked once, then that device remembers it the same way.
+// We deliberately do NOT key this off the access token itself, since that
+// value rotates on every refresh even within the same session and would
+// force a re-prompt far more often than intended.
+//
+// (Previously this used sessionStorage keyed only by user id, which had the
+// opposite problem on both counts: it survived a sign-out/sign-in cycle as
+// the same user (skipping the PIN entirely on re-auth), while also getting
+// wiped every time the tab/app closed even though the underlying session was
+// still valid (re-prompting on every relaunch).)
 
 import { useState, useEffect, useRef } from 'react'
 import { setChatPinAction, verifyChatPinAction, hasChatPinAction } from '@/lib/actions/messages'
 import { setSessionPinMaterial, clearSessionPinMaterial } from '@/lib/chat-pin-session'
 import { Lock, Eye, EyeOff, Shield } from 'lucide-react'
 
-const SESSION_KEY = 'spup_chat_unlocked_uid'
+const UNLOCK_KEY = 'spup_chat_unlocked'
+
+type UnlockRecord = { uid: string; sid: string }
+
+// Reads the `session_id` claim out of a Supabase access token (a JWT) without
+// verifying it - this is purely a client-side UX gate, not the security
+// boundary. The real checks (PIN hash comparison, rate limiting) happen
+// server-side in verifyChatPinAction/setChatPinAction regardless of what's
+// in localStorage.
+function getSessionId(accessToken: string | undefined | null): string | null {
+  if (!accessToken) return null
+  try {
+    const payload = accessToken.split('.')[1]
+    if (!payload) return null
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+    const claims = JSON.parse(json)
+    return typeof claims.session_id === 'string' ? claims.session_id : null
+  } catch {
+    return null
+  }
+}
+
+function readUnlockRecord(): UnlockRecord | null {
+  try {
+    const raw = localStorage.getItem(UNLOCK_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return typeof parsed?.uid === 'string' && typeof parsed?.sid === 'string' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function writeUnlockRecord(uid: string, sid: string | null) {
+  if (!sid) return // no session_id claim available - fail safe, don't persist a bogus unlock
+  try { localStorage.setItem(UNLOCK_KEY, JSON.stringify({ uid, sid })) } catch { /* private mode */ }
+}
 
 interface PinGateProps {
   children: React.ReactNode
@@ -32,21 +89,23 @@ export default function PinGate({ children }: PinGateProps) {
 
   useEffect(() => {
     async function init() {
-      // Get current auth user ID from Supabase client session
+      // Get the current auth session (not just the user) so we can read the
+      // session_id claim off its access token - see comment above.
       const { createBrowserClient } = await import('@/lib/supabase/client')
       const supabase = createBrowserClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return // middleware handles redirect
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) return // middleware handles redirect
 
-      // Check if this exact user already unlocked chat in this session
-      const storedUid = sessionStorage.getItem(SESSION_KEY)
-      if (storedUid === user.id) {
+      const currentSid = getSessionId(session.access_token)
+      const stored = readUnlockRecord()
+      if (currentSid && stored && stored.uid === session.user.id && stored.sid === currentSid) {
         setStatus('unlocked')
         return
       }
 
-      // Different user or fresh session - clear any stale unlock and require PIN
-      sessionStorage.removeItem(SESSION_KEY)
+      // A different user, a fresh sign-in (new session_id), or no record yet
+      // - clear any stale unlock and require the PIN.
+      try { localStorage.removeItem(UNLOCK_KEY) } catch { /* private mode */ }
       clearSessionPinMaterial() // don't let a previous account's key material leak into this one
       const { hasPin } = await hasChatPinAction()
       setStatus(hasPin ? 'verify' : 'create')
@@ -112,8 +171,8 @@ export default function PinGate({ children }: PinGateProps) {
     if (result.valid) {
       const { createBrowserClient } = await import('@/lib/supabase/client')
       const supabase = createBrowserClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) sessionStorage.setItem(SESSION_KEY, user.id)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) writeUnlockRecord(session.user.id, getSessionId(session.access_token))
       // Stash PIN+pepper in memory so chat-client's E2E key recovery
       // (see recoverOrCreateKeyPair/getKeyMaterial) doesn't need to prompt
       // for it again right after this - see lib/chat-pin-session.ts.
@@ -144,8 +203,8 @@ export default function PinGate({ children }: PinGateProps) {
     if ('error' in result && result.error) { setError(result.error); return }
     const { createBrowserClient } = await import('@/lib/supabase/client')
     const supabase = createBrowserClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) sessionStorage.setItem(SESSION_KEY, user.id)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) writeUnlockRecord(session.user.id, getSessionId(session.access_token))
     if ('pepper' in result && result.pepper) setSessionPinMaterial(enterStr, result.pepper)
     setStatus('unlocked')
   }

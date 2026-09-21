@@ -88,8 +88,9 @@ export default function ChatClient({
 
   // Fallback PIN prompt for recoverOrCreateKeyPair(): only shown when
   // getSessionPinMaterial() is empty (e.g. this tab reloaded after PinGate
-  // already unlocked it - sessionStorage still says "unlocked" so PinGate
-  // won't re-ask, but the in-memory PIN+pepper was cleared on reload).
+  // already unlocked it - the persisted unlock record still says "unlocked"
+  // for this session so PinGate won't re-ask, but the in-memory PIN+pepper
+  // was cleared on reload).
   const [pinPromptOpen,  setPinPromptOpen]  = useState(false)
   const [pinDigits,      setPinDigits]      = useState('')
   const [pinPromptError, setPinPromptError] = useState('')

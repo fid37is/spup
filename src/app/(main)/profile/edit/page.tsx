@@ -22,10 +22,7 @@ export default async function EditProfilePage() {
       <ProfileHeader
         profile={{
           ...profile,
-          email:        (profile as any).email        ?? null,
-          phone_number: (profile as any).phone_number ?? null,
-          bvn_verified: (profile as any).bvn_verified ?? false,
-          nin_verified: (profile as any).nin_verified ?? false,
+          email: (profile as any).email ?? null,
         }}
         stats={{ following: '0', followers: '0', posts: '0', mutuals: '0' }}
         isOwner={true}

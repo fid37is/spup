@@ -37,6 +37,7 @@ export type NotificationType =
   | 'post_quote'
   | 'comment_like'
   | 'mention'
+  | 'new_post'
   | 'tip_received'
   | 'subscription_new'
   | 'earning_milestone'

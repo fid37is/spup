@@ -194,6 +194,10 @@ function getActions(type) {
       return [{ action: 'view_profile', title: 'View profile' }]
     case 'post_like':
     case 'post_comment':
+    case 'post_repost':
+    case 'post_quote':
+    case 'mention':
+    case 'new_post':
       return [{ action: 'view_post', title: 'View post' }, { action: 'dismiss', title: 'Dismiss' }]
     case 'tip_received':
       return [{ action: 'view_wallet', title: 'View wallet' }]
@@ -212,7 +216,7 @@ self.addEventListener('notificationclick', event => {
   let url = '/'
   if (action === 'view_wallet' || type === 'tip_received') url = '/wallet'
   else if (action === 'view_profile' || type === 'new_follower') url = actorUsername ? `/user/${actorUsername}` : '/notifications'
-  else if (action === 'view_post' || type === 'post_like' || type === 'post_comment') url = entityId ? `/post/${entityId}` : '/notifications'
+  else if (action === 'view_post' || ['post_like', 'post_comment', 'post_repost', 'post_quote', 'mention', 'new_post'].includes(type)) url = entityId ? `/post/${entityId}` : '/notifications'
   else url = '/notifications'
 
   event.waitUntil(

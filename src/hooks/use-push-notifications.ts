@@ -44,6 +44,8 @@ async function setupPushNotifications(userId: string) {
       case 'post_comment':
       case 'post_repost':
       case 'post_quote':
+      case 'mention':
+      case 'new_post':
         window.location.href = `/post/${data.entityId}`
         break
       case 'tip_received':
