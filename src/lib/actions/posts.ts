@@ -113,14 +113,14 @@ export async function createPostAction(data: CreatePostSchema) {
   bumpCounter(supabase, 'users', 'posts_count', profile.id, 1)
   if (parent_post_id) {
     bumpCounter(supabase, 'posts', 'comments_count', parent_post_id, 1)
-    void notifyPostAuthor(supabase, parent_post_id, profile.id, 'post_comment')
+    void notifyPostAuthor(supabase, parent_post_id, profile.id, 'post_comment', { reply_id: post.id })
     revalidatePath(`/post/${parent_post_id}`)
   }
   if (quoted_post_id) {
     // This was previously never incremented at all - quote posts were being
     // created with no effect on the quoted post's quotes_count.
     bumpCounter(supabase, 'posts', 'quotes_count', quoted_post_id, 1)
-    void notifyPostAuthor(supabase, quoted_post_id, profile.id, 'post_quote')
+    void notifyPostAuthor(supabase, quoted_post_id, profile.id, 'post_quote', { reply_id: post.id })
     revalidatePath(`/post/${quoted_post_id}`)
   }
   // Mentions notify their recipients immediately - that only makes sense
@@ -128,6 +128,13 @@ export async function createPostAction(data: CreatePostSchema) {
   // and fire for real when it goes live (see the note above the insert).
   if (body?.trim() && !isScheduled) {
     void notifyMentions(body.trim(), post.id, profile.id, profile.username, profile.display_name)
+  }
+  // Everyone who turned on post notifications (the bell on this author's
+  // profile) gets a "new post" notification. Replies are excluded - those
+  // notify the person being replied to instead. Scheduled posts skip this for
+  // the same reason mentions do: nothing revisits them when they go live.
+  if (!parent_post_id && !isScheduled) {
+    void notifyPostSubscribers(post.id, profile.id)
   }
   revalidatePath('/feed')
 
@@ -385,11 +392,32 @@ export async function recordProfileVisitFromPostAction(postId: string) {
 async function notifyPostAuthor(
   supabase: Awaited<ReturnType<typeof createClient>>,
   postId: string, actorId: string,
-  type: 'post_like' | 'post_repost' | 'post_comment' | 'post_quote'
+  type: 'post_like' | 'post_repost' | 'post_comment' | 'post_quote',
+  metadata: Record<string, unknown> = {},
 ) {
   const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).single()
   if (!post || post.user_id === actorId) return
-  await createNotification({ recipientId: post.user_id, actorId, type, entityId: postId, entityType: 'post' })
+  await createNotification({ recipientId: post.user_id, actorId, type, entityId: postId, entityType: 'post', metadata })
+}
+
+// Fan-out for "post notifications": one `new_post` notification per subscriber.
+// Goes through createNotification, so each subscriber's Preferences (Posts from
+// people you follow), mutes/blocks and the push switch are all respected.
+async function notifyPostSubscribers(postId: string, authorId: string) {
+  const admin = createAdminClient()
+  const { data: subs, error } = await admin
+    .from('user_notification_preferences')
+    .select('user_id')
+    .match({ target_user_id: authorId, type: 'post' })
+  if (error) { console.error('notifyPostSubscribers: lookup failed', error.message); return }
+  if (!subs?.length) return
+
+  await Promise.all(subs.map(sub =>
+    createNotification({
+      recipientId: sub.user_id, actorId: authorId,
+      type: 'new_post', entityId: postId, entityType: 'post',
+    })
+  ))
 }
 
 // Resolves @username mentions in a post body to real users, notifies each

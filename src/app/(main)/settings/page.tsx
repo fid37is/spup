@@ -30,6 +30,13 @@ export default async function SettingsPage() {
 
   if (!profile) redirect('/login')
 
+  const { data: interestRows } = await supabase
+    .from('user_interests')
+    .select('interest')
+    .eq('user_id', profile.id)
+
+  const interests = (interestRows ?? []).map(r => r.interest)
+
   return (
     <div>
       {/* Sticky header */}
@@ -63,7 +70,7 @@ export default async function SettingsPage() {
         </h1>
       </div>
 
-      <SettingsClient profile={profile} />
+      <SettingsClient profile={profile} interests={interests} />
     </div>
   )
 }

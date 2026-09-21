@@ -3,10 +3,9 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader, Check, X, Shield, Phone } from 'lucide-react'
+import { Loader, Check, X, Shield } from 'lucide-react'
 import {
   updateProfileAction,
-  changeUsernameAction,
   type UpdateProfileData,
 } from '@/lib/actions/profiles'
 import { buildProfileChanges, normaliseWebsite, type ProfileFormValues } from '@/lib/profile-diff'
@@ -22,8 +21,6 @@ interface EditProps {
     date_of_birth?: string | null
     birthday_visibility?: string | null
     email?: string | null
-    bvn_verified?: boolean
-    nin_verified?: boolean
   }
   onCancel: () => void
   onSaved: () => void
@@ -49,10 +46,6 @@ const SECTION_TITLE: React.CSSProperties = {
   textTransform: 'uppercase', color: 'var(--color-text-faint)', marginBottom: 12,
 }
 
-const DIVIDER: React.CSSProperties = {
-  borderBottom: '1px solid var(--color-border)', paddingBottom: 12, marginBottom: 12,
-}
-
 export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditProps) {
   const router = useRouter()
   const [isPending, startT] = useTransition()
@@ -71,15 +64,6 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
     (profile.birthday_visibility as any) ?? 'followers'
   )
   const [saveError, setSaveError] = useState('')
-
-  // Account sub-panels
-  type AccPanel = null | 'username'
-  const [accPanel,    setAccPanel]    = useState<AccPanel>(null)
-  const [username,    setUsername]    = useState(profile.username)
-  const [usernameErr, setUsernameErr] = useState('')
-  const [accFlash,    setAccFlash]    = useState('')
-
-  function flash(msg: string) { setAccFlash(msg); setTimeout(() => setAccFlash(''), 3000) }
 
   function handleSave() {
     if (!displayName.trim()) { setSaveError('Display name is required'); return }
@@ -114,17 +98,6 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
       if (r.error) { setSaveError(r.error); return }
       router.refresh()
       onSaved()
-    })
-  }
-
-  function handleUsernameChange() {
-    setUsernameErr('')
-    startT(async () => {
-      const r = await changeUsernameAction(username)
-      if (r.error) { setUsernameErr(r.error); return }
-      flash('Username updated')
-      setAccPanel(null)
-      router.refresh()
     })
   }
 
@@ -256,73 +229,20 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
       </div>
 
       {/* ── Account section ─────────────────────────────────────────────────── */}
-      <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16, marginBottom: 16 }}>
-        <p style={SECTION_TITLE}>Account</p>
-
-        {/* Flash */}
-        {accFlash && (
-          <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: 'var(--color-brand)', color: 'white', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Check size={13} /> {accFlash}
-          </div>
-        )}
-
-        {/* Username */}
-        <div style={DIVIDER}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Username</p>
-              <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: '2px 0 0' }}>@{username}</p>
-            </div>
-            <button onClick={() => setAccPanel(p => p === 'username' ? null : 'username')}
-              style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 16, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
-              {accPanel === 'username' ? 'Cancel' : 'Change'}
-            </button>
-          </div>
-          {accPanel === 'username' && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ position: 'relative', marginBottom: 6 }}>
-                <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', fontSize: 14, pointerEvents: 'none' }}>@</span>
-                <input value={username} onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                  maxLength={20} autoCapitalize="none" autoCorrect="off"
-                  style={{ ...INP, paddingLeft: 26 }} />
-              </div>
-              {usernameErr && <p style={{ fontSize: 12, color: 'var(--color-error)', marginBottom: 6 }}>{usernameErr}</p>}
-              <button onClick={handleUsernameChange}
-                disabled={isPending || username.length < 3 || username === profile.username}
-                className="para-btn-primary"
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                {isPending && <Loader size={12} style={{ animation: 'spin .7s linear infinite' }} />}
-                Save username
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Email - read-only */}
-        {profile.email && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, ...DIVIDER }}>
+      {/* Username and Phone/NIN verification live in Settings now, not here -
+          keeping this profile-edit form focused on display-facing fields. */}
+      {profile.email && (
+        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16, marginBottom: 16 }}>
+          <p style={SECTION_TITLE}>Account</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Shield size={15} color="var(--color-text-muted)" />
             <div>
               <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0 }}>Email</p>
               <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', margin: '2px 0 0' }}>{profile.email}</p>
             </div>
           </div>
-        )}
-
-        {/* Phone & NIN */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', ...DIVIDER }}
-          onClick={() => window.location.href = '/settings/verify-phone'}>
-          <Phone size={15} color="var(--color-text-muted)" />
-          <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0 }}>Phone & NIN</p>
-            <p style={{ fontSize: 14, margin: '2px 0 0', color: profile.nin_verified ? 'var(--color-brand)' : 'var(--color-text-secondary)' }}>
-              {profile.nin_verified ? 'Verified - withdrawals enabled' : 'Tap to verify'}
-            </p>
-          </div>
-          <span style={{ fontSize: 16, color: 'var(--color-text-muted)' }}>›</span>
         </div>
-
-      </div>
+      )}
 
       {/* Save / Cancel buttons */}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 20 }}>

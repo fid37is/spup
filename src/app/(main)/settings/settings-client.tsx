@@ -5,14 +5,15 @@ import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle, Lock,
-  X, Check, Eye, EyeOff, Loader, Moon, Sun, Play, User, Phone,
+  X, Check, Eye, EyeOff, Loader, Moon, Sun, Play, User, Phone, Sparkles,
 } from 'lucide-react'
-import { signOutAction } from '@/lib/actions'
+import { signOutAction, saveInterestsAction } from '@/lib/actions'
 import { updateProfileAction, deleteAccountAction, changePasswordAction, changeUsernameAction } from '@/lib/actions/profiles'
 import { useTheme } from '@/components/layout/theme-provider'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { NIGERIAN_INTERESTS } from '@/types'
 
-type Panel = null | 'language' | 'theme' | 'password' | 'autoplay' | 'username'
+type Panel = null | 'language' | 'theme' | 'password' | 'autoplay' | 'username' | 'interests'
 
 interface SettingsProfile {
   id: string
@@ -171,7 +172,7 @@ function Card({ children }: { children: React.ReactNode }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function SettingsClient({ profile }: { profile: SettingsProfile }) {
+export default function SettingsClient({ profile, interests: initialInterests }: { profile: SettingsProfile; interests: string[] }) {
   const [panel,      setPanel]    = useState<Panel>(null)
   const [isPending,  startT]      = useTransition()
   const [flash,      setFlash]    = useState<{ text: string; ok: boolean } | null>(null)
@@ -205,6 +206,11 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
   // Username state
   const [username,    setUsername]    = useState(profile.username)
   const [usernameErr, setUsernameErr] = useState('')
+
+  // Content preferences (interests) state
+  const [interests,     setInterests]     = useState<string[]>(initialInterests)
+  const [draftInterests, setDraftInterests] = useState<string[]>(initialInterests)
+  const [interestsErr,  setInterestsErr]  = useState('')
 
   function showFlash(text: string, ok = true) {
     setFlash({ text, ok })
@@ -244,6 +250,32 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
       showFlash('Username updated')
       setPanel(null)
       router.refresh()
+    })
+  }
+
+  function toggleDraftInterest(id: string) {
+    setInterestsErr('')
+    setDraftInterests(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    )
+  }
+
+  function openInterestsPanel() {
+    setDraftInterests(interests) // discard any unsaved edits from a previous open
+    setInterestsErr('')
+    togglePanel('interests')
+  }
+
+  function handleSaveInterests() {
+    if (draftInterests.length < 3) { setInterestsErr('Select at least 3'); return }
+    if (draftInterests.length > 10) { setInterestsErr('Max 10'); return }
+    setInterestsErr('')
+    startT(async () => {
+      const r = await saveInterestsAction({ interests: draftInterests })
+      if ('error' in r && r.error) { setInterestsErr(r.error); return }
+      setInterests(draftInterests)
+      showFlash('Preferences updated')
+      setPanel(null)
     })
   }
 
@@ -479,6 +511,77 @@ export default function SettingsClient({ profile }: { profile: SettingsProfile }
                 {autoplay === opt.value && <Check size={15} color="var(--color-brand)" />}
               </button>
             ))}
+          </InlinePanel>
+        )}
+      </Card>
+
+      {/* ── CONTENT PREFERENCES ─────────────────────────────────────────────── */}
+      <SectionLabel label="Content preferences" />
+      <Card>
+        <Row
+          icon={Sparkles}
+          label="Interests"
+          desc={interests.length > 0
+            ? `${interests.length} selected - shapes what fills your feed`
+            : 'Pick topics to personalise your feed'}
+          onClick={openInterestsPanel}
+          last={panel !== 'interests'}
+        />
+        {panel === 'interests' && (
+          <InlinePanel>
+            <FieldLabel>
+              Pick 3–10 topics{' '}
+              <span style={{
+                color: draftInterests.length >= 3 && draftInterests.length <= 10
+                  ? 'var(--color-brand)' : 'var(--color-text-muted)',
+                textTransform: 'none', letterSpacing: 0, fontWeight: 500,
+              }}>
+                ({draftInterests.length}/10 selected)
+              </span>
+            </FieldLabel>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              {NIGERIAN_INTERESTS.map(interest => {
+                const sel = draftInterests.includes(interest.id)
+                return (
+                  <button
+                    key={interest.id}
+                    onClick={() => toggleDraftInterest(interest.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '8px 14px', borderRadius: 100,
+                      border: `1.5px solid ${sel ? 'var(--color-brand)' : 'var(--color-border)'}`,
+                      background: sel ? 'var(--color-brand-muted, rgba(26,158,95,0.12))' : 'var(--input-bg)',
+                      color: sel ? 'var(--color-brand)' : 'var(--color-text-secondary)',
+                      fontSize: 13, fontWeight: sel ? 600 : 400,
+                      cursor: 'pointer', transition: 'all 0.15s',
+                      fontFamily: "'DM Sans', sans-serif",
+                      WebkitTapHighlightColor: 'transparent',
+                    }}
+                  >
+                    <interest.icon size={15} strokeWidth={2} aria-hidden="true" />
+                    {interest.label}
+                    {sel && <Check size={11} />}
+                  </button>
+                )
+              })}
+            </div>
+            {interestsErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 10 }}>{interestsErr}</p>}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setPanel(null); setDraftInterests(interests); setInterestsErr('') }}
+                style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 14, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveInterests}
+                disabled={isPending || draftInterests.length < 3 || draftInterests.length > 10}
+                style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 14, fontWeight: 700, cursor: isPending || draftInterests.length < 3 || draftInterests.length > 10 ? 'not-allowed' : 'pointer', opacity: isPending || draftInterests.length < 3 || draftInterests.length > 10 ? 0.5 : 1, fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
+                {isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </InlinePanel>
         )}
       </Card>
