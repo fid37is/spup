@@ -367,22 +367,33 @@ export async function sendMessageAction(conversationId: string, body: string, re
   const [previewRes, unreadRes] = await Promise.all([
     supabase.from('conversations').update({
       last_message_at: msg.created_at,
-      last_message_preview: text.startsWith('enc:') ? '[Encrypted message]' : text.slice(0, 80),
+      // Store the real (cipher)text, not a fixed placeholder - the old
+      // '[Encrypted message]' string meant every encrypted conversation
+      // showed the exact same generic label in the chat list forever, with
+      // no way for the client to ever show a real preview. The client
+      // decrypts this the same way it decrypts messages in the thread
+      // (see messages-list-client.tsx); it only falls back to a generic
+      // label if it can't decrypt yet (e.g. key not cached on this device).
+      // Ciphertext can't be truncated (AES-GCM needs the full payload to
+      // even attempt decryption) - only plaintext gets shortened.
+      last_message_preview: text.startsWith('enc:') ? text : text.slice(0, 80),
     }).eq('id', conversationId),
     supabase.rpc('increment_unread', { p_conversation_id: conversationId, p_sender_id: profile.id }),
   ])
   if (previewRes.error) console.error('[sendMessageAction] preview update failed:', previewRes.error.message)
   if (unreadRes.error) console.error('[sendMessageAction] increment_unread failed:', unreadRes.error.message)
 
-  // One in-app notification per burst, not one per message (the push still goes
-  // out and collapses per conversation via its tag).
+  // Messages are surfaced on the Messages icon (unread counts above), not on the
+  // Notifications page - and their content is encrypted anyway. So: device push
+  // only ("X sent you a message", collapsing per conversation via its tag),
+  // no row in the notifications table.
   createNotification({
     recipientId,
     actorId: profile.id,
     type: 'new_message',
     entityId: conversationId,
     entityType: 'conversation',
-    dedupeUnread: true,
+    inApp: false,
   }).catch(e => console.error('[sendMessageAction] notification failed:', e))
 
   // No revalidatePath here: the chat screen owns its own state, and revalidating

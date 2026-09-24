@@ -84,7 +84,7 @@ export async function getPostNotificationTargetsAction(): Promise<PostNotificati
   // Two plain queries rather than an embedded join, so this doesn't depend on
   // the foreign-key constraint's generated name.
   const { data: prefs } = await supabase
-    .from('user_notification_preferences')
+    .from('post_notification_subscriptions')
     .select('target_user_id, created_at')
     .match({ user_id: profile.id, type: 'post' })
     .order('created_at', { ascending: false })
@@ -108,7 +108,7 @@ export async function disablePostNotificationsAction(targetUserId: string) {
   if (!profile) return { error: 'Not authenticated' }
 
   const { error } = await supabase
-    .from('user_notification_preferences')
+    .from('post_notification_subscriptions')
     .delete()
     .match({ user_id: profile.id, target_user_id: targetUserId, type: 'post' })
 

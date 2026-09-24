@@ -6,9 +6,11 @@ import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { generateUniqueUsername, suggestUsernames } from '@/lib/username'
 import {
   signupSchema, loginSchema, emailOtpSchema,
   profileSetupSchema, interestsSchema, completeSocialProfileSchema,
+  hasRealName,
 } from '@/lib/validations/schemas'
 import type {
   SignupSchema, LoginSchema, EmailOtpSchema,
@@ -93,7 +95,9 @@ export async function signUpAction(data: SignupSchema) {
   if (!authData.user) return { error: 'Signup failed. Please try again.' }
 
   const authId = authData.user.id
-  const tempUsername = `user_${authId.slice(0, 8)}`
+  // A real handle from their name, e.g. "johndoe" - not a placeholder they'd
+  // have to notice and go change. They can still edit it during onboarding.
+  const tempUsername = await generateUniqueUsername(admin, full_name)
 
   // Insert profile using ADMIN client - bypasses RLS
   // status = pending_verification until OTP is confirmed
@@ -159,13 +163,16 @@ export async function verifyEmailOtpAction(email: string, data: EmailOtpSchema) 
   if (!profileId) {
     // Profile never got created - create it now
     const meta = user.user_metadata
+    // Provider metadata skips completeSocialProfileSchema, so check it here too.
+    const rawName = meta?.full_name || ''
+    const fullName = hasRealName(rawName) ? rawName.trim() : 'Spup User'
     const { data: newProfile } = await admin
       .from('users')
       .insert({
         auth_id: user.id,
         email: email.toLowerCase(),
-        display_name: meta?.full_name || 'Spup User',
-        username: `user_${user.id.slice(0, 8)}`,
+        display_name: fullName,
+        username: await generateUniqueUsername(admin, fullName),
         role: 'user',
         status: 'active',
       })
@@ -341,15 +348,16 @@ export async function handleOAuthCallbackAction() {
 
   // New OAuth user - create profile + onboarding using admin client
   const meta = user.user_metadata
-  const fullName = meta?.full_name || meta?.name || ''
+  const rawName = meta?.full_name || meta?.name || ''
+  const fullName = hasRealName(rawName) ? rawName.trim() : 'Spup User'
 
   const { data: newProfile, error: profileError } = await admin
     .from('users')
     .insert({
       auth_id: user.id,
       email: user.email ? user.email.toLowerCase() : null,
-      display_name: fullName || 'Spup User',
-      username: `user_${user.id.slice(0, 8)}`,
+      display_name: fullName,
+      username: await generateUniqueUsername(admin, fullName),
       role: 'user',
       status: 'active', // OAuth = already verified by provider
     })
@@ -387,6 +395,25 @@ export async function completeSocialProfileAction(data: CompleteSocialProfileSch
   })
 
   return { success: true }
+}
+
+// ── Onboarding: suggest usernames ─────────────────────────────────────────────
+// Called when the username step loads, so the person sees a few real
+// options built from their name instead of a blank box.
+
+export async function getUsernameSuggestionsAction() {
+  const { user } = await getAuthUser()
+  if (!user) return { suggestions: [] }
+
+  const admin = createAdminClient()
+  const { data: profile } = await admin
+    .from('users')
+    .select('display_name')
+    .eq('auth_id', user.id)
+    .maybeSingle()
+
+  const suggestions = await suggestUsernames(admin, profile?.display_name || '')
+  return { suggestions }
 }
 
 // ── Onboarding: save username ─────────────────────────────────────────────────

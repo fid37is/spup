@@ -797,6 +797,12 @@ export default function ChatClient({
                         borderRadius: isMine
                           ? (grouped ? '18px 4px 4px 18px' : '18px 4px 18px 18px')
                           : (grouped ? '4px 18px 18px 4px' : '4px 18px 18px 18px'),
+                        // While `text === undefined` (still decrypting), the bubble's only
+                        // content is a one-character placeholder ('…'), so it collapses to a
+                        // tiny near-circular blob and then visibly snaps/grows once the real
+                        // text arrives. A stable min-width keeps that from reading as two
+                        // different UI states flashing past each other.
+                        minWidth: text === undefined ? 56 : undefined,
                         fontSize: 14, lineHeight: 1.5,
                         fontFamily: "'DM Sans', sans-serif",
                         wordBreak: 'break-word', whiteSpace: 'pre-wrap',

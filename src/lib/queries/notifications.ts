@@ -23,6 +23,7 @@ export async function getNotifications(userId: string, limit = 30, cursor?: stri
     .from('notifications')
     .select(NOTIF_SELECT)
     .eq('recipient_id', userId)
+    .neq('type', 'new_message')
     .order('created_at', { ascending: false })
     .limit(limit + 1)
 
@@ -47,6 +48,7 @@ export async function getUnreadNotificationCount(userId: string): Promise<number
     .select('id', { count: 'exact', head: true })
     .eq('recipient_id', userId)
     .eq('is_read', false)
+    .neq('type', 'new_message') // messages live on the Messages icon
 
   return count || 0
 }

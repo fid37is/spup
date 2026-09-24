@@ -38,6 +38,9 @@ export interface NotificationPostPreview {
   is_reply: boolean
   media_thumb: string | null
   media_type: string | null
+  likes_count: number
+  comments_count: number
+  reposts_count: number
 }
 
 export interface NotificationItem {
@@ -142,7 +145,7 @@ export async function getNotificationsAction(
   let priorityIds: string[] | null = null
   if (tab === 'priority') {
     const { data: targets } = await supabase
-      .from('user_notification_preferences')
+      .from('post_notification_subscriptions')
       .select('target_user_id')
       .match({ user_id: profile.id, type: 'post' })
     priorityIds = (targets || []).map((t: any) => t.target_user_id)
@@ -156,6 +159,7 @@ export async function getNotificationsAction(
       .from('notifications')
       .select(NOTIF_SELECT)
       .eq('recipient_id', profile.id)
+      .neq('type', 'new_message') // messages only show on the Messages icon
       .order('created_at', { ascending: false })
       .limit(limit + 1)
 
@@ -204,7 +208,7 @@ async function hydrate(
   if (postIds.size) {
     const { data: posts } = await supabase
       .from('posts')
-      .select('id, body, parent_post_id, media:post_media(media_type, url, thumbnail_url, position)')
+      .select('id, body, parent_post_id, likes_count, comments_count, reposts_count, media:post_media(media_type, url, thumbnail_url, position)')
       .in('id', [...postIds])
       .is('deleted_at', null)
 
@@ -216,6 +220,9 @@ async function hydrate(
         is_reply: !!p.parent_post_id,
         media_thumb: media ? (media.thumbnail_url || (media.media_type === 'image' ? media.url : null)) : null,
         media_type: media?.media_type ?? null,
+        likes_count: (p as any).likes_count ?? 0,
+        comments_count: (p as any).comments_count ?? 0,
+        reposts_count: (p as any).reposts_count ?? 0,
       })
     }
   }

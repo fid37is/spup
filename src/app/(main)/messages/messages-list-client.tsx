@@ -5,9 +5,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { getConversationsAction, markAllDeliveredAction } from '@/lib/actions/messages'
+import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction } from '@/lib/actions/messages'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
 import { formatRelativeTime } from '@/lib/utils'
+import { getStoredKeyPair, deriveSharedKey, decryptMessage, isEncrypted, UNDECRYPTABLE } from '@/lib/chat-crypto'
 import Link from 'next/link'
 
 const AVATAR_COLORS = ['#1A9E5F','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A']
@@ -30,6 +31,55 @@ export default function MessagesListClient({ initialConversations, currentUserId
   const supabase = useRef<ReturnType<typeof createBrowserClient> | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const busy = useRef(false)
+
+  // ── Decrypt previews ────────────────────────────────────────────────────────
+  // last_message_preview may now hold ciphertext (see sendMessageAction) instead
+  // of a fixed '[Encrypted message]' placeholder. Decrypt it locally with the
+  // same ECDH shared key used inside a conversation - no PIN prompt here even
+  // if that fails: this is a best-effort preview, not a gate to the content
+  // (the full conversation still opens and can prompt for the PIN if needed).
+  // Keyed by the ciphertext itself (unique per message - AES-GCM uses a fresh
+  // random IV every time), not by conversation id, so a new incoming message
+  // is always re-decrypted instead of the list getting stuck showing whichever
+  // message happened to decrypt first.
+  const [decrypted, setDecrypted] = useState<Record<string, string>>({})
+  const sharedKeyCache = useRef(new Map<string, CryptoKey | null>()) // otherUserId -> derived key (or null = no key available)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const keyPair = await getStoredKeyPair(currentUserId)
+      if (!keyPair || cancelled) return // no local key cached yet on this device - leave previews as the generic label
+
+      for (const conv of conversations) {
+        if (cancelled) return
+        const cipher = conv.last_message_preview
+        if (!conv.other?.id || !isEncrypted(cipher)) continue
+        if (decrypted[cipher!] !== undefined) continue // already decrypted this exact ciphertext
+
+        let sharedKey = sharedKeyCache.current.get(conv.other.id)
+        if (sharedKey === undefined) {
+          try {
+            const { publicKey } = await getPublicKeyAction(conv.other.id)
+            sharedKey = publicKey ? await deriveSharedKey(keyPair.privateKey, publicKey) : null
+          } catch {
+            sharedKey = null
+          }
+          sharedKeyCache.current.set(conv.other.id, sharedKey)
+        }
+        if (!sharedKey) continue
+
+        const plain = await decryptMessage(cipher!, sharedKey)
+        if (cancelled) return
+        if (plain !== UNDECRYPTABLE) {
+          setDecrypted(prev => ({ ...prev, [cipher!]: plain }))
+        }
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, currentUserId])
+
 
   // ── Realtime: refresh list when any message arrives ────────────────────────
   useEffect(() => {
@@ -101,11 +151,13 @@ export default function MessagesListClient({ initialConversations, currentUserId
         const other    = conv.other
         const initials = other?.display_name?.slice(0, 2).toUpperCase() ?? '??'
         const color    = AVATAR_COLORS[(other?.username?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]
-        const preview  = conv.last_message_preview === '[Encrypted message]'
-          ? '🔒 Encrypted message'
-          : conv.last_message_preview === 'Message deleted'
-            ? '🚫 Message deleted'
-            : (conv.last_message_preview ?? 'No messages yet')
+        const preview  = isEncrypted(conv.last_message_preview) && decrypted[conv.last_message_preview!] !== undefined
+          ? decrypted[conv.last_message_preview!]
+          : isEncrypted(conv.last_message_preview) || conv.last_message_preview === '[Encrypted message]'
+            ? '🔒 Encrypted message' // isEncrypted: new rows we can't decrypt (yet); the literal string: rows written before this fix
+            : conv.last_message_preview === 'Message deleted'
+              ? '🚫 Message deleted'
+              : (conv.last_message_preview ?? 'No messages yet')
 
         return (
           <Link key={conv.id} href={`/messages/${conv.id}`} style={{ textDecoration: 'none', display: 'block' }}>

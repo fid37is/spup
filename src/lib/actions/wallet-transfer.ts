@@ -3,6 +3,7 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { createNotification } from '@/lib/notifications'
 
 // ============================================================
 // Direct wallet-to-wallet transfer between two Spup users. Unlike
@@ -41,15 +42,11 @@ async function getCallerProfile() {
   return { error: null, profile }
 }
 
-async function notify(recipientId: string, actorId: string, type: string, entityId: string, entityType = 'wallet_transfer') {
-  const admin = createAdminClient()
-  void admin.from('notifications').insert({
-    recipient_id: recipientId,
-    actor_id: actorId,
-    type,
-    entity_id: entityId,
-    entity_type: entityType,
-  })
+// Goes through createNotification (not a raw insert) so the recipient's
+// "Wallet and orders" preference, mutes/blocks and push switch apply, and a
+// push is sent - the raw insert used to do none of that.
+async function notify(recipientId: string, actorId: string, type: 'wallet_transfer_received', entityId: string, entityType = 'wallet_transfer') {
+  await createNotification({ recipientId, actorId, type, entityId, entityType })
 }
 
 // ─── Look up a recipient by username before sending ─────────────────────────

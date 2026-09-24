@@ -7,7 +7,7 @@ import Link from 'next/link'
 import {
   Bell, Heart, MessageCircle, Repeat2, User, AtSign, DollarSign, Star,
   CheckCheck, Loader, Quote, ShieldCheck, PackageCheck, Scale, Gavel, ShieldAlert,
-  Settings, MoreHorizontal, Trash2, BellOff,
+  Settings, MoreVertical, Trash2, BellOff, type LucideIcon,
 } from 'lucide-react'
 import {
   getNotificationsAction,
@@ -16,6 +16,8 @@ import {
   markAllNotificationsReadAction,
   deleteNotificationAction,
   type NotificationItem,
+  type NotificationActor,
+  type NotificationPostPreview,
   type NotificationTab,
   type NewPostUser,
 } from '@/lib/actions/notifications'
@@ -24,6 +26,7 @@ import { createBrowserClient } from '@/lib/supabase/client'
 import { formatRelativeTime } from '@/lib/utils'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { NotifAvatar } from '@/components/notifications/avatar'
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
 
 /* ── Types ───────────────────────────────────────────────────────────────── */
 
@@ -122,7 +125,7 @@ function verbFor(n: NotificationItem): string {
     case 'mention':               return 'mentioned you'
     case 'tip_received':          return 'sent you a tip'
     case 'subscription_new':      return 'subscribed to you'
-    case 'new_message':           return 'sent you a message'
+    case 'wallet_transfer_received': return 'sent you money'
     case 'escrow_hold_received':  return 'paid for your item - funds are held in escrow'
     case 'escrow_delivered':      return 'marked your order as delivered'
     case 'escrow_disputed':       return 'opened a dispute on your order'
@@ -151,9 +154,8 @@ const ESCROW = new Set([
 /** Where a notification goes when you tap it. Post notifications open the post. */
 function hrefFor(g: Group, username: string): string | null {
   const n = g.items[0]
-  if (n.type === 'new_message' && n.entity_id) return `/messages/${n.entity_id}`
   if (ESCROW.has(n.type) && n.entity_id) return `/wallet/orders/${n.entity_id}`
-  if (['tip_received', 'subscription_new', 'earning_milestone', 'monetisation_approved'].includes(n.type)) return '/wallet'
+  if (['tip_received', 'wallet_transfer_received', 'subscription_new', 'earning_milestone', 'monetisation_approved'].includes(n.type)) return '/wallet'
   if (n.type === 'new_follower') {
     if (g.items.length > 1) return `/connections/${username}?tab=followers`
     return n.actor ? `/user/${n.actor.username}` : null
@@ -164,29 +166,30 @@ function hrefFor(g: Group, username: string): string | null {
   return null
 }
 
-function iconFor(type: string): ReactNode {
-  const s = 26
+interface TypeMeta { color: string; Icon: LucideIcon; filled: boolean }
+
+function typeMeta(type: string): TypeMeta {
   switch (type) {
     case 'post_like':
-    case 'comment_like':          return <Heart size={s} color={PINK} fill={PINK} strokeWidth={0} />
-    case 'post_repost':           return <Repeat2 size={s} color={GREEN} strokeWidth={2.4} />
-    case 'new_follower':          return <User size={s} color={PURPLE} fill={PURPLE} strokeWidth={0} />
-    case 'post_comment':          return <MessageCircle size={s} color={BLUE} fill={BLUE} strokeWidth={0} />
-    case 'new_message':           return <MessageCircle size={s} color={BLUE} fill={BLUE} strokeWidth={0} />
-    case 'mention':               return <AtSign size={s} color={BLUE} strokeWidth={2.6} />
-    case 'post_quote':            return <Quote size={s} color={PURPLE} fill={PURPLE} strokeWidth={0} />
-    case 'new_post':              return <Bell size={s} color="var(--color-brand)" fill="var(--color-brand)" strokeWidth={0} />
+    case 'comment_like':              return { color: PINK,   Icon: Heart,         filled: true  }
+    case 'post_repost':               return { color: GREEN,  Icon: Repeat2,       filled: false }
+    case 'new_follower':              return { color: PURPLE, Icon: User,          filled: true  }
+    case 'post_comment':              return { color: BLUE,   Icon: MessageCircle, filled: true  }
+    case 'mention':                   return { color: BLUE,   Icon: AtSign,        filled: false }
+    case 'post_quote':                return { color: PURPLE, Icon: Quote,         filled: true  }
+    case 'new_post':                  return { color: 'var(--color-brand)', Icon: Bell, filled: true }
     case 'tip_received':
-    case 'escrow_released':       return <DollarSign size={s} color={GOLD} strokeWidth={2.6} />
+    case 'wallet_transfer_received':
+    case 'escrow_released':           return { color: GOLD,   Icon: DollarSign,    filled: false }
     case 'subscription_new':
     case 'earning_milestone':
-    case 'monetisation_approved': return <Star size={s} color={GOLD} fill={GOLD} strokeWidth={0} />
-    case 'escrow_hold_received':  return <ShieldCheck size={s} color="var(--color-brand)" strokeWidth={2.2} />
-    case 'escrow_delivered':      return <PackageCheck size={s} color={GOLD} strokeWidth={2.2} />
-    case 'escrow_disputed':       return <ShieldAlert size={s} color={RED} strokeWidth={2.2} />
-    case 'escrow_proposal':       return <Scale size={s} color={GOLD} strokeWidth={2.2} />
-    case 'escrow_escalated':      return <Gavel size={s} color={RED} strokeWidth={2.2} />
-    default:                      return <Bell size={s} color="var(--color-text-muted)" fill="var(--color-text-muted)" strokeWidth={0} />
+    case 'monetisation_approved':     return { color: GOLD,   Icon: Star,          filled: true  }
+    case 'escrow_hold_received':      return { color: 'var(--color-brand)', Icon: ShieldCheck, filled: false }
+    case 'escrow_delivered':          return { color: GOLD,   Icon: PackageCheck,  filled: false }
+    case 'escrow_disputed':           return { color: RED,    Icon: ShieldAlert,   filled: false }
+    case 'escrow_proposal':           return { color: GOLD,   Icon: Scale,         filled: false }
+    case 'escrow_escalated':          return { color: RED,    Icon: Gavel,         filled: false }
+    default:                          return { color: 'var(--color-text-muted)', Icon: Bell, filled: true }
   }
 }
 
@@ -217,22 +220,101 @@ function NameList({ actors }: { actors: NonNullable<NotificationItem['actor']>[]
   return <><ActorName actor={actors[0]} /> and {actors.length - 1} others</>
 }
 
-function Thumb({ url, isVideo }: { url: string | null; isVideo: boolean }) {
-  if (!url) return null
+/** Big avatar (or icon tile when there's no person) with a small coloured type badge. */
+function LeadingVisual({ type, actor }: { type: string; actor: NotificationActor | null }) {
+  const { color, Icon, filled } = typeMeta(type)
+  const SIZE = 48
+
+  if (!actor) {
+    return (
+      <div style={{
+        width: SIZE, height: SIZE, borderRadius: 12, flexShrink: 0,
+        background: 'var(--color-surface-3)', border: '1px solid var(--color-border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Icon size={24} color={color} fill={filled ? color : 'none'} strokeWidth={filled ? 0 : 2.2} />
+      </div>
+    )
+  }
+
   return (
-    <div style={{
-      width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0,
-      border: '1px solid var(--color-border)', background: 'var(--color-surface-3)', position: 'relative',
-    }}>
-      <img src={url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-      {isVideo && (
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(0,0,0,0.25)', color: 'white', fontSize: 16,
-        }}>{'\u25B6'}</div>
-      )}
+    <div style={{ position: 'relative', width: SIZE, height: SIZE, flexShrink: 0 }}>
+      <NotifAvatar name={actor.display_name} url={actor.avatar_url} size={SIZE} />
+      <span style={{
+        position: 'absolute', right: -3, bottom: -3, width: 20, height: 20, borderRadius: '50%',
+        background: color, border: '2px solid var(--color-bg)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Icon size={11} color="white" fill={filled ? 'white' : 'none'} strokeWidth={filled ? 0 : 3} />
+      </span>
     </div>
   )
+}
+
+/** The bordered post preview under the sentence: thumbnail left, text right. */
+function PreviewCard({
+  post, primary, lines,
+}: {
+  post: NotificationPostPreview
+  /** true = the text is what someone wrote to you (reply/mention) -> normal colour */
+  primary: boolean
+  lines: number
+}) {
+  const body = post.body?.trim() || ''
+  const hasThumb = !!post.media_thumb
+  if (!body && !hasThumb) return null
+
+  return (
+    <div style={{
+      marginTop: 10, display: 'flex', alignItems: 'stretch', overflow: 'hidden',
+      border: '1px solid var(--color-border)', borderRadius: 12,
+      background: 'var(--color-surface-2)',
+    }}>
+      {hasThumb && (
+        <div style={{ width: 96, flexShrink: 0, background: 'var(--color-surface-3)', position: 'relative', minHeight: 72 }}>
+          <img
+            src={post.media_thumb!} alt="" loading="lazy"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+          {post.media_type === 'video' && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.28)', color: 'white', fontSize: 16,
+            }}>{'\u25B6'}</div>
+          )}
+        </div>
+      )}
+      <div style={{
+        flex: 1, minWidth: 0, padding: '12px 14px', display: 'flex', alignItems: 'center',
+      }}>
+        <p style={{
+          margin: 0, fontSize: 15, lineHeight: 1.4, wordBreak: 'break-word',
+          color: primary ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+          display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+        }}>
+          {body || (post.media_type === 'video' ? 'Video' : 'Photo')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
+
+/** "2 likes" under a like/repost row; "3 likes · 1 reply" under a reply/mention. */
+function countsText(g: Group, shown: NotificationPostPreview | null): string {
+  const t = g.items[0].type
+  if (!shown) return ''
+  if (t === 'post_like' || t === 'comment_like') return shown.likes_count > 0 ? plural(shown.likes_count, 'like') : ''
+  if (t === 'post_repost') return shown.reposts_count > 0 ? plural(shown.reposts_count, 'repost') : ''
+  if (t === 'post_comment' || t === 'mention' || t === 'post_quote') {
+    const parts: string[] = []
+    if (shown.likes_count > 0)    parts.push(plural(shown.likes_count, 'like'))
+    if (shown.comments_count > 0) parts.push(plural(shown.comments_count, 'reply', 'replies'))
+    if (shown.reposts_count > 0)  parts.push(plural(shown.reposts_count, 'repost'))
+    return parts.join(' \u00B7 ')
+  }
+  return ''
 }
 
 function RowMenu({ items }: { items: { label: string; icon: ReactNode; danger?: boolean; onClick: () => void }[] }) {
@@ -249,7 +331,7 @@ function RowMenu({ items }: { items: { label: string; icon: ReactNode; danger?: 
           cursor: 'pointer',
         }}
       >
-        <MoreHorizontal size={18} />
+        <MoreVertical size={18} />
       </button>
       {open && (
         <>
@@ -281,6 +363,18 @@ function RowMenu({ items }: { items: { label: string; icon: ReactNode; danger?: 
   )
 }
 
+/** Time on top, three-dot menu underneath - the right-hand column. */
+function TrailingColumn({ time, items }: { time: string; items: Parameters<typeof RowMenu>[0]['items'] }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
+      <span style={{ fontSize: 13, color: 'var(--color-text-muted)', paddingTop: 2, whiteSpace: 'nowrap' }}>
+        {time}
+      </span>
+      <RowMenu items={items} />
+    </div>
+  )
+}
+
 /* ── One row ─────────────────────────────────────────────────────────────── */
 
 function NotificationRow({
@@ -297,15 +391,13 @@ function NotificationRow({
   const href = hrefFor(group, username)
   const fixed = actors.length === 0 ? standaloneText(first) : null
 
-  // Content shown under the sentence. Replies / mentions / quotes show what
-  // was actually written (in normal text colour); likes / reposts / new posts
-  // show the post they refer to (muted), like X.
-  const contentPost =
-    first.type === 'post_comment' || first.type === 'post_quote' ? (first.reply ?? first.post)
-    : first.post
-  const isAuthored = ['post_comment', 'mention', 'post_quote', 'new_post'].includes(first.type)
-  const body = contentPost?.body?.trim() || ''
-  const showAvatars = actors.length > 0 && first.type !== 'new_message'
+  // What goes in the preview card. Replies / quotes show what was written back
+  // to you; mentions and new posts show the post itself; likes / reposts show
+  // YOUR post.
+  const shown: NotificationPostPreview | null =
+    first.type === 'post_comment' || first.type === 'post_quote' ? (first.reply ?? first.post) : first.post
+  const authored = ['post_comment', 'mention', 'post_quote', 'new_post'].includes(first.type)
+  const counts = countsText(group, shown)
 
   const menuItems = [
     ...(first.type === 'new_post' && first.actor
@@ -327,74 +419,34 @@ function NotificationRow({
       className="notif-row"
       data-unread={group.unread ? '1' : '0'}
       style={{
-        display: 'flex', gap: 8, alignItems: 'flex-start',
-        padding: '12px 12px 14px 16px',
+        display: 'flex', gap: 12, alignItems: 'flex-start',
+        padding: '16px 8px 16px 16px',
         borderBottom: '1px solid var(--color-border)',
-        cursor: 'pointer', position: 'relative',
+        cursor: 'pointer',
       }}
     >
-      {/* Big type icon */}
-      <div style={{ width: 40, flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingRight: 8, paddingTop: 2 }}>
-        {iconFor(first.type)}
-      </div>
+      <LeadingVisual type={first.type} actor={actors[0] ?? null} />
 
-      {/* Body */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        {showAvatars && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-            {actors.slice(0, 8).map(a => (
-              <Link
-                key={a.id}
-                href={`/user/${a.username}`}
-                onClick={e => e.stopPropagation()}
-                aria-label={a.display_name}
-                style={{ display: 'flex' }}
-              >
-                <NotifAvatar name={a.display_name} url={a.avatar_url} size={32} />
-              </Link>
-            ))}
-            {actors.length > 8 && (
-              <span style={{ fontSize: 13, color: 'var(--color-text-muted)', fontWeight: 600 }}>+{actors.length - 8}</span>
-            )}
-          </div>
-        )}
-
         <p style={{
-          margin: 0, fontSize: 15, lineHeight: 1.4,
+          margin: 0, fontSize: 15, lineHeight: 1.4, wordBreak: 'break-word',
           color: 'var(--color-text-primary)', fontFamily: "'DM Sans', sans-serif",
-          wordBreak: 'break-word',
         }}>
           {first.type === 'new_post'
             ? <>Recent post from <NameList actors={actors} /></>
             : fixed
               ? fixed
-              : <><NameList actors={actors} />{' '}{verbFor(first)}</>}
-          <span style={{ color: 'var(--color-text-muted)' }}> {'\u00B7'} {formatRelativeTime(first.created_at)}</span>
+              : <><NameList actors={actors} />{' '}<span style={{ fontWeight: 400 }}>{verbFor(first)}</span></>}
         </p>
 
-        {body && (
-          <p style={{
-            margin: '4px 0 0', fontSize: 15, lineHeight: 1.4,
-            color: isAuthored ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
-            fontFamily: "'DM Sans', sans-serif", wordBreak: 'break-word',
-            display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-            whiteSpace: 'pre-wrap',
-          }}>
-            {body}
-          </p>
-        )}
-        {!body && contentPost?.media_thumb && (
-          <p style={{ margin: '4px 0 0', fontSize: 14, color: 'var(--color-text-muted)' }}>
-            {contentPost.media_type === 'video' ? 'Video' : 'Photo'}
-          </p>
+        {shown && <PreviewCard post={shown} primary={authored} lines={authored ? 3 : 2} />}
+
+        {counts && (
+          <p style={{ margin: '8px 0 0', fontSize: 14, color: 'var(--color-text-muted)' }}>{counts}</p>
         )}
       </div>
 
-      {/* Thumbnail + menu */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexShrink: 0 }}>
-        <Thumb url={contentPost?.media_thumb ?? null} isVideo={contentPost?.media_type === 'video'} />
-        <RowMenu items={menuItems} />
-      </div>
+      <TrailingColumn time={formatRelativeTime(first.created_at)} items={menuItems} />
     </div>
   )
 }
@@ -404,7 +456,8 @@ function NotificationRow({
 function NewPostsPane({ pane, onOpen }: { pane: PaneState; onOpen: () => void }) {
   if (pane.users.length === 0) return null
   const users = pane.users
-  const latest = users[0].latest_at
+  const lead = users[0]
+  const rest = users.slice(0, 5)
 
   return (
     <div
@@ -415,38 +468,55 @@ function NewPostsPane({ pane, onOpen }: { pane: PaneState; onOpen: () => void })
       className="notif-row"
       data-unread={pane.unread > 0 ? '1' : '0'}
       style={{
-        display: 'flex', gap: 8, alignItems: 'flex-start',
-        padding: '12px 16px 14px',
+        display: 'flex', gap: 12, alignItems: 'flex-start',
+        padding: '16px 8px 16px 16px',
         borderBottom: '1px solid var(--color-border)', cursor: 'pointer',
       }}
     >
-      <div style={{ width: 40, flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingRight: 8, paddingTop: 2 }}>
-        {iconFor('new_post')}
-      </div>
+      <LeadingVisual type="new_post" actor={lead} />
+
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-          {users.slice(0, 5).map(u => (
-            <NotifAvatar key={u.id} name={u.display_name} url={u.avatar_url} size={36} />
-          ))}
-        </div>
         <p style={{ margin: 0, fontSize: 15, lineHeight: 1.4, color: 'var(--color-text-primary)' }}>
           New post notifications for{' '}
           <strong style={{ fontWeight: 700 }}>
-            {users[0].display_name}
-            {users[0].verification_tier && users[0].verification_tier !== 'none' && (
+            {lead.display_name}
+            {lead.verification_tier && lead.verification_tier !== 'none' && (
               <span style={{ display: 'inline-flex', marginLeft: 3, verticalAlign: 'middle' }}>
-                <VerifiedBadge tier={users[0].verification_tier} size={14} />
+                <VerifiedBadge tier={lead.verification_tier} size={14} />
               </span>
             )}
           </strong>
           {users.length === 2 && <> and <strong style={{ fontWeight: 700 }}>{users[1].display_name}</strong></>}
           {users.length > 2 && <> and {users.length - 1} others</>}
-          <span style={{ color: 'var(--color-text-muted)' }}> {'\u00B7'} {formatRelativeTime(latest)}</span>
         </p>
-        <p style={{ margin: '4px 0 0', fontSize: 14, color: 'var(--color-text-muted)' }}>
-          {pane.totalPosts} new post{pane.totalPosts === 1 ? '' : 's'}
+
+        {/* Everyone who just posted, overlapped like a LinkedIn "reactions" strip */}
+        <div style={{ display: 'flex', alignItems: 'center', marginTop: 10 }}>
+          {rest.map((u, i) => (
+            <div key={u.id} style={{
+              marginLeft: i === 0 ? 0 : -8, borderRadius: '50%',
+              boxShadow: '0 0 0 2px var(--color-bg)', position: 'relative', zIndex: rest.length - i,
+            }}>
+              <NotifAvatar name={u.display_name} url={u.avatar_url} size={32} />
+            </div>
+          ))}
+          {users.length > 5 && (
+            <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+              +{users.length - 5}
+            </span>
+          )}
+        </div>
+
+        <p style={{ margin: '8px 0 0', fontSize: 14, color: 'var(--color-text-muted)' }}>
+          {plural(pane.totalPosts, 'new post')}
           {pane.unread > 0 ? ` \u00B7 ${pane.unread} unread` : ''}
         </p>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, paddingRight: 8 }}>
+        <span style={{ fontSize: 13, color: 'var(--color-text-muted)', paddingTop: 2, whiteSpace: 'nowrap' }}>
+          {formatRelativeTime(lead.latest_at)}
+        </span>
       </div>
     </div>
   )
@@ -606,6 +676,7 @@ export default function NotificationsClient({ userId, username, initialItems, in
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-bg)' }}>
+      <HideMobileHeader />
       <style>{`
         .notif-row { background: transparent; transition: background 0.12s; }
         .notif-row[data-unread="1"] { background: var(--color-brand-muted); }

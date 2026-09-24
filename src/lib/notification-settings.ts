@@ -55,6 +55,7 @@ export const TYPE_TO_PREF: Record<NotificationType, NotificationSettingKey | nul
   new_post: 'pref_posts',
   new_message: 'pref_messages',
   tip_received: 'pref_wallet',
+  wallet_transfer_received: 'pref_wallet',
   subscription_new: 'pref_wallet',
   earning_milestone: 'pref_wallet',
   monetisation_approved: 'pref_wallet',

@@ -27,7 +27,7 @@ const SECTIONS: ToggleSection[] = [
       { key: 'pref_likes',    label: 'Likes',              desc: 'Someone likes your post or reply.' },
       { key: 'pref_reposts',  label: 'Reposts and quotes', desc: 'Someone reposts or quotes your post.' },
       { key: 'pref_follows',  label: 'New followers' },
-      { key: 'pref_messages', label: 'Direct messages' },
+      { key: 'pref_messages', label: 'Direct messages', desc: 'A push alert when someone messages you. Messages themselves show on the Messages icon, never here.' },
       { key: 'pref_posts',    label: 'New posts',          desc: 'Posts from people you turned on post notifications for.' },
       { key: 'pref_wallet',   label: 'Wallet and orders',  desc: 'Tips, earnings, escrow and order updates.' },
     ],
