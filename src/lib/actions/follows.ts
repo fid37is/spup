@@ -232,16 +232,16 @@ export async function togglePostNotificationsAction(targetUserId: string): Promi
   if (!profile) return { error: 'Not authenticated' }
 
   const { data: existing } = await supabase
-    .from('post_notification_subscriptions')
+    .from('user_notification_preferences')
     .select('id')
     .match({ user_id: profile.id, target_user_id: targetUserId, type: 'post' })
     .maybeSingle()
 
   if (existing) {
-    await supabase.from('post_notification_subscriptions').delete().eq('id', existing.id)
+    await supabase.from('user_notification_preferences').delete().eq('id', existing.id)
     return { enabled: false }
   }
-  await supabase.from('post_notification_subscriptions').insert({
+  await supabase.from('user_notification_preferences').insert({
     user_id: profile.id, target_user_id: targetUserId, type: 'post',
   })
   return { enabled: true }
@@ -251,7 +251,7 @@ export async function getPostNotificationsStatusAction(targetUserId: string): Pr
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return false
   const { data } = await supabase
-    .from('post_notification_subscriptions')
+    .from('user_notification_preferences')
     .select('id')
     .match({ user_id: profile.id, target_user_id: targetUserId, type: 'post' })
     .maybeSingle()
