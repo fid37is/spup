@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/layout/toast'
 
 const TIERS = [
@@ -12,8 +13,11 @@ const TIERS = [
 
 export default function PromoteModal({ postId, onClose }: { postId: string; onClose: () => void }) {
   const [selected, setSelected] = useState<typeof TIERS[number]['id']>('boost')
+  const [promoCode, setPromoCode] = useState('')
+  const [showCodeInput, setShowCodeInput] = useState(false)
   const [loading, setLoading] = useState(false)
-  const { error: toastError } = useToast()
+  const { success, error: toastError } = useToast()
+  const router = useRouter()
   // Portaled to document.body below — see the note on ConfirmModal for why.
   // (This modal's zIndex was also previously 100, identical to the mobile
   // bottom nav's — a tie that let DOM order decide, and the nav always won.)
@@ -23,10 +27,11 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
   async function handlePromote() {
     setLoading(true)
     try {
+      const trimmedCode = promoCode.trim()
       const res = await fetch('/api/promotions/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post_id: postId, tier: selected }),
+        body: JSON.stringify({ post_id: postId, tier: selected, promo_code: trimmedCode || undefined }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -34,7 +39,19 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
         setLoading(false)
         return
       }
-      window.location.href = data.authorization_url
+      if (data.authorization_url) {
+        window.location.href = data.authorization_url
+        return
+      }
+      // Activated directly via a redeemed promo code - there's nowhere to
+      // redirect to (no payment happened). A tier-locked code overrides
+      // whichever tier was selected, so confirm whichever one was actually
+      // granted rather than assuming it matches `selected`.
+      const grantedTier = TIERS.find(t => t.id === data.tier) ?? TIERS.find(t => t.id === selected)
+      success(grantedTier ? `${grantedTier.label} promotion activated` : 'Promotion activated')
+      setLoading(false)
+      onClose()
+      router.refresh()
     } catch {
       toastError('Could not start promotion')
       setLoading(false)
@@ -79,6 +96,32 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
           ))}
         </div>
 
+        {showCodeInput ? (
+          <div style={{ marginBottom: 16 }}>
+            <input
+              value={promoCode}
+              onChange={e => setPromoCode(e.target.value)}
+              placeholder="Enter promo code"
+              autoFocus
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10,
+                border: '1px solid var(--color-border)', background: 'var(--input-bg)',
+                color: 'var(--color-text)', fontSize: 14, letterSpacing: '0.05em', textTransform: 'uppercase',
+              }}
+            />
+            <p style={{ fontSize: 11.5, color: 'var(--color-text-muted)', margin: '6px 0 0' }}>
+              A valid code activates this promotion directly - no payment needed.
+            </p>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowCodeInput(true)}
+            style={{ background: 'none', border: 'none', padding: 0, marginBottom: 16, cursor: 'pointer', fontSize: 12.5, color: 'var(--color-text-muted)', textDecoration: 'underline' }}
+          >
+            Have a promo code?
+          </button>
+        )}
+
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             onClick={onClose}
@@ -91,7 +134,7 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
             disabled={loading}
             style={{ flex: 1, padding: '10px 0', borderRadius: 20, border: 'none', background: '#1A9E5F', color: '#fff', fontWeight: 600, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1 }}
           >
-            {loading ? 'Redirecting…' : 'Pay & promote'}
+            {loading ? (promoCode.trim() ? 'Applying…' : 'Redirecting…') : (promoCode.trim() ? 'Apply code & promote' : 'Pay & promote')}
           </button>
         </div>
       </div>

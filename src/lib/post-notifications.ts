@@ -20,7 +20,7 @@ import { extractMentionedUsernames } from '@/lib/utils'
 export async function notifyPostSubscribers(postId: string, authorId: string) {
   const admin = createAdminClient()
   const { data: subs, error } = await admin
-    .from('post_notification_subscriptions')
+    .from('user_notification_preferences')
     .select('user_id')
     .match({ target_user_id: authorId, type: 'post' })
   if (error) { console.error('notifyPostSubscribers: lookup failed', error.message); return }

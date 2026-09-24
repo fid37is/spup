@@ -145,7 +145,7 @@ export async function getNotificationsAction(
   let priorityIds: string[] | null = null
   if (tab === 'priority') {
     const { data: targets } = await supabase
-      .from('post_notification_subscriptions')
+      .from('user_notification_preferences')
       .select('target_user_id')
       .match({ user_id: profile.id, type: 'post' })
     priorityIds = (targets || []).map((t: any) => t.target_user_id)
@@ -154,14 +154,20 @@ export async function getNotificationsAction(
 
   const windowStart = new Date(Date.now() - NEW_POST_WINDOW_HOURS * 3_600_000).toISOString()
 
-  const build = (hideFreshNewPosts: boolean) => {
+  // `strict` adds the two filters that compare `type` against an enum value
+  // ('new_message', 'new_post'). If the database enum is missing either value
+  // (migration 028 / 033 not run yet) Postgres rejects the whole query, so the
+  // retry below drops them and the same two rules are applied in JS instead.
+  const build = (strict: boolean) => {
     let q = supabase
       .from('notifications')
       .select(NOTIF_SELECT)
       .eq('recipient_id', profile.id)
-      .neq('type', 'new_message') // messages only show on the Messages icon
       .order('created_at', { ascending: false })
       .limit(limit + 1)
+
+    // messages only show on the Messages icon
+    if (strict) q = q.neq('type', 'new_message')
 
     if (tab === 'mentions') {
       // Posts where you were replied to or @mentioned.
@@ -170,24 +176,30 @@ export async function getNotificationsAction(
       if (priorityIds) q = q.in('actor_id', priorityIds)
       // Fresh "new post" notifications are summarised by the pane at the top
       // of the page (getNewPostPaneAction) - don't also list them row by row.
-      if (hideFreshNewPosts) q = q.or(`type.neq.new_post,created_at.lt.${windowStart}`)
+      if (strict) q = q.or(`type.neq.new_post,created_at.lt.${windowStart}`)
     }
     if (cursor) q = q.lt('created_at', cursor)
     return q
   }
 
   let { data, error } = await build(true)
-  if (error && tab !== 'mentions') {
-    // If the database is missing the 'new_post' type (migration 028 not run
-    // yet) that filter errors - fall back to the plain list rather than
-    // showing nothing.
+  if (error) {
+    console.error('getNotificationsAction: query failed, retrying without type filters:', error.message)
     ;({ data, error } = await build(false))
+    if (error) console.error('getNotificationsAction: retry failed:', error.message)
   }
   if (!data?.length) return { notifications: [], nextCursor: null }
 
   const hasMore = data.length > limit
-  const page = hasMore ? data.slice(0, limit) : data
-  const nextCursor = hasMore ? page[page.length - 1].created_at : null
+  const rows = hasMore ? data.slice(0, limit) : data
+  const nextCursor = hasMore ? rows[rows.length - 1].created_at : null
+
+  // The two rules the strict query applies in SQL (a no-op when it ran).
+  const windowStartMs = Date.parse(windowStart)
+  const page = rows.filter((r: any) =>
+    r.type !== 'new_message' &&
+    !(r.type === 'new_post' && Date.parse(r.created_at) >= windowStartMs),
+  )
 
   return { notifications: await hydrate(supabase, page), nextCursor }
 }
@@ -259,7 +271,7 @@ async function loadNewPostRows(
 ): Promise<NewPostRow[]> {
   const since = new Date(Date.now() - NEW_POST_WINDOW_HOURS * 3_600_000).toISOString()
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('notifications')
     .select(NOTIF_SELECT)
     .eq('recipient_id', profileId)
@@ -268,6 +280,7 @@ async function loadNewPostRows(
     .order('created_at', { ascending: false })
     .limit(100)
 
+  if (error) console.error('loadNewPostRows: query failed:', error.message)
   if (!data?.length) return []
 
   // Drop notifications whose post has since been deleted.
