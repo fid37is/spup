@@ -8,6 +8,7 @@ import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import { NotifAvatar } from '@/components/notifications/avatar'
 import { markNewPostsReadAction, type NewPostUser } from '@/lib/actions/notifications'
 import type { FeedPost } from '@/lib/actions/feed'
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
 
 export default function NewPostsClient({
   posts, users, currentUserId, initialUsername,
@@ -35,6 +36,7 @@ export default function NewPostsClient({
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-bg)' }}>
+      <HideMobileHeader />
       {/* Header */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 20,

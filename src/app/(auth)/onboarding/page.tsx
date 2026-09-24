@@ -1,11 +1,12 @@
 // src/app/(auth)/onboarding/page.tsx
 'use client'
 
-import { useState, useRef, useTransition, useCallback } from 'react'
+import { useState, useRef, useEffect, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   saveUsernameAction,
   checkUsernameAvailableAction,
+  getUsernameSuggestionsAction,
   saveAvatarAction,
   saveBioAction,
   saveInterestsAction,
@@ -14,7 +15,6 @@ import {
 import { getSuggestedAccountsAction, toggleFollowAction } from '@/lib/actions/follows'
 import { Alert } from '@/components/auth/form-field'
 import { NIGERIAN_INTERESTS } from '@/types'
-import VerifiedBadge from '@/components/ui/verified-badge'
 import {
   Check,
   CheckCircle,
@@ -95,6 +95,7 @@ export default function OnboardingPage() {
 
   // Step 0 — username
   const [username, setUsername] = useState('')
+  const [usernameSuggestions, setUsernameSuggestions] = useState<string[]>([])
   const [usernameStatus, setUsernameStatus] = useState<
     'idle' | 'checking' | 'ok' | 'taken'
   >('idle')
@@ -148,6 +149,21 @@ export default function OnboardingPage() {
   }
 
   // ── Username ─────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    getUsernameSuggestionsAction().then(({ suggestions }) => {
+      setUsernameSuggestions(suggestions)
+      setUsername(current => {
+        if (current) return current
+        const first = suggestions[0]
+        if (first) checkUsername(first)
+        return first || current
+      })
+    })
+    // Runs once - suggestions are generated from the name already on file
+    // and don't need to change as the person edits the field.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const checkUsername = useCallback((val: string) => {
     if (checkTimer.current) {
@@ -622,6 +638,37 @@ export default function OnboardingPage() {
                 </span>
               )}
             </div>
+
+            {usernameSuggestions.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  marginTop: 12,
+                }}
+              >
+                {usernameSuggestions.map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => handleUsernameChange(s)}
+                    style={{
+                      background: username === s ? 'rgba(26,158,95,0.12)' : '#131318',
+                      border: `1px solid ${username === s ? '#1A9E5F' : '#1E1E26'}`,
+                      borderRadius: 20,
+                      padding: '6px 12px',
+                      color: username === s ? '#1A9E5F' : '#9A9A90',
+                      fontSize: 13,
+                      fontFamily: "'DM Sans', sans-serif",
+                      cursor: 'pointer',
+                    }}
+                  >
+                    @{s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <button
@@ -1281,7 +1328,18 @@ export default function OnboardingPage() {
 
                         {acc.verification_tier !==
                           'none' && (
-                          <VerifiedBadge tier={acc.verification_tier} size={13} />
+                          <span
+                            style={{
+                              fontSize: 9,
+                              background: '#1A9E5F',
+                              color: 'white',
+                              padding: '1px 5px',
+                              borderRadius: 4,
+                              fontWeight: 700,
+                            }}
+                          >
+                            ✓
+                          </span>
                         )}
                       </div>
 

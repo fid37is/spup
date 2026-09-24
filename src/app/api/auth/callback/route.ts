@@ -1,6 +1,8 @@
 // src/app/api/auth/callback/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { generateUniqueUsername } from '@/lib/username'
+import { hasRealName } from '@/lib/validations/schemas'
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
@@ -27,13 +29,17 @@ export async function GET(request: NextRequest) {
   if (!profile) {
     // Brand new OAuth user — create minimal profile, then collect DoB
     const meta = user.user_metadata
-    const fullName = meta?.full_name || meta?.name || ''
+    const rawName = meta?.full_name || meta?.name || ''
+    const fullName = hasRealName(rawName) ? rawName.trim() : 'Spup User'
+    // Read-only uniqueness checks - the insert below keeps using the
+    // session-scoped client, unchanged from before.
+    const admin = createAdminClient()
 
     await supabase.from('users').insert({
       auth_id: user.id,
       email: user.email || null,
-      display_name: fullName || 'Spup User',
-      username: `user_${user.id.slice(0, 8)}`,
+      display_name: fullName,
+      username: await generateUniqueUsername(admin, fullName),
       role: 'user',
       status: 'active',
     })

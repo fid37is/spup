@@ -404,8 +404,14 @@ export default function SettingsClient({ profile, interests: initialInterests }:
           icon={Bell}
           label="Email notifications"
           desc="Weekly digest and important alerts"
-          last
           right={<Toggle checked={notifEmail} onChange={v => handleNotif('email', v)} disabled={isPending} />}
+        />
+        <Row
+          icon={Bell}
+          label="More notification settings"
+          desc="Filters, preferences and post notifications"
+          onClick={() => router.push('/notifications/settings')}
+          last
         />
       </Card>
 

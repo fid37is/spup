@@ -9,6 +9,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { nameField } from '@/lib/validations/schemas'
 import { z } from 'zod'
 
 async function getCallerProfile() {
@@ -35,7 +36,7 @@ async function getCallerProfile() {
 // `null` survives serialization and tells Postgres to set the column to
 // NULL, so clearing now works the same way setting a value does.
 const updateProfileSchema = z.object({
-  display_name:        z.string().min(2).max(50).optional(),
+  display_name:        nameField(2, 50).optional(),
   bio:                 z.string().max(160).nullable().optional(),
   location:            z.string().max(60).nullable().optional(),
   website_url:         z.string().url('Enter a valid link, for example https://yoursite.com').nullable().optional().or(z.literal('')),

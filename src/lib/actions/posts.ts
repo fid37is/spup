@@ -8,6 +8,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
+import { notifyMentions, notifyPostSubscribers, queuePostNotifications } from '@/lib/post-notifications'
 import { sendNotificationEmail } from '@/lib/email/send'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
 import { extractMentionedUsernames } from '@/lib/utils'
@@ -125,20 +126,23 @@ export async function createPostAction(data: CreatePostSchema) {
   }
   // Mentions notify their recipients immediately - that only makes sense
   // once the post is actually visible, so a scheduled post's @mentions wait
-  // and fire for real when it goes live (see the note above the insert).
+  // and fire when it goes live (queued below, sent by the scheduled-post cron).
   if (body?.trim() && !isScheduled) {
     void notifyMentions(body.trim(), post.id, profile.id, profile.username, profile.display_name)
   }
   // Everyone who turned on post notifications (the bell on this author's
   // profile) gets a "new post" notification. Replies are excluded - those
-  // notify the person being replied to instead. Scheduled posts skip this for
-  // the same reason mentions do: nothing revisits them when they go live.
+  // notify the person being replied to instead. Scheduled posts are queued and
+  // sent by the cron when they go live.
   if (!parent_post_id && !isScheduled) {
     void notifyPostSubscribers(post.id, profile.id)
   }
   revalidatePath('/feed')
 
   if (isScheduled) {
+    // Mentions + new-post alerts for this post go out when it goes live
+    // (cron: /api/cron/scheduled-post-notifications).
+    if (!parent_post_id) void queuePostNotifications(post.id)
     return { success: true, postId: post.id, scheduled: true, scheduledFor: scheduled_at! }
   }
 
@@ -400,66 +404,6 @@ async function notifyPostAuthor(
   await createNotification({ recipientId: post.user_id, actorId, type, entityId: postId, entityType: 'post', metadata })
 }
 
-// Fan-out for "post notifications": one `new_post` notification per subscriber.
-// Goes through createNotification, so each subscriber's Preferences (Posts from
-// people you follow), mutes/blocks and the push switch are all respected.
-async function notifyPostSubscribers(postId: string, authorId: string) {
-  const admin = createAdminClient()
-  const { data: subs, error } = await admin
-    .from('user_notification_preferences')
-    .select('user_id')
-    .match({ target_user_id: authorId, type: 'post' })
-  if (error) { console.error('notifyPostSubscribers: lookup failed', error.message); return }
-  if (!subs?.length) return
-
-  await Promise.all(subs.map(sub =>
-    createNotification({
-      recipientId: sub.user_id, actorId: authorId,
-      type: 'new_post', entityId: postId, entityType: 'post',
-    })
-  ))
-}
-
-// Resolves @username mentions in a post body to real users, notifies each
-// one (in-app + push, via the shared createNotification pipeline) and,
-// where the recipient hasn't opted out (notif_email), emails them too -
-// the 'mention' email template already existed in lib/email/send.ts but
-// had no caller anywhere in the app, so tagging someone produced no
-// notification of any kind.
-async function notifyMentions(
-  body: string, postId: string, actorId: string, actorUsername: string | null, actorDisplayName: string
-) {
-  const usernames = extractMentionedUsernames(body)
-  if (usernames.length === 0) return
-
-  const admin = createAdminClient()
-  const { data: mentioned } = await admin
-    .from('users')
-    .select('id, username, email, notif_email')
-    .in('username', usernames)
-    .is('deleted_at', null)
-
-  if (!mentioned || mentioned.length === 0) return
-
-  await Promise.all(mentioned.map(async user => {
-    if (user.id === actorId) return // don't notify yourself for @your_own_username
-    await createNotification({ recipientId: user.id, actorId, type: 'mention', entityId: postId, entityType: 'post' })
-
-    if (user.email && user.notif_email !== false) {
-      const result = await sendNotificationEmail({
-        to: user.email,
-        type: 'mention',
-        data: {
-          mentionerName: actorDisplayName,
-          mentionerUsername: actorUsername || '',
-          postPreview: body.trim(),
-          postId,
-        },
-      })
-      if (result.error) console.error(`mention email failed for ${user.email}:`, result.error)
-    }
-  }))
-}
 export async function getPostAnalyticsAction(postId: string) {
   const supabase = await createClient()
   const { data: post, error } = await supabase

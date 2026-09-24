@@ -35,6 +35,7 @@ function buildPushPayload(type: NotificationType, actorName: string | null, enti
     monetisation_approved: "You're approved for monetisation",
     system: 'Spup',
     new_message: `${name} sent you a message`,
+    wallet_transfer_received: `${name} sent you money`,
     escrow_hold_received: `${name} paid for your item - funds are held in escrow`,
     escrow_delivered: `${name} marked your order as delivered`,
     escrow_released: 'Escrow funds have been released to you',
@@ -140,6 +141,7 @@ export async function createNotification({
   entityType = 'post',
   metadata = {},
   dedupeUnread = false,
+  inApp = true,
 }: {
   recipientId: string
   actorId: string | null
@@ -154,6 +156,12 @@ export async function createNotification({
    * no longer inflate the Alerts badge.
    */
   dedupeUnread?: boolean
+  /**
+   * false = push only, no row in the notifications table (so nothing appears
+   * on the Notifications page or its badge). Used for chat messages, which are
+   * surfaced on the Messages icon instead.
+   */
+  inApp?: boolean
 }) {
   const admin = createAdminClient()
 
@@ -176,7 +184,7 @@ export async function createNotification({
     skipInsert = !!existing && existing.length > 0
   }
 
-  if (!skipInsert) {
+  if (inApp && !skipInsert) {
     const { error } = await admin.from('notifications').insert({
       recipient_id: recipientId,
       actor_id: actorId,

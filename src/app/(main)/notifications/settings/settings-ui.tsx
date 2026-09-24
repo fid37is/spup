@@ -8,6 +8,8 @@ import { updateNotificationSettingsAction, disablePostNotificationsAction, type 
 import { updateProfileAction } from '@/lib/actions/profiles'
 import type { NotificationSettingKey, NotificationSettings } from '@/lib/notification-settings'
 import { NotifAvatar } from '@/components/notifications/avatar'
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
+import { enableWebPush } from '@/hooks/use-web-push'
 import VerifiedBadge from '@/components/ui/verified-badge'
 
 /* ── Header (back arrow + title + optional @username, like X) ──────────────── */
@@ -16,6 +18,8 @@ export function SettingsHeader({
   title, subtitle, backHref = '/notifications/settings',
 }: { title: string; subtitle?: string; backHref?: string }) {
   return (
+    <>
+    <HideMobileHeader />
     <div style={{
       position: 'sticky', top: 0, zIndex: 20,
       backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
@@ -42,6 +46,7 @@ export function SettingsHeader({
         {subtitle && <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{subtitle}</div>}
       </div>
     </div>
+    </>
   )
 }
 
@@ -138,7 +143,7 @@ export function ToggleList({
 
   function flash(text: string, ok: boolean) {
     setMsg({ text, ok })
-    setTimeout(() => setMsg(null), 2400)
+    setTimeout(() => setMsg(null), 4500)
   }
 
   function change(key: ToggleKey, next: boolean) {
@@ -151,11 +156,24 @@ export function ToggleList({
         : key === 'notif_email'
           ? await updateProfileAction({ notif_email: next })
           : await updateNotificationSettingsAction({ [key]: next } as Partial<NotificationSettings>)
-      setBusy(null)
       if ((r as any)?.error) {
+        setBusy(null)
         setValues(v => ({ ...v, [key]: prev }))
         flash((r as any).error, false)
+        return
       }
+
+      // Switching push ON should actually enable it on this device: ask the
+      // browser for permission and register the subscription.
+      if (key === 'notif_push' && next) {
+        const status = await enableWebPush()
+        if (status === 'denied') {
+          flash('Notifications are blocked in your browser settings. Allow them for this site to get push alerts.', false)
+        } else if (status === 'unsupported') {
+          flash('This browser does not support push notifications.', false)
+        }
+      }
+      setBusy(null)
     })
   }
 

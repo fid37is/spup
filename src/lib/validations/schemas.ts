@@ -9,6 +9,24 @@ export function toE164(phone: string): string {
   return '+234' + cleaned
 }
 
+// Emoji, joiners, skin-tone modifiers and flag characters - stripped when
+// checking whether a name has any real text in it. A name can mix text and
+// emoji ("Ada 🔥"), but can't be emoji-only ("🔥🔥🔥") or blank/whitespace-only.
+const EMOJI_AND_JOINERS = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D\uFE0F]/gu
+
+export function hasRealName(name: string): boolean {
+  return name.replace(EMOJI_AND_JOINERS, '').trim().length > 0
+}
+
+/** Shared "person's name" field: trims, enforces a length range, and blocks blank/emoji-only. */
+export function nameField(min: number, max: number) {
+  return z.string()
+    .trim()
+    .min(min, `At least ${min} characters`)
+    .max(max, `Max ${max} characters`)
+    .refine(hasRealName, 'Add a name, not just emojis')
+}
+
 function isAtLeast13(dob: string): boolean {
   const birth = new Date(dob)
   const now = new Date()
@@ -19,7 +37,7 @@ function isAtLeast13(dob: string): boolean {
 }
 
 export const signupSchema = z.object({
-  full_name: z.string().min(2,'Name must be at least 2 characters').max(60,'Max 60 characters').regex(/^[a-zA-Z\s'-]+$/,'Letters, spaces, hyphens and apostrophes only'),
+  full_name: nameField(2, 60),
   email: z.string().min(1,'Email is required').email('Enter a valid email address').toLowerCase(),
   date_of_birth: z.string().min(1,'Date of birth is required').refine(v=>!isNaN(Date.parse(v)),'Enter a valid date').refine(v=>isAtLeast13(v),'You must be at least 13 years old'),
   password: z.string().min(8,'At least 8 characters').regex(/[A-Z]/,'Must contain an uppercase letter').regex(/[0-9]/,'Must contain a number'),
@@ -47,7 +65,7 @@ export const forgotPasswordSchema = z.object({
 export type ForgotPasswordSchema = z.infer<typeof forgotPasswordSchema>
 
 export const completeSocialProfileSchema = z.object({
-  full_name: z.string().min(2,'At least 2 characters').max(60),
+  full_name: nameField(2, 60),
   date_of_birth: z.string().min(1,'Required').refine(v=>!isNaN(Date.parse(v)),'Invalid date').refine(v=>isAtLeast13(v),'Must be at least 13'),
 })
 export type CompleteSocialProfileSchema = z.infer<typeof completeSocialProfileSchema>

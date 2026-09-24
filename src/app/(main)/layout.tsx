@@ -87,6 +87,9 @@ export default async function MainLayout({ children }: { children: React.ReactNo
            so the app's top bar and bottom tab bar step aside. Set by ChatViewport. */
         html[data-chat-open] .mobile-nav,
         html[data-chat-open] .mobile-header { display: none !important; }
+        /* Notifications and its Settings/New-posts sub-pages draw their own
+           sticky header (title, back arrow, tabs) - see HideMobileHeader. */
+        html[data-notif-open] .mobile-header { display: none !important; }
         @media (min-width: 768px) and (max-width: 1100px) {
           .sidebar-right { display: none; }
           .main-content  { border-right: none; }
