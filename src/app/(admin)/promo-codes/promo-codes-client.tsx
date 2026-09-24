@@ -29,7 +29,12 @@ export function GeneratePromoCodeForm() {
         maxUses: Number(maxUses) || 1,
         expiresInDays: expiresInDays ? Number(expiresInDays) : undefined,
       })
-      if ('error' in result) { setError(result.error); return }
+
+      if ('error' in result) {
+        setError(result.error ?? 'Failed to generate promo code')
+        return
+      }
+
       setNewCode(result.code)
       setLabel('')
       setMaxUses('1')
@@ -63,6 +68,7 @@ export function GeneratePromoCodeForm() {
             ))}
           </select>
         </label>
+
         <label className="flex flex-col gap-1 text-xs text-secondary sm:col-span-2">
           Label <span className="text-faint">(who this is for)</span>
           <input
@@ -72,25 +78,31 @@ export function GeneratePromoCodeForm() {
             className="rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-primary"
           />
         </label>
+
         <label className="flex flex-col gap-1 text-xs text-secondary">
           Uses
           <input
-            type="number" min={1} max={1000}
+            type="number"
+            min={1}
+            max={1000}
             value={maxUses}
             onChange={e => setMaxUses(e.target.value)}
             className="rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-primary"
           />
         </label>
+
         <label className="flex flex-col gap-1 text-xs text-secondary">
           Expires in <span className="text-faint">(days, optional)</span>
           <input
-            type="number" min={1}
+            type="number"
+            min={1}
             value={expiresInDays}
             onChange={e => setExpiresInDays(e.target.value)}
             placeholder="Never"
             className="rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-primary"
           />
         </label>
+
         <div className="flex items-end sm:col-span-3">
           <button
             onClick={submit}
@@ -106,9 +118,23 @@ export function GeneratePromoCodeForm() {
 
       {newCode && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-3 py-2.5">
-          <span className="font-display text-base font-extrabold tracking-widest text-brand">{newCode}</span>
-          <button onClick={copy} className="ml-auto flex items-center gap-1 text-xs font-semibold text-brand">
-            {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+          <span className="font-display text-base font-extrabold tracking-widest text-brand">
+            {newCode}
+          </span>
+
+          <button
+            onClick={copy}
+            className="ml-auto flex items-center gap-1 text-xs font-semibold text-brand"
+          >
+            {copied ? (
+              <>
+                <Check size={13} /> Copied
+              </>
+            ) : (
+              <>
+                <Copy size={13} /> Copy
+              </>
+            )}
           </button>
         </div>
       )}
@@ -126,7 +152,12 @@ export function RevokePromoCodeButton({ codeId }: { codeId: string }) {
     setError(null)
     startTransition(async () => {
       const result = await revokePromoCodeAction(codeId)
-      if ('error' in result && result.error) { setError(result.error); return }
+
+      if ('error' in result && result.error) {
+        setError(result.error)
+        return
+      }
+
       router.refresh()
     })
   }
@@ -142,13 +173,18 @@ export function RevokePromoCodeButton({ codeId }: { codeId: string }) {
           >
             {isPending ? '…' : 'Confirm'}
           </button>
+
           <button
-            onClick={() => { setConfirming(false); setError(null) }}
+            onClick={() => {
+              setConfirming(false)
+              setError(null)
+            }}
             className="rounded-[7px] border border-[#2A2A30] bg-transparent px-3 py-1.5 text-xs text-secondary"
           >
             Cancel
           </button>
         </div>
+
         {error && <span className="text-[11px] text-error">{error}</span>}
       </div>
     )
