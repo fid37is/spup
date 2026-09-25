@@ -26,6 +26,20 @@ const POST_SELECT = `
   media:post_media(id, media_type, url, thumbnail_url, width, height, position)
 `
 
+// Supabase's relation-type inference for a to-one join doesn't always
+// resolve to a concrete row type in strict mode (the field can come back
+// typed `never`, even though at runtime it's always a single row or null).
+// Rather than re-deriving this everywhere a joined author is read, each
+// query below asserts it once, right after the fetch.
+type PostAuthor = {
+  id: string
+  username: string
+  display_name: string
+  avatar_url: string | null
+  verification_tier: string | null
+  is_monetised: boolean | null
+}
+
 // ─── Single post ─────────────────────────────────────────────────────────────
 
 export async function getPostById(postId: string) {
@@ -37,8 +51,43 @@ export async function getPostById(postId: string) {
     .is('deleted_at', null)
     .single()
 
-  if (error) return null
-  return data
+  if (error || !data) return null
+  return { ...data, author: data.author as unknown as PostAuthor }
+}
+
+// ─── Reply ancestor chain ──────────────────────────────────────────────────
+// Walks up parent_post_id from the post being replied to, root-first, so the
+// reply screen can stack "what came before" above the composer the way
+// Threads does (comment, then the reply you tapped, then your reply). Capped
+// at MAX_ANCESTORS - only the closest context matters, and an unbounded walk
+// would make a long-nested thread a slow, endless reply screen.
+const MAX_ANCESTORS = 3
+
+export async function getReplyAncestors(replyToId: string, max = MAX_ANCESTORS) {
+  const supabase = await createClient()
+  type Ancestor = {
+    id: string
+    body: string | null
+    parent_post_id: string | null
+    author: { id: string; username: string; display_name: string; avatar_url: string | null }
+  }
+  const chain: Ancestor[] = []
+
+  const { data: target } = await supabase
+    .from('posts').select('parent_post_id').eq('id', replyToId).maybeSingle()
+  let currentId: string | null = target?.parent_post_id ?? null
+
+  for (let i = 0; i < max && currentId; i++) {
+    const { data } = await supabase
+      .from('posts')
+      .select('id, body, parent_post_id, author:users!posts_user_id_fkey(id, username, display_name, avatar_url)')
+      .eq('id', currentId).is('deleted_at', null).maybeSingle()
+    if (!data || Array.isArray(data.author)) break
+    chain.unshift(data as unknown as Ancestor)
+    currentId = (data as unknown as Ancestor).parent_post_id
+  }
+
+  return chain
 }
 
 // ─── User's posts ─────────────────────────────────────────────────────────────

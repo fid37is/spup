@@ -3,65 +3,62 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Home, Search, Bell, MessageSquare } from 'lucide-react'
+import { useChatUnread } from '@/hooks/use-chat-unread'
 
 const NAV = [
   { href: '/feed',          icon: Home,          label: 'Home' },
   { href: '/explore',       icon: Search,        label: 'Explore' },
-  { href: '/notifications', icon: Bell,          label: 'Alerts',  badgeKey: 'unreadCount' as const },
-  { href: '/messages',      icon: MessageSquare, label: 'Chat',    badgeKey: 'unreadChat' as const },
+  { href: '/notifications', icon: Bell,          label: 'Alerts',  badge: 'alerts' },
+  { href: '/messages',      icon: MessageSquare, label: 'Chat',    badge: 'chat' },
 ]
 
-type MobileBottomNavProps = {
-  unreadCount: number
-  unreadChat: number
-  userId?: string
-}
-
-export default function MobileBottomNav({ unreadCount, unreadChat }: MobileBottomNavProps) {
+export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { unreadCount: number; unreadChat: number; userId: string }) {
   const pathname = usePathname()
+  // Live count for the Chat tab (hooks must run before the early return below).
+  const chatUnread = useChatUnread(unreadChat, userId)
 
   // Focused, full-screen sub-pages hide the nav entirely, matching how X's own
   // Post Activity screen has no bottom tab bar — these are drill-down detail
-  // views, not top-level destinations.
-  const hiddenOn = [/^\/post\/[^/]+/, /^\/messages\/[^/]+/, /^\/compose/]
+  // views, not top-level destinations. Post detail (the comment thread) is
+  // one of these too - none of the Threads reference screens this redesign
+  // is matching ever show a tab bar on the comment screen.
+  const hiddenOn = [/^\/post\/[^/]+$/, /^\/post\/[^/]+\/activity/, /^\/messages\/[^/]+/, /^\/compose/]
   if (hiddenOn.some(re => re.test(pathname))) return null
-
-  const badgeCounts = { unreadCount, unreadChat }
 
   return (
     <nav style={{
       position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
       background: 'var(--nav-bg)',
       backdropFilter: 'blur(16px)',
-      borderTop: '1px solid var(--border)',
+      borderTop: '1px solid var(--color-border)',
       display: 'flex',
       paddingBottom: 'env(safe-area-inset-bottom)',
     }}>
-      {NAV.map(({ href, icon: Icon, label, badgeKey }) => {
+      {NAV.map(({ href, icon: Icon, label, badge }) => {
         const isActive = pathname === href || (href !== '/feed' && pathname.startsWith(href))
-        const count = badgeKey ? badgeCounts[badgeKey] : 0
-        const showBadge = !!badgeKey && count > 0
+        const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
+        const showBadge = badgeCount > 0
         return (
           <Link key={href} href={href} style={{
             flex: 1, display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
             gap: 4, padding: '10px 0',
-            color: isActive ? 'var(--spup-green)' : 'var(--text-muted)',
+            color: isActive ? 'var(--color-brand)' : 'var(--color-text-muted)',
             textDecoration: 'none', transition: 'color 0.12s',
             WebkitTapHighlightColor: 'transparent', position: 'relative',
           }}>
             <div style={{ position: 'relative' }}>
               <Icon size={22} strokeWidth={isActive ? 2.5 : 1.8} />
               {showBadge && (
-                <span style={{
+                <span data-testid={`nav-badge-${badge}`} aria-label={`${badgeCount} unread`} style={{
                   position: 'absolute', top: -4, right: -6,
                   minWidth: 16, height: 16,
-                  background: 'var(--spup-green)',
+                  background: 'var(--color-brand)',
                   borderRadius: 8, fontSize: 10, fontWeight: 700,
                   color: 'white', display: 'flex',
                   alignItems: 'center', justifyContent: 'center', padding: '0 3px',
                 }}>
-                  {count > 9 ? '9+' : count}
+                  {badge === 'chat' ? (badgeCount > 99 ? '99+' : badgeCount) : (badgeCount > 9 ? '9+' : badgeCount)}
                 </span>
               )}
             </div>
@@ -71,7 +68,7 @@ export default function MobileBottomNav({ unreadCount, unreadChat }: MobileBotto
                 position: 'absolute', top: 0, left: '50%',
                 transform: 'translateX(-50%)',
                 width: 24, height: 2,
-                background: 'var(--spup-green)',
+                background: 'var(--color-brand)',
                 borderRadius: '0 0 2px 2px',
               }} />
             )}

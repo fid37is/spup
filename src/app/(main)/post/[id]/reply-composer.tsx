@@ -1,6 +1,15 @@
 'use client'
 
-import { useEffect, useState, useRef, useTransition, useCallback } from 'react'
+// src/app/(main)/post/[id]/reply-composer.tsx
+//
+// The reply box under the root post: type and post directly, right here,
+// no navigation. This is the established pattern for this composer - not
+// the thing the Threads redesign touched. The dedicated fullscreen screen
+// (/compose?replyTo=) is for replying to a specific comment/reply further
+// down the thread (see reply-to-reply.tsx) - the Maximize2 button here is
+// just an explicit opt-in for someone who wants more room to write.
+
+import { useState, useRef, useEffect, useTransition, useCallback } from 'react'
 import { ImageIcon, VideoIcon, X, Loader2, BarChart2, MapPin, Maximize2 } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
@@ -23,33 +32,47 @@ export default function ReplyComposer({
   parentPostId,
   viewerInitial,
   viewerAvatar,
-  viewerName = 'Me',
   onPosted,
 }: ReplyComposerProps) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
 
-  // On a phone, an in-place growing composer plus a virtual keyboard is where
-  // the "gap above the keyboard" complaint came from. Reuse the exact same
-  // fullscreen composer new posts use instead - same component, replyTo
-  // context set - so a reply and a new post never look like two different
-  // apps stitched together. Desktop has no on-screen keyboard to fight and
-  // keeps the compact inline box below, unchanged.
-  const [isMobile, setIsMobile] = useState(true)
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)')
-    setIsMobile(mq.matches)
-    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
   const [body, setBody] = useState('')
   const [focused, setFocused] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
   const [showMedia, setShowMedia] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
   const { media, uploading, progress, error: uploadError, upload, remove, clear } = useMediaUpload()
+
+  // This bar must always sit at the very bottom of what's actually visible
+  // and ride up above the on-screen keyboard - never just wherever it falls
+  // in the page. `position: fixed` alone isn't enough on mobile: the
+  // keyboard shrinks the *visual* viewport, not the layout one, so a plain
+  // `bottom: 0` element stays pinned to the bottom of the full page and
+  // ends up hidden behind the keyboard instead of sitting above it.
+  // window.visualViewport reports the real visible rectangle - same
+  // technique chat-viewport.tsx already uses for the fullscreen composer -
+  // so we track it here too and push the bar up by exactly the keyboard's
+  // height, no more, no less, updating live as it opens and closes.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    function apply() {
+      const bar = barRef.current
+      if (!bar || !vv) return
+      const hiddenByKeyboard = window.innerHeight - vv.height - vv.offsetTop
+      bar.style.bottom = `${Math.max(0, hiddenByKeyboard)}px`
+    }
+    apply()
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    return () => {
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+    }
+  }, [])
 
   const charsLeft = MAX_CHARS - body.length
   const isOverLimit = charsLeft < 0
@@ -107,59 +130,23 @@ export default function ReplyComposer({
     setShowMedia(true)
   }, [upload])
 
-  if (isMobile) {
-    // position: fixed, not sticky. Sticky only "sticks" once the page has
-    // been scrolled enough to push the element past the viewport edge - on a
-    // post with few comments, the page is short enough that this bar's
-    // natural place in the document is still fully on screen, so it rendered
-    // as an ordinary inline block in the middle of the comments instead of
-    // pinned to the bottom. Fixed positioning has no such condition: it is
-    // always pinned to the screen's bottom edge, full width, with nothing
-    // beneath it to move.
-    return (
-      <div
-        onClick={() => router.push(`/compose?replyTo=${parentPostId}`)}
-        role="button"
-        data-testid="mobile-reply-trigger"
-        style={{
-          position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 150,
-          background: 'var(--nav-bg)', backdropFilter: 'blur(20px)',
-          borderTop: '1px solid var(--color-border)',
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '10px 16px calc(10px + env(safe-area-inset-bottom))',
-          cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
-        }}
-      >
-        <div style={{
-          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-          background: viewerAvatar ? 'transparent' : 'var(--color-brand)',
-          overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 12, color: 'white',
-        }}>
-          {viewerAvatar
-            ? <img src={viewerAvatar} alt={viewerInitial} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : viewerInitial}
-        </div>
-        <span style={{ flex: 1, fontSize: 15, color: 'var(--color-text-muted)', fontFamily: "'DM Sans', sans-serif" }}>
-          Reply...
-        </span>
-        <ImageIcon size={19} color="var(--color-text-muted)" />
-        <Maximize2 size={17} color="var(--color-text-muted)" />
-      </div>
-    )
-  }
-
   return (
-    <div style={{
-      position: 'sticky',
-      bottom: 0,
-      zIndex: 20,
-      background: 'var(--nav-bg)',
-      backdropFilter: 'blur(20px)',
-      borderTop: '1px solid var(--color-border)',
-    }}>
+    <div
+      ref={barRef}
+      style={{
+        position: 'fixed',
+        left: 0, right: 0, bottom: 0,
+        zIndex: 20,
+        background: 'var(--nav-bg)',
+        backdropFilter: 'blur(20px)',
+        borderTop: '1px solid var(--color-border)',
+        transition: 'bottom 0.1s ease-out',
+      }}
+    >
       <div style={{
-        padding: isExpanded ? '12px 16px 8px' : '10px 16px',
+        padding: isExpanded
+          ? '12px 16px calc(8px + env(safe-area-inset-bottom))'
+          : '10px 16px calc(10px + env(safe-area-inset-bottom))',
         display: 'flex', gap: 12, alignItems: 'flex-start',
         position: 'relative',
       }}>
@@ -179,7 +166,7 @@ export default function ReplyComposer({
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Textarea */}
+          {/* Textarea - type and post directly, right here */}
           <textarea
             ref={textareaRef}
             value={body}
@@ -187,7 +174,7 @@ export default function ReplyComposer({
             onFocus={() => setFocused(true)}
             onBlur={() => { if (!body && !media.length) setFocused(false) }}
             onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleReply() }}
-            placeholder="Soro soke…"
+            placeholder="Reply..."
             rows={1}
             style={{
               width: '100%',
@@ -256,6 +243,11 @@ export default function ReplyComposer({
                 />
                 <ToolbarBtn icon={<BarChart2 size={17} />} label="Poll (coming soon)" onClick={() => {}} disabled />
                 <ToolbarBtn icon={<MapPin size={17} />} label="Location (coming soon)" onClick={() => {}} disabled />
+                <ToolbarBtn
+                  icon={<Maximize2 size={16} />}
+                  label="Expand to fullscreen"
+                  onClick={() => router.push(`/compose?replyTo=${parentPostId}`)}
+                />
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

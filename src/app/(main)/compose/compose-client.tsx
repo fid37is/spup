@@ -11,7 +11,7 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Loader2 } from 'lucide-react'
-import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-composer'
+import PostComposer, { type PostComposerHandle, type ReplyToContext } from '@/app/(main)/feed/post-composer'
 import DraftsPanel from '@/components/feed/drafts-panel'
 import ChatViewport from '@/components/chat/chat-viewport'
 import type { LocalDraft } from '@/lib/local-drafts'
@@ -19,10 +19,15 @@ import type { LocalDraft } from '@/lib/local-drafts'
 // The feed picks this up when it mounts and shows the new post at the top.
 const JUST_POSTED_KEY = 'spup:just-posted'   // keep in sync with feed-client.tsx
 
-export default function ComposeClient({ userId, authorAvatarUrl, authorName }: {
+export default function ComposeClient({ userId, authorAvatarUrl, authorName, replyTo = null, replyChain = [], returnTo }: {
   userId?: string
   authorAvatarUrl?: string | null
   authorName?: string
+  replyTo?: ReplyToContext | null
+  /** Ancestors above replyTo, root-first - stacked on screen the way Threads shows the thread leading up to what you're replying to. */
+  replyChain?: ReplyToContext[]
+  /** The post detail page this reply was opened from - land back there after posting, not on the replied-to comment's own page. */
+  returnTo?: string
 }) {
   const router = useRouter()
   const composerRef = useRef<PostComposerHandle>(null)
@@ -38,8 +43,18 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName }: {
   }
 
   function handlePosted(post: unknown) {
-    // A real post: hand it to the feed so it appears at the top straight away.
-    // (null = scheduled / queued offline: nothing to show yet.)
+    // A reply: go back to the post detail page you were actually reading -
+    // not the replied-to comment's own separate page, which is a different,
+    // disorienting destination even though the reply is technically visible
+    // there too. Falls back to the reply target itself only for an old link
+    // that predates returnTo. A new post: hand it to the feed so it appears
+    // at the top straight away (null = scheduled/queued offline: nothing to
+    // show yet, either way).
+    if (replyTo) {
+      router.replace(`/post/${returnTo ?? replyTo.id}`)
+      router.refresh()
+      return
+    }
     if (post) {
       try { sessionStorage.setItem(JUST_POSTED_KEY, JSON.stringify(post)) } catch { /* private mode */ }
     }
@@ -52,9 +67,11 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName }: {
   }
 
   const { canPost, isPending, isScheduled } = composerState
-  const postLabel = isPending
-    ? (isScheduled ? 'Scheduling...' : 'Posting...')
-    : (isScheduled ? 'Schedule' : 'Post')
+  const postLabel = replyTo
+    ? (isPending ? 'Replying...' : 'Reply')
+    : isPending
+      ? (isScheduled ? 'Scheduling...' : 'Posting...')
+      : (isScheduled ? 'Schedule' : 'Post')
 
   return (
     <ChatViewport>
@@ -70,7 +87,7 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName }: {
         >
           <X size={22} />
         </button>
-        {userId && (
+        {userId && !replyTo && (
           <button
             onClick={() => setShowDrafts(true)}
             style={{
@@ -82,21 +99,28 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName }: {
             Drafts
           </button>
         )}
-        <button
-          onClick={() => composerRef.current?.submit()}
-          disabled={!canPost}
-          style={{
-            background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)',
-            color: canPost ? 'white' : 'var(--color-text-muted)',
-            border: 'none', borderRadius: 20, padding: '8px 20px',
-            fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
-            cursor: canPost ? 'pointer' : 'not-allowed',
-            display: 'flex', alignItems: 'center', gap: 6, minHeight: 36,
-          }}
-        >
-          {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
-          {postLabel}
-        </button>
+        {/* Reply: no header submit button at all (matches the reference -
+            just close, title, nothing at top right); the circular send
+            button in the toolbar is the only way to submit, and it only
+            renders once there's something to send. New post: unchanged,
+            still submits from here. */}
+        {!replyTo && (
+          <button
+            onClick={() => composerRef.current?.submit()}
+            disabled={!canPost}
+            style={{
+              background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)',
+              color: canPost ? 'white' : 'var(--color-text-muted)',
+              border: 'none', borderRadius: 20, padding: '8px 20px',
+              fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
+              cursor: canPost ? 'pointer' : 'not-allowed',
+              display: 'flex', alignItems: 'center', gap: 6, minHeight: 36,
+            }}
+          >
+            {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
+            {postLabel}
+          </button>
+        )}
       </div>
 
       {/* Fills all remaining height; PostComposer pins its toolbar to the bottom. */}
@@ -107,12 +131,14 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName }: {
           authorAvatarUrl={authorAvatarUrl}
           authorName={authorName}
           userId={userId}
+          replyTo={replyTo}
+          replyChain={replyChain}
           onStateChange={setComposerState}
           onPosted={handlePosted}
         />
       </div>
 
-      {showDrafts && userId && (
+      {showDrafts && userId && !replyTo && (
         <DraftsPanel
           userId={userId}
           onClose={() => setShowDrafts(false)}

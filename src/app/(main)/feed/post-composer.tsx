@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useTransition, useCallback, useImperativeHandle, forwardRef, useEffect } from 'react'
-import { ImageIcon, X, Loader2, Globe, BarChart2, MapPin, Camera, Mic, Tag } from 'lucide-react'
+import { ImageIcon, X, Loader2, Globe, BarChart2, MapPin, Camera, Mic, Tag, ArrowUp } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 import { useToast } from '@/components/layout/toast'
 import { useNetworkStatus } from '@/lib/network-status'
@@ -11,6 +11,7 @@ import { saveDraft, deleteDraft, hasMeaningfulContent, newDraftId, type LocalDra
 import { MAX_MEDIA_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, selectFilesForPost, mediaKindOf } from '@/lib/media-limits'
 import { compressImageForUpload, createUploadQueue } from '@/lib/media-client'
 import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
+import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
 
 const MAX_CHARS = 500
 const MAX_MEDIA = MAX_MEDIA_PER_POST
@@ -32,10 +33,30 @@ interface MediaItem {
   localPreview: string   // object URL for immediate preview
 }
 
+// Context that turns this composer into a reply composer - same component,
+// same media/draft/offline machinery, just: parent_post_id sent on post,
+// scheduling and "I'm selling" hidden (replies don't support either), and the
+// post being replied to shown above the textarea. Used by /compose?replyTo=
+// so a reply on mobile gets the exact same fullscreen composer as a new post,
+// rather than a second composer implementation to keep in sync.
+export interface ReplyToContext {
+  id: string
+  authorName: string
+  authorUsername: string
+  authorAvatarUrl: string | null
+  body: string | null
+}
+
 interface PostComposerProps {
   onPosted?: (post: unknown) => void
   authorName?: string
   authorAvatarUrl?: string | null
+  replyTo?: ReplyToContext | null
+  // Ancestors above replyTo, root-first (oldest at the top). Rendered as a
+  // muted, non-interactive stack above the replyTo row so a reply-to-a-reply
+  // shows the whole mini-thread it's landing in - same idea as Threads'
+  // "expanded reply composer".
+  replyChain?: ReplyToContext[]
   // Local drafts are saved to localStorage scoped to this id - omit it (no
   // signed-in profile yet) and autosave is simply skipped.
   userId?: string
@@ -53,7 +74,7 @@ export interface PostComposerHandle {
 }
 
 const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function PostComposer(
-  { onPosted, authorName = 'P', authorAvatarUrl, userId, variant = 'modal', onStateChange },
+  { onPosted, authorName = 'P', authorAvatarUrl, userId, variant = 'modal', onStateChange, replyTo = null, replyChain = [] },
   ref
 ) {
   const [body, setBody] = useState('')
@@ -97,12 +118,24 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     onStateChange?.({ canPost, isPending, hasUploading, isScheduled: !!scheduledAt })
   }, [canPost, isPending, hasUploading, scheduledAt, onStateChange])
 
+  // The fullscreen screen (new post or reply, mobile) is a dedicated
+  // destination you navigate to specifically to type - Threads opens the
+  // keyboard the instant that screen appears, rather than making you tap
+  // the field again once you're already there. The inline 'modal' variant
+  // (desktop reply popup) is opened by clicking directly into the field, so
+  // it's already focused and doesn't need this.
+  useEffect(() => {
+    if (variant === 'fullscreen') textareaRef.current?.focus()
+  }, [variant])
+
   // Debounced local autosave - anything typed and then closed without
   // sending shows up later in the Drafts panel. Only saves media that has
   // actually finished uploading (a real, stable Cloudinary URL); in-flight
   // blobs can't survive a reload anyway.
   useEffect(() => {
-    if (!userId) return
+    // Reply drafts aren't tracked in the (top-level-post) Drafts panel - saving
+    // one there would show up with no indication it's a reply. Skip entirely.
+    if (!userId || replyTo) return
     if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
     const uploadedMedia = media.filter(m => !m.uploading && !m.error && m.cloudinary_id)
     if (!hasMeaningfulContent(body, uploadedMedia.length)) return
@@ -275,6 +308,11 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
     const needsQueueing = networkStatusRef.current !== 'online' || media.some(m => m.offlineQueued)
 
+    if (needsQueueing && replyTo) {
+      setError("You're offline - replies can't be queued. Please try again once you're back online.")
+      return
+    }
+
     // Scheduling needs a live round-trip to createPostAction (it's what sets
     // the future created_at) - it can't be handed to the offline queue,
     // which just replays a plain createPostAction call once back online.
@@ -313,8 +351,9 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     startTransition(async () => {
       const result = await createPostAction({
         body: body.trim() || undefined,
-        is_selling: isSelling || undefined,
-        scheduled_at: scheduledAt || undefined,
+        parent_post_id: replyTo?.id,
+        is_selling: replyTo ? undefined : (isSelling || undefined),
+        scheduled_at: replyTo ? undefined : (scheduledAt || undefined),
         media: readyMedia.length > 0 ? readyMedia.map(m => ({
           url: m.url,
           thumbnail_url: m.thumbnail_url,
@@ -355,6 +394,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const radius = 10
   const circumference = 2 * Math.PI * radius
   const strokeOffset = circumference - Math.min(body.length / MAX_CHARS, 1) * circumference
+  const isReplyFullscreen = variant === 'fullscreen' && !!replyTo
 
   return (
     <div style={{
@@ -364,7 +404,86 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       flexDirection: 'column',
       flex: variant === 'fullscreen' ? 1 : undefined,
       minHeight: variant === 'fullscreen' ? 0 : undefined,
+      overflow: isReplyFullscreen ? 'hidden' : undefined,
     }}>
+      {/* Thread leading up to what you tapped "Reply" on - root-first,
+          faded and non-interactive. Only shown for a reply-to-a-reply, so
+          you can see the mini-conversation your reply is landing in before
+          you post, the way Threads stacks it on its own reply screen.
+          On the fullscreen reply screen this whole block (ancestors +
+          the thing you're replying to) scrolls on its own, so the input
+          row below can sit right above the toolbar instead of getting
+          stranded near the top with empty space between it and the
+          toolbar - it isn't "wherever it lands", it's a compose bar. */}
+      <div style={isReplyFullscreen ? { flex: 1, minHeight: 0, overflowY: 'auto' } : undefined}>
+      {replyChain.map(ancestor => (
+        <div key={ancestor.id} style={{ display: 'flex', gap: 12, marginBottom: 2, opacity: 0.55 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 42, flexShrink: 0 }}>
+            <div style={{
+              width: 26, height: 26, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+              background: ancestor.authorAvatarUrl ? 'transparent' : 'var(--color-surface-3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 10, color: 'var(--color-text-secondary)',
+            }}>
+              {ancestor.authorAvatarUrl
+                ? <img src={cloudinaryImage(ancestor.authorAvatarUrl, 52)} alt="" onError={fallbackToOriginal(ancestor.authorAvatarUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : ancestor.authorName.slice(0, 2).toUpperCase()}
+            </div>
+            <div style={{ width: 2, flex: 1, minHeight: 6, background: 'var(--color-border)', marginTop: 4 }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <span style={{ fontWeight: 700, color: 'var(--color-text-secondary)', fontFamily: "'Syne', sans-serif" }}>{ancestor.authorName}</span>
+              <span style={{ color: 'var(--color-text-faint)' }}>@{ancestor.authorUsername}</span>
+            </div>
+            {ancestor.body?.trim() && (
+              <p style={{
+                margin: '2px 0 0', fontSize: 13, lineHeight: 1.4, color: 'var(--color-text-faint)',
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>
+                {ancestor.body}
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Who you're replying to - read-only, no actions. Mirrors the compact
+          look comment rows use elsewhere, so a reply and a comment thread
+          read as the same visual language. */}
+      {replyTo && (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 42, flexShrink: 0 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+              background: replyTo.authorAvatarUrl ? 'transparent' : 'var(--color-surface-3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 12, color: 'var(--color-text-secondary)',
+            }}>
+              {replyTo.authorAvatarUrl
+                ? <img src={cloudinaryImage(replyTo.authorAvatarUrl, 64)} alt="" onError={fallbackToOriginal(replyTo.authorAvatarUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : replyTo.authorName.slice(0, 2).toUpperCase()}
+            </div>
+            <div style={{ width: 2, flex: 1, minHeight: 10, background: 'var(--color-border)', marginTop: 4 }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13.5 }}>
+              <span style={{ fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne', sans-serif" }}>{replyTo.authorName}</span>
+              <span style={{ color: 'var(--color-text-muted)' }}>@{replyTo.authorUsername}</span>
+            </div>
+            {replyTo.body?.trim() && (
+              <p style={{
+                margin: '2px 0 0', fontSize: 14, lineHeight: 1.45, color: 'var(--color-text-secondary)',
+                display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>
+                {replyTo.body}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+      </div>
+
       {/* Top block: avatar + textarea + media */}
       <div style={{ display: 'flex', gap: 12 }}>
       {/* Avatar */}
@@ -388,7 +507,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           value={body}
           onChange={handleTextChange}
           onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost() }}
-          placeholder="Wetin dey happen? Share your take…"
+          placeholder={replyTo ? `Reply to @${replyTo.authorUsername}...` : 'Wetin dey happen? Share your take…'}
           rows={2}
           style={{
             width: '100%', background: 'none', border: 'none', resize: 'none',
@@ -503,23 +622,29 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
       {/* Spacer - pushes audience line + toolbar to the very bottom of the
           screen in fullscreen mode, so the compose area actually stretches
-          instead of everything bunching up at the top. No-op in modal
-          variant (flex: 1 has nothing to grow within there). */}
-      {variant === 'fullscreen' && <div style={{ flex: 1 }} />}
+          instead of everything bunching up at the top. Only for a new post:
+          a reply's input row sits right above its toolbar as one grouped
+          compose bar (see the scrollable wrapper above), not floating near
+          the top with a gap before the toolbar. */}
+      {variant === 'fullscreen' && !replyTo && <div style={{ flex: 1 }} />}
 
       <div style={variant === 'fullscreen' ? undefined : { marginLeft: 54 }}>
-        {/* Audience - display-only for now, reply-permission settings aren't built yet */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 13, color: 'var(--color-brand)', fontWeight: 600 }}>
-          <Globe size={14} />
-          Everyone can reply
-        </div>
-
-        <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
+        {!replyTo && (
+          <>
+            {/* Audience - display-only for now, reply-permission settings aren't built yet */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 13, color: 'var(--color-brand)', fontWeight: 600 }}>
+              <Globe size={14} />
+              Everyone can reply
+            </div>
+            <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
+          </>
+        )}
 
         {/* Selling toggle - no separate item field: the post's own text is
             the description, and it auto-fills the buyer's payment note
-            (still editable by the buyer) - see pay-vendor-button.tsx. */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            (still editable by the buyer) - see pay-vendor-button.tsx. Not
+            offered on a reply - "selling" describes the post being replied to. */}
+        {!replyTo && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Tag size={15} color={isSelling ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
             <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--color-text-primary)' }}>
@@ -542,14 +667,14 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
               transition: 'left 0.15s',
             }} />
           </button>
-        </div>
-        {isSelling && (
+        </div>}
+        {!replyTo && isSelling && (
           <p style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: -4, marginBottom: 10 }}>
             Buyers will see a Pay button on this post - write what you&rsquo;re selling above.
           </p>
         )}
 
-        {scheduledAt && (
+        {!replyTo && scheduledAt && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10,
             fontSize: 12.5, color: 'var(--color-brand)', fontWeight: 600,
@@ -597,12 +722,15 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             <ToolbarBtn icon={<BarChart2 size={18} />} label="Add poll" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<MapPin size={18} />} label="Add location" disabled title="Coming soon" onClick={() => {}} />
             {/* Scheduling needs a live createPostAction round-trip (see
-                handlePost) so it's not available offline. */}
-            <SchedulePicker
-              value={scheduledAt}
-              onChange={setScheduledAt}
-              disabled={networkStatus !== 'online'}
-            />
+                handlePost) so it's not available offline, and isn't offered
+                on a reply at all - only original posts can be scheduled. */}
+            {!replyTo && (
+              <SchedulePicker
+                value={scheduledAt}
+                onChange={setScheduledAt}
+                disabled={networkStatus !== 'online'}
+              />
+            )}
           </div>
           <style>{`.composer-toolbar-icons::-webkit-scrollbar { display: none; }`}</style>
 
@@ -656,26 +784,54 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
               </button>
             </div>
           ) : (
-            // fullscreen - header owns the Post button; just show the char ring here when it matters
-            body.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <svg width={26} height={26} style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx={13} cy={13} r={radius} fill="none" stroke="var(--color-border)" strokeWidth={2.5} />
-                  <circle cx={13} cy={13} r={radius} fill="none"
-                    stroke={isOverLimit ? 'var(--color-error)' : isWarning ? 'var(--color-gold)' : 'var(--color-brand)'}
-                    strokeWidth={2.5}
-                    strokeDasharray={circumference}
-                    strokeDashoffset={strokeOffset}
-                    strokeLinecap="round"
-                    style={{ transition: 'stroke-dashoffset 0.1s, stroke 0.2s' }}
-                  />
-                </svg>
-                {isWarning && (
-                  <span style={{ fontSize: 12, color: isOverLimit ? 'var(--color-error)' : 'var(--color-gold)', fontWeight: 700 }}>
-                    {charsLeft}
-                  </span>
-                )}
-              </div>
+            // Fullscreen: for a new post, the header still owns the Post
+            // button (unchanged - no reference for moving that one). For a
+            // reply, the header has no submit button at all (matches the
+            // Threads reply screen exactly - just back/close and a title,
+            // nothing at top right) - the circular send button below is the
+            // only way to submit, and it only exists in the DOM once
+            // there's something to send, rather than sitting there
+            // disabled.
+            replyTo ? (
+              canPost && (
+                <button
+                  onClick={handlePost}
+                  disabled={isPending}
+                  aria-label="Send reply"
+                  style={{
+                    width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+                    background: 'var(--color-brand)', color: 'white',
+                    border: 'none', cursor: isPending ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: isPending ? 0.6 : 1,
+                  }}
+                >
+                  {isPending
+                    ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />
+                    : <ArrowUp size={18} strokeWidth={2.5} />}
+                </button>
+              )
+            ) : (
+              body.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <svg width={26} height={26} style={{ transform: 'rotate(-90deg)' }}>
+                    <circle cx={13} cy={13} r={radius} fill="none" stroke="var(--color-border)" strokeWidth={2.5} />
+                    <circle cx={13} cy={13} r={radius} fill="none"
+                      stroke={isOverLimit ? 'var(--color-error)' : isWarning ? 'var(--color-gold)' : 'var(--color-brand)'}
+                      strokeWidth={2.5}
+                      strokeDasharray={circumference}
+                      strokeDashoffset={strokeOffset}
+                      strokeLinecap="round"
+                      style={{ transition: 'stroke-dashoffset 0.1s, stroke 0.2s' }}
+                    />
+                  </svg>
+                  {isWarning && (
+                    <span style={{ fontSize: 12, color: isOverLimit ? 'var(--color-error)' : 'var(--color-gold)', fontWeight: 700 }}>
+                      {charsLeft}
+                    </span>
+                  )}
+                </div>
+              )
             )
           )}
         </div>
