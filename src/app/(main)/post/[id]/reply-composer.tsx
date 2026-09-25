@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useTransition, useCallback } from 'react'
-import { ImageIcon, VideoIcon, X, Loader2, BarChart2, MapPin } from 'lucide-react'
+import { useEffect, useState, useRef, useTransition, useCallback } from 'react'
+import { ImageIcon, VideoIcon, X, Loader2, BarChart2, MapPin, Maximize2 } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
@@ -15,6 +15,8 @@ interface ReplyComposerProps {
   viewerInitial: string
   viewerAvatar: string | null
   viewerName?: string
+  /** Called with the newly created post (when the server returned one). */
+  onPosted?: (post: unknown) => void
 }
 
 export default function ReplyComposer({
@@ -22,9 +24,25 @@ export default function ReplyComposer({
   viewerInitial,
   viewerAvatar,
   viewerName = 'Me',
+  onPosted,
 }: ReplyComposerProps) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
+
+  // On a phone, an in-place growing composer plus a virtual keyboard is where
+  // the "gap above the keyboard" complaint came from. Reuse the exact same
+  // fullscreen composer new posts use instead - same component, replyTo
+  // context set - so a reply and a new post never look like two different
+  // apps stitched together. Desktop has no on-screen keyboard to fight and
+  // keeps the compact inline box below, unchanged.
+  const [isMobile, setIsMobile] = useState(true)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    setIsMobile(mq.matches)
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
   const [body, setBody] = useState('')
   const [focused, setFocused] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -79,7 +97,8 @@ export default function ReplyComposer({
       clear()
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
       success('Reply posted')
-      router.refresh()
+      if (onPosted && 'post' in result && result.post) onPosted(result.post)
+      else router.refresh()
     })
   }
 
@@ -87,6 +106,48 @@ export default function ReplyComposer({
     upload(files)
     setShowMedia(true)
   }, [upload])
+
+  if (isMobile) {
+    // position: fixed, not sticky. Sticky only "sticks" once the page has
+    // been scrolled enough to push the element past the viewport edge - on a
+    // post with few comments, the page is short enough that this bar's
+    // natural place in the document is still fully on screen, so it rendered
+    // as an ordinary inline block in the middle of the comments instead of
+    // pinned to the bottom. Fixed positioning has no such condition: it is
+    // always pinned to the screen's bottom edge, full width, with nothing
+    // beneath it to move.
+    return (
+      <div
+        onClick={() => router.push(`/compose?replyTo=${parentPostId}`)}
+        role="button"
+        data-testid="mobile-reply-trigger"
+        style={{
+          position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 150,
+          background: 'var(--nav-bg)', backdropFilter: 'blur(20px)',
+          borderTop: '1px solid var(--color-border)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 16px calc(10px + env(safe-area-inset-bottom))',
+          cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+        }}
+      >
+        <div style={{
+          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+          background: viewerAvatar ? 'transparent' : 'var(--color-brand)',
+          overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 12, color: 'white',
+        }}>
+          {viewerAvatar
+            ? <img src={viewerAvatar} alt={viewerInitial} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : viewerInitial}
+        </div>
+        <span style={{ flex: 1, fontSize: 15, color: 'var(--color-text-muted)', fontFamily: "'DM Sans', sans-serif" }}>
+          Reply...
+        </span>
+        <ImageIcon size={19} color="var(--color-text-muted)" />
+        <Maximize2 size={17} color="var(--color-text-muted)" />
+      </div>
+    )
+  }
 
   return (
     <div style={{
