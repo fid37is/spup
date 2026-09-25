@@ -7,11 +7,17 @@ import { Home, Search, Bell, MessageSquare } from 'lucide-react'
 const NAV = [
   { href: '/feed',          icon: Home,          label: 'Home' },
   { href: '/explore',       icon: Search,        label: 'Explore' },
-  { href: '/notifications', icon: Bell,          label: 'Alerts',  badge: true },
-  { href: '/messages',      icon: MessageSquare, label: 'Chat' },
+  { href: '/notifications', icon: Bell,          label: 'Alerts',  badgeKey: 'unreadCount' as const },
+  { href: '/messages',      icon: MessageSquare, label: 'Chat',    badgeKey: 'unreadChat' as const },
 ]
 
-export default function MobileBottomNav({ unreadCount }: { unreadCount: number }) {
+type MobileBottomNavProps = {
+  unreadCount: number
+  unreadChat: number
+  userId?: string
+}
+
+export default function MobileBottomNav({ unreadCount, unreadChat }: MobileBottomNavProps) {
   const pathname = usePathname()
 
   // Focused, full-screen sub-pages hide the nav entirely, matching how X's own
@@ -19,6 +25,8 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
   // views, not top-level destinations.
   const hiddenOn = [/^\/post\/[^/]+/, /^\/messages\/[^/]+/, /^\/compose/]
   if (hiddenOn.some(re => re.test(pathname))) return null
+
+  const badgeCounts = { unreadCount, unreadChat }
 
   return (
     <nav style={{
@@ -29,9 +37,10 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
       display: 'flex',
       paddingBottom: 'env(safe-area-inset-bottom)',
     }}>
-      {NAV.map(({ href, icon: Icon, label, badge }) => {
+      {NAV.map(({ href, icon: Icon, label, badgeKey }) => {
         const isActive = pathname === href || (href !== '/feed' && pathname.startsWith(href))
-        const showBadge = badge && unreadCount > 0
+        const count = badgeKey ? badgeCounts[badgeKey] : 0
+        const showBadge = !!badgeKey && count > 0
         return (
           <Link key={href} href={href} style={{
             flex: 1, display: 'flex', flexDirection: 'column',
@@ -52,7 +61,7 @@ export default function MobileBottomNav({ unreadCount }: { unreadCount: number }
                   color: 'white', display: 'flex',
                   alignItems: 'center', justifyContent: 'center', padding: '0 3px',
                 }}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
+                  {count > 9 ? '9+' : count}
                 </span>
               )}
             </div>
