@@ -38,7 +38,7 @@ export async function createPostAction(data: CreatePostSchema) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
   if (profile.status === 'suspended' || profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
-  const { body, parent_post_id, quoted_post_id, media, scheduled_at } = parsed.data
+  const { body, parent_post_id, quoted_post_id, media, scheduled_at, is_selling } = parsed.data
 
   // Uploads now go straight from the phone to Cloudinary, so this action no
   // longer sees the file - only the details the client reports back. Make sure
@@ -65,6 +65,7 @@ export async function createPostAction(data: CreatePostSchema) {
       post_type: postType,
       parent_post_id: parent_post_id || null,
       quoted_post_id: quoted_post_id || null,
+      is_selling: is_selling || false,
       // Scheduling is just a future created_at - feed queries filter
       // created_at <= now() so the row simply doesn't appear anywhere
       // (including the author's own profile) until that moment arrives.
