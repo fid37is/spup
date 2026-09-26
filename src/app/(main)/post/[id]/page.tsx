@@ -5,7 +5,6 @@ import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
 import ReplyComposer from './reply-composer'
 import ReplyToReply from './reply-to-reply'
-import NestedReplies from './nested-replies'
 import ReplySortMenu from './reply-sort-menu'
 
 const POST_SELECT = `
@@ -34,8 +33,14 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
     .limit(50)
 
   const replyIds = (replies || []).map((r: any) => r.id)
+  // POST_SELECT never includes parent_post_id (it's not needed for the post
+  // itself or top-level replies, whose parent is already known from context)
+  // - but grouping nested replies under their parent needs it explicitly, or
+  // r.parent_post_id is undefined on every row and nestedByParent silently
+  // groups nothing to anything. This is the actual reason replies were never
+  // appearing under their comment, regardless of how many existed.
   const { data: nestedReplies } = replyIds.length > 0
-    ? await supabase.from('posts').select(POST_SELECT)
+    ? await supabase.from('posts').select(`${POST_SELECT}, parent_post_id`)
         .in('parent_post_id', replyIds).is('deleted_at', null)
         .order('created_at', { ascending: true }).limit(100)
     : { data: [] }
@@ -174,12 +179,22 @@ export default async function PostDetailPage({
               postId={id}
             />
             {reply.nested && reply.nested.length > 0 && (
-              <NestedReplies
-                nested={reply.nested}
-                viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
-                currentUserId={viewerUserId}
-                postId={id}
-              />
+              <div style={{ position: 'relative' }}>
+                <div style={{
+                  position: 'absolute', left: 36, top: 0, bottom: 0,
+                  width: 2, background: 'var(--color-border)',
+                }} />
+                {reply.nested.map((nested: any) => (
+                  <div key={nested.id} style={{ position: 'relative' }}>
+                    <ReplyToReply
+                      reply={nested}
+                      viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
+                      currentUserId={viewerUserId}
+                      postId={id}
+                    />
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         ))
