@@ -1,3 +1,5 @@
+//app/(main)/post/[id]/page.tsx
+
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
@@ -13,6 +15,43 @@ const POST_SELECT = `
   author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, is_monetised),
   media:post_media(id, media_type, url, thumbnail_url, width, height, position)
 `
+
+// Walks the ENTIRE descendant tree of a set of parent ids, one generation at
+// a time, until a generation comes back empty. This replaces the old fixed
+// "one extra level" fetch, which is why a reply to a reply's reply used to
+// be invisible outright (not collapsed - never fetched, so the tree ended
+// there no matter how deep the real thread went). A reply chain can go
+// arbitrarily deep, so the loop has to keep going until it actually runs
+// dry rather than stopping after a fixed number of hops.
+async function getAllDescendants(supabase: Awaited<ReturnType<typeof createClient>>, rootIds: string[]) {
+  const all: any[] = []
+  let frontier = rootIds
+
+  while (frontier.length > 0) {
+    const { data: generation } = await supabase
+      .from('posts').select(`${POST_SELECT}, parent_post_id`)
+      .in('parent_post_id', frontier).is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(500)
+
+    if (!generation || generation.length === 0) break
+
+    all.push(...generation)
+    frontier = generation.map((r: any) => r.id)
+  }
+
+  return all
+}
+
+// Turns the flat (parent_post_id -> children) map into an actual tree,
+// recursively, so a node's `nested` array holds children that themselves
+// carry their own `nested` array, however many generations deep the real
+// data goes. The rendering side (nested-replies.tsx) mirrors this by
+// recursing on `nested` the same way.
+function attachNested(node: any, byParent: Record<string, any[]>): any {
+  const children = byParent[node.id] || []
+  return { ...node, nested: children.map((c: any) => attachNested(c, byParent)) }
+}
 
 async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postId: string, viewerId: string | null, replySort: 'recent' | 'top') {
   const { data: post } = await supabase
@@ -32,19 +71,16 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
     .limit(50)
 
   const replyIds = (replies || []).map((r: any) => r.id)
-  // POST_SELECT never includes parent_post_id (it's not needed for the post
-  // itself or top-level replies, whose parent is already known from context)
-  // - but grouping nested replies under their parent needs it explicitly, or
-  // r.parent_post_id is undefined on every row and nestedByParent silently
-  // groups nothing to anything. This is the actual reason replies were never
-  // appearing under their comment, regardless of how many existed.
-  const { data: nestedReplies } = replyIds.length > 0
-    ? await supabase.from('posts').select(`${POST_SELECT}, parent_post_id`)
-        .in('parent_post_id', replyIds).is('deleted_at', null)
-        .order('created_at', { ascending: true }).limit(100)
-    : { data: [] }
+  // Every descendant of every top-level reply, however many generations
+  // deep - not just the immediate children. POST_SELECT never includes
+  // parent_post_id (it's not needed for the post itself or top-level
+  // replies, whose parent is already known from context) - but grouping
+  // these under their actual parent needs it explicitly, or parent_post_id
+  // is undefined on every row and the grouping below silently groups
+  // nothing to anything.
+  const allDescendants = replyIds.length > 0 ? await getAllDescendants(supabase, replyIds) : []
 
-  const nestedByParent = (nestedReplies || []).reduce((acc: Record<string, any[]>, r: any) => {
+  const nestedByParent = allDescendants.reduce((acc: Record<string, any[]>, r: any) => {
     if (!acc[r.parent_post_id]) acc[r.parent_post_id] = []
     acc[r.parent_post_id].push(r)
     return acc
@@ -55,7 +91,7 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
       .from('users').select('id').eq('auth_id', viewerId).maybeSingle()
 
     if (viewer) {
-      const allIds = [post.id, ...(replies || []).map((r: any) => r.id), ...(nestedReplies || []).map((r: any) => r.id)]
+      const allIds = [post.id, ...(replies || []).map((r: any) => r.id), ...allDescendants.map((r: any) => r.id)]
       const [{ data: likes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
         supabase.from('likes').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
         supabase.from('bookmarks').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
@@ -74,17 +110,23 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
 
       return {
         post: hydrate(post),
-        replies: (replies || []).map((r: any) => ({ ...hydrate(r), nested: (nestedByParent[r.id] || []).map(hydrate) })),
+        replies: (replies || []).map((r: any) => attachNested(hydrate(r), Object.fromEntries(
+          Object.entries(nestedByParent).map(([k, v]) => [k, (v as any[]).map(hydrate)])
+        ))),
       }
     }
   }
 
   return {
     post: { ...post, is_liked: false, is_bookmarked: false, is_reposted: false },
-    replies: (replies || []).map((r: any) => ({
-      ...r, is_liked: false, is_bookmarked: false, is_reposted: false,
-      nested: (nestedByParent[r.id] || []).map((n: any) => ({ ...n, is_liked: false, is_bookmarked: false, is_reposted: false })),
-    })),
+    replies: (replies || []).map((r: any) => attachNested(
+      { ...r, is_liked: false, is_bookmarked: false, is_reposted: false },
+      Object.fromEntries(
+        Object.entries(nestedByParent).map(([k, v]) => [
+          k, (v as any[]).map((n: any) => ({ ...n, is_liked: false, is_bookmarked: false, is_reposted: false })),
+        ])
+      )
+    )),
   }
 }
 
