@@ -56,6 +56,7 @@ export default function ReplyToReply({ reply, viewer, currentUserId, postId }: R
         post={reply}
         currentUserId={currentUserId}
         onReplyClick={handleReplyClick}
+        isReply
       />
       {showModal && (
         <PostModal

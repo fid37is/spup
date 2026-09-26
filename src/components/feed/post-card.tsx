@@ -507,10 +507,12 @@ export function PostActions({
   post,
   currentUserId,
   onReplyClick,
+  isReply = false,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
+  isReply?: boolean
 }) {
   const [, startTransition] = useTransition()
   const isOwnPost = !!currentUserId && post.author?.id === currentUserId
@@ -615,15 +617,19 @@ export function PostActions({
           />
         </div>
 
-        <div>
-          <ActionBtn
-            icon={<BarChart2 size={17} />}
-            count={post.impressions_count > 0 ? post.impressions_count : null}
-            active={false} activeColor="var(--color-brand)"
-            onClick={e => { e.stopPropagation(); router.push(`/post/${post.id}/activity`) }}
-            label="Impressions"
-          />
-        </div>
+        {/* Impressions/"Post activity" - a top-level-post analytics feature.
+            Not shown on a comment row: hidden whenever isReply. */}
+        {!isReply && (
+          <div>
+            <ActionBtn
+              icon={<BarChart2 size={17} />}
+              count={post.impressions_count > 0 ? post.impressions_count : null}
+              active={false} activeColor="var(--color-brand)"
+              onClick={e => { e.stopPropagation(); router.push(`/post/${post.id}/activity`) }}
+              label="Impressions"
+            />
+          </div>
+        )}
 
         {/* Escrow pay button - only shown when the author explicitly marked
             this post as selling something (post.is_selling), set via the
@@ -794,10 +800,23 @@ export default function PostCard({
   post,
   currentUserId,
   onReplyClick,
+  isReply = false,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
+  // True when this card is a comment/reply row inside a thread (rendered via
+  // ReplyToReply), rather than a top-level post in a feed. Two things differ:
+  // whole-card tap doesn't navigate to `/post/${id}` (that used to fire on
+  // ANY tap on the row - reading the reply body, the avatar, whitespace -
+  // and it dumps you onto that reply's own separate detail page, which
+  // reads as "just trying to see the existing replies opened a whole new
+  // page." Replies are already shown inline right here; there's nowhere for
+  // a tap on the row itself to usefully go. Only the Reply icon should ever
+  // navigate, and it already does via onReplyClick. Also hides the
+  // Impressions/"Post activity" icon - that's a top-level-post analytics
+  // feature the Threads reference never shows on a comment row.
+  isReply?: boolean
 }) {
   const [, startTransition] = useTransition()
   const [bookmarked, setBookmarked] = useState(post.is_bookmarked)
@@ -862,6 +881,7 @@ export default function PostCard({
   if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
 
   function navigate(e: React.MouseEvent) {
+    if (isReply) return
     // Prevent navigation when any interactive element is clicked
     const target = e.target as HTMLElement
     if (target.closest('button,a,textarea,input,video,[data-no-nav]')) return
@@ -973,12 +993,12 @@ export default function PostCard({
           padding: '14px 16px', borderBottom: '1px solid var(--color-border)',
           display: 'flex', gap: 12,
           transition: 'background 0.12s',
-          cursor: 'pointer',
+          cursor: isReply ? 'default' : 'pointer',
           userSelect: 'none',
           WebkitUserSelect: 'none',
           WebkitTouchCallout: 'none',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+        onMouseEnter={e => { if (!isReply) e.currentTarget.style.background = 'var(--color-surface-2)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
       >
         <Avatar name={author?.display_name || 'S'} avatarUrl={author?.avatar_url} username={author?.username} clickable postId={post.id} />
@@ -1112,7 +1132,7 @@ export default function PostCard({
           <MediaRow media={post.media} postId={post.id} post={post} />
 
           {/* Action bar */}
-          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+          <PostActions post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} isReply={isReply} />
 
           {showPromoteModal && (
             <PromoteModal postId={post.id} onClose={() => setShowPromoteModal(false)} />

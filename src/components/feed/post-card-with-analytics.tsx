@@ -14,10 +14,12 @@ export default function PostCardWithAnalytics({
   post,
   currentUserId,
   onReplyClick,
+  isReply,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
+  isReply?: boolean
 }) {
-  return <PostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+  return <PostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} isReply={isReply} />
 }
