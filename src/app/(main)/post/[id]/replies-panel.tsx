@@ -56,13 +56,21 @@ export default function RepliesPanel({
       ) : (
         replies.map((reply: any) => (
           <div key={reply.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <ReplyToReply
-              reply={reply}
-              viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
-              currentUserId={viewerUserId}
-              postId={postId}
-              hideBorder={!!(reply.nested && reply.nested.length > 0)}
-            />
+            {/* Positioned + raised above the NestedReplies block below it:
+                that block's trunk line reaches UP into this row (a fixed
+                -40px estimate) to visually originate at this avatar, and
+                since the trunk is itself position:absolute, it paints above
+                a plain static sibling regardless of DOM order - which is
+                what let it draw over this avatar instead of behind it. */}
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <ReplyToReply
+                reply={reply}
+                viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
+                currentUserId={viewerUserId}
+                postId={postId}
+                hideBorder={!!(reply.nested && reply.nested.length > 0)}
+              />
+            </div>
             {reply.nested && reply.nested.length > 0 && (
               <NestedReplies
                 nested={reply.nested}
