@@ -130,7 +130,13 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     `)
     .is('deleted_at', null)
     .is('parent_post_id', null)          // top-level posts only
-    .neq('post_type', 'repost')
+    // Repost rows (post_type: 'repost') used to be excluded here entirely,
+    // which is why reposts/quotes never showed up in the feed at all - not
+    // even out of position, just missing. hydrateEngagement() below already
+    // resolves quoted_post for them (it was written to), and PostCard
+    // already renders them as RepostCard - this filter was the only thing
+    // stopping that pipeline from ever running. Removed so a repost surfaces
+    // like any other post, at its own created_at (i.e. when it happened).
     .lte('created_at', nowIso())         // exclude scheduled posts not yet due
     .order('created_at', { ascending: false })
     .limit(PAGE_SIZE + 1)                // fetch one extra to know if there's a next page
@@ -302,7 +308,8 @@ export async function getFollowingFeedAction(cursor?: string): Promise<{
     `)
     .is('deleted_at', null)
     .is('parent_post_id', null)
-    .neq('post_type', 'repost')
+    // See the identical note in getForYouFeedAction above - excluding
+    // reposts here made them invisible in this feed too.
     .in('user_id', followingIds)
     .lte('created_at', nowIso())
     .order('created_at', { ascending: false })
@@ -364,7 +371,8 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
     `)
     .is('deleted_at', null)
     .is('parent_post_id', null)
-    .neq('post_type', 'repost')
+    // See the identical note in getForYouFeedAction above - excluding
+    // reposts here made them invisible in this feed too.
     .in('user_id', mutualIds)
     .lte('created_at', nowIso())
     .order('created_at', { ascending: false })
@@ -655,7 +663,7 @@ async function hydrateEngagement(
     supabase.from('posts').select('quoted_post_id').eq('user_id', userId).eq('post_type', 'repost').in('quoted_post_id', ids),
     quotedIds.length
       ? supabase.from('posts').select(`
-          id, body, created_at,
+          id, body, created_at, is_selling,
           author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier),
           media:post_media(id, media_type, url, thumbnail_url, width, height, position)
         `).in('id', quotedIds)
