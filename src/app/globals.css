@@ -167,6 +167,14 @@ body {
   transition: background 0.2s, color 0.2s;
 }
 
+/* Suppress the body color/background transition until the correct
+   data-theme has been painted. Prevents residual flash when the
+   attribute is applied late or during hydration. The pre-hydration
+   script (and AppThemeProvider as safety net) add .theme-ready. */
+html:not(.theme-ready) body {
+  transition: none !important;
+}
+
 /* Grid overlay — authenticated app only */
 body:not(.landing)::before {
   content: '';

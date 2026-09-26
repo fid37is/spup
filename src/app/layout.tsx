@@ -173,9 +173,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     // "system") - follow the OS/browser setting instead of
                     // the hardcoded dark default below.
                     : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-                  if (resolved === 'light') {
-                    document.documentElement.setAttribute('data-theme', 'light');
-                  }
+                  // Always set explicitly (both light and dark) so we never
+                  // rely on the static data-theme="dark" attribute surviving
+                  // a soft navigation, a partial document update, or a
+                  // browser that paints before the attribute is applied.
+                  document.documentElement.setAttribute('data-theme', resolved);
+                  // Hint the browser's native UI (scrollbars, form controls)
+                  // to match immediately — reduces residual chrome flashes.
+                  document.documentElement.style.colorScheme = resolved;
+                  // Unlock transitions only after the correct theme is set.
+                  // Paired with html:not(.theme-ready) body { transition: none }
+                  // in globals.css to kill residual flicker.
+                  document.documentElement.classList.add('theme-ready');
                 } catch(e) {}
               })();
             `,

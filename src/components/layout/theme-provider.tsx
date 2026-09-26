@@ -86,6 +86,12 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
   const applyResolved = useCallback((resolved: Theme) => {
     setThemeState(resolved)
     document.documentElement.setAttribute('data-theme', resolved)
+    try {
+      document.documentElement.style.colorScheme = resolved
+      // Safety net: ensure transitions are unlocked even if the
+      // pre-hydration script did not run (e.g. certain client navigations).
+      document.documentElement.classList.add('theme-ready')
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -96,6 +102,16 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
       document.head.appendChild(s)
     }
   }, [])
+
+  // Enforce the resolved theme on every mount / preference change.
+  // This closes the gap where a client navigation (or a hard reload whose
+  // pre-hydration script raced with React) left data-theme out of sync with
+  // the React state that drives the toggle icon. Without this, you can end
+  // up with a dark page while the toggle still thinks it is light (or vice
+  // versa) and no further clicks will correct the painted theme.
+  useEffect(() => {
+    applyResolved(resolvePreference(preference))
+  }, [preference, applyResolved])
 
   // Keeps the painted theme in sync with the OS while preference is
   // 'system' - without this, picking "System" only matches the OS at the
