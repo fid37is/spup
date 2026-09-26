@@ -6,6 +6,11 @@ export function usePWA() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!('serviceWorker' in navigator)) return
+    // Never register in dev: a caching SW actively fights next dev's hot
+    // reload (stale chunks, stale CSS, and - as seen - console 404 spam
+    // from reg.update() polling a route that a Turbopack restart hasn't
+    // picked up yet). Ship it in production builds only.
+    if (process.env.NODE_ENV !== 'production') return
 
     // Register service worker
     navigator.serviceWorker
