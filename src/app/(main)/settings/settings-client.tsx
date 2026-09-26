@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle, Lock,
-  X, Check, Eye, EyeOff, Loader, Moon, Sun, Play, User, Phone, Sparkles,
+  X, Check, Eye, EyeOff, Loader, Moon, Sun, Monitor, Play, User, Phone, Sparkles,
 } from 'lucide-react'
 import { signOutAction, saveInterestsAction } from '@/lib/actions'
 import { updateProfileAction, deleteAccountAction, changePasswordAction, changeUsernameAction } from '@/lib/actions/profiles'
@@ -190,7 +190,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
   const [deleting,    setDeleting]    = useState(false)
 
   const router = useRouter()
-  const { theme, setTheme } = useTheme()
+  const { preference, setPreference } = useTheme()
 
   // Password state
   const [oldPass,  setOldPass]  = useState('')
@@ -340,9 +340,10 @@ export default function SettingsClient({ profile, interests: initialInterests }:
     { value: 'never',  label: 'Off',           desc: 'Never autoplay videos' },
   ]
 
-  const THEME_OPTIONS: { key: 'dark' | 'light'; label: string; Icon: any }[] = [
-    { key: 'dark',  label: 'Dark',  Icon: Moon },
-    { key: 'light', label: 'Light', Icon: Sun  },
+  const THEME_OPTIONS: { key: 'system' | 'dark' | 'light'; label: string; Icon: any }[] = [
+    { key: 'system', label: 'System', Icon: Monitor },
+    { key: 'dark',   label: 'Dark',   Icon: Moon },
+    { key: 'light',  label: 'Light',  Icon: Sun  },
   ]
 
   return (
@@ -422,7 +423,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
         <Row
           icon={Moon}
           label="Theme"
-          desc={THEME_OPTIONS.find(t => t.key === theme)?.label || 'System default'}
+          desc={THEME_OPTIONS.find(t => t.key === preference)?.label || 'System'}
           onClick={() => togglePanel('theme')}
           last={panel !== 'theme' && panel !== 'language'}
         />
@@ -431,13 +432,13 @@ export default function SettingsClient({ profile, interests: initialInterests }:
             {THEME_OPTIONS.map((opt, i) => (
               <button
                 key={opt.key}
-                onClick={() => { setTheme(opt.key); setPanel(null) }}
+                onClick={() => { setPreference(opt.key); setPanel(null) }}
                 style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   width: '100%', padding: '13px 0', background: 'none', border: 'none',
                   borderBottom: i < THEME_OPTIONS.length - 1 ? '1px solid var(--color-border)' : 'none',
                   cursor: 'pointer',
-                  color: theme === opt.key ? 'var(--color-brand)' : 'var(--color-text-primary)',
+                  color: preference === opt.key ? 'var(--color-brand)' : 'var(--color-text-primary)',
                   fontSize: 15, fontFamily: "'DM Sans', sans-serif",
                   WebkitTapHighlightColor: 'transparent',
                 }}
@@ -446,7 +447,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                   <opt.Icon size={15} />
                   {opt.label}
                 </span>
-                {theme === opt.key && <Check size={15} color="var(--color-brand)" />}
+                {preference === opt.key && <Check size={15} color="var(--color-brand)" />}
               </button>
             ))}
           </InlinePanel>

@@ -76,7 +76,7 @@ export default function TermsPage() {
 
       <Section title="10. Changes to These Terms">
         <P>We may update these terms. Continued use of Spup after changes take effect constitutes your acceptance. We will notify you of material changes at least 14 days in advance.</P>
-        <P>Questions? Contact us at <strong style={{ color: '#EDEDEA' }}>legal@spup.ng</strong></P>
+        <P>Questions? Contact us at <strong style={{ color: 'var(--color-text-primary)' }}>legal@spup.ng</strong></P>
       </Section>
     </LegalLayout>
   )

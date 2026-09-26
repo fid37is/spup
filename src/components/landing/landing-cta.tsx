@@ -22,7 +22,7 @@ export default function LandingCTA({
 
   const primaryStyle: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-    background: '#1A9E5F', color: 'white', border: '1px solid transparent',
+    background: 'var(--color-brand)', color: 'white', border: '1px solid transparent',
     padding: '14px 28px', minHeight: 52, boxSizing: 'border-box', borderRadius: 10,
     fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16, lineHeight: 1.2,
     cursor: 'pointer', textDecoration: 'none',
@@ -31,7 +31,7 @@ export default function LandingCTA({
 
   const ghostStyle: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-    border: '1px solid rgba(255,255,255,0.12)', color: '#8A8A85',
+    border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)',
     background: 'none', padding: '14px 28px', minHeight: 52, boxSizing: 'border-box', borderRadius: 10,
     fontSize: 15, lineHeight: 1.2, cursor: 'pointer',
     fontFamily: "'DM Sans', sans-serif", textDecoration: 'none',
@@ -43,24 +43,24 @@ export default function LandingCTA({
   const hoverOn = (e: React.MouseEvent<HTMLElement>) => {
     const el = e.currentTarget
     if (variant === 'primary') {
-      el.style.background = '#158450'
+      el.style.background = 'var(--color-brand-hover)'
       el.style.transform = 'translateY(-1px)'
       el.style.boxShadow = '0 8px 24px rgba(26,158,95,0.35)'
     } else {
-      el.style.borderColor = 'rgba(255,255,255,0.28)'
-      el.style.color = '#EDEDEA'
+      el.style.borderColor = 'var(--color-border-light)'
+      el.style.color = 'var(--color-text-primary)'
     }
   }
 
   const hoverOff = (e: React.MouseEvent<HTMLElement>) => {
     const el = e.currentTarget
     if (variant === 'primary') {
-      el.style.background = '#1A9E5F'
+      el.style.background = 'var(--color-brand)'
       el.style.transform = 'translateY(0)'
       el.style.boxShadow = 'none'
     } else {
-      el.style.borderColor = 'rgba(255,255,255,0.12)'
-      el.style.color = '#8A8A85'
+      el.style.borderColor = 'var(--color-border)'
+      el.style.color = 'var(--color-text-secondary)'
     }
   }
 

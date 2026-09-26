@@ -83,8 +83,8 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
           transform: 'translate(-50%, -50%)',
           width: 'calc(100% - 32px)',
           maxWidth: 400,
-          background: '#0D0D12',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
           borderRadius: 20,
           boxShadow: '0 32px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(26,158,95,0.08)',
           overflow: 'hidden',
@@ -98,38 +98,38 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
           }
           .wl-input {
             width: 100%;
-            background: #0A0A0E;
-            border: 1px solid rgba(255,255,255,0.08);
+            background: var(--input-bg);
+            border: 1px solid var(--color-border);
             border-radius: 10px;
             padding: 11px 14px;
             font-size: 14px;
-            color: #EDEDEA;
+            color: var(--color-text-primary);
             font-family: 'DM Sans', sans-serif;
             outline: none;
             box-sizing: border-box;
             transition: border-color 0.15s;
           }
-          .wl-input::placeholder { color: #3A3A38; }
+          .wl-input::placeholder { color: var(--color-text-faint); }
           .wl-input:focus { border-color: rgba(26,158,95,0.4); }
           .wl-input-icon {
             width: 100%;
-            background: #0A0A0E;
-            border: 1px solid rgba(255,255,255,0.08);
+            background: var(--input-bg);
+            border: 1px solid var(--color-border);
             border-radius: 10px;
             padding: 11px 14px 11px 38px;
             font-size: 14px;
-            color: #EDEDEA;
+            color: var(--color-text-primary);
             font-family: 'DM Sans', sans-serif;
             outline: none;
             box-sizing: border-box;
             transition: border-color 0.15s;
           }
-          .wl-input-icon::placeholder { color: #3A3A38; }
+          .wl-input-icon::placeholder { color: var(--color-text-faint); }
           .wl-input-icon:focus { border-color: rgba(26,158,95,0.4); }
         `}</style>
 
         {/* Green top stripe */}
-        <div style={{ height: 3, background: '#1A9E5F' }} />
+        <div style={{ height: 3, background: 'var(--color-brand)' }} />
 
         <div style={{ padding: '24px 24px 28px', position: 'relative' }}>
           {/* Close button */}
@@ -140,8 +140,8 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
               position: 'absolute',
               top: 14,
               right: 14,
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.07)',
+              background: 'var(--color-surface-2)',
+              border: '1px solid var(--color-border)',
               borderRadius: '50%',
               width: 30,
               height: 30,
@@ -149,7 +149,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              color: '#5A5A58',
+              color: 'var(--color-text-secondary)',
             }}
           >
             <X size={14} />
@@ -162,25 +162,25 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
               <div
                 style={{
                   width: 60, height: 60, borderRadius: '50%',
-                  background: 'rgba(26,158,95,0.1)',
-                  border: '1px solid rgba(26,158,95,0.25)',
+                  background: 'var(--color-brand-muted)',
+                  border: '1px solid var(--color-brand-border)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   margin: '0 auto 18px',
                 }}
               >
-                <CheckCircle size={26} color="#1A9E5F" />
+                <CheckCircle size={26} color="var(--color-brand)" />
               </div>
-              <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#EDEDEA', letterSpacing: '-0.02em', marginBottom: 8 }}>
+              <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: 'var(--color-text-primary)', letterSpacing: '-0.02em', marginBottom: 8 }}>
                 We&apos;re live
               </h2>
-              <p style={{ fontSize: 14, color: '#5A5A58', lineHeight: 1.65, marginBottom: 20 }}>
+              <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.65, marginBottom: 20 }}>
                 Spup is open now — no more waiting. Create your account and jump in.
               </p>
               <a
                 href="/signup"
                 style={{
                   display: 'block', width: '100%', boxSizing: 'border-box',
-                  background: '#1A9E5F', border: 'none', borderRadius: 10, padding: '12px',
+                  background: 'var(--color-brand)', border: 'none', borderRadius: 10, padding: '12px',
                   fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: 'white',
                   textAlign: 'center', textDecoration: 'none',
                 }}
@@ -196,15 +196,15 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                   width: 60,
                   height: 60,
                   borderRadius: '50%',
-                  background: 'rgba(26,158,95,0.1)',
-                  border: '1px solid rgba(26,158,95,0.25)',
+                  background: 'var(--color-brand-muted)',
+                  border: '1px solid var(--color-brand-border)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   margin: '0 auto 18px',
                 }}
               >
-                <CheckCircle size={26} color="#1A9E5F" />
+                <CheckCircle size={26} color="var(--color-brand)" />
               </div>
 
               <h2
@@ -212,7 +212,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                   fontFamily: "'Syne', sans-serif",
                   fontWeight: 800,
                   fontSize: 22,
-                  color: '#EDEDEA',
+                  color: 'var(--color-text-primary)',
                   letterSpacing: '-0.02em',
                   marginBottom: 8,
                 }}
@@ -223,7 +223,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
               <p
                 style={{
                   fontSize: 14,
-                  color: '#5A5A58',
+                  color: 'var(--color-text-secondary)',
                   lineHeight: 1.65,
                   marginBottom: 20,
                 }}
@@ -235,8 +235,8 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
 
               <div
                 style={{
-                  background: 'rgba(26,158,95,0.07)',
-                  border: '1px solid rgba(26,158,95,0.15)',
+                  background: 'var(--color-brand-muted)',
+                  border: '1px solid var(--color-brand-border)',
                   borderRadius: 14,
                   padding: '16px 20px',
                   marginBottom: 20,
@@ -245,7 +245,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                 <div
                   style={{
                     fontSize: 11,
-                    color: '#1A9E5F',
+                    color: 'var(--color-brand)',
                     fontWeight: 600,
                     letterSpacing: '0.07em',
                     marginBottom: 4,
@@ -258,7 +258,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                     fontFamily: "'Syne', sans-serif",
                     fontWeight: 800,
                     fontSize: 38,
-                    color: '#EDEDEA',
+                    color: 'var(--color-text-primary)',
                     letterSpacing: '-0.03em',
                   }}
                 >
@@ -270,7 +270,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                 onClick={onClose}
                 style={{
                   width: '100%',
-                  background: '#1A9E5F',
+                  background: 'var(--color-brand)',
                   border: 'none',
                   borderRadius: 10,
                   padding: '12px',
@@ -292,7 +292,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                   fontFamily: "'Syne', sans-serif",
                   fontWeight: 800,
                   fontSize: 22,
-                  color: '#EDEDEA',
+                  color: 'var(--color-text-primary)',
                   letterSpacing: '-0.02em',
                   marginBottom: 6,
                 }}
@@ -302,7 +302,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
               <p
                 style={{
                   fontSize: 13,
-                  color: '#5A5A58',
+                  color: 'var(--color-text-secondary)',
                   lineHeight: 1.55,
                   marginBottom: 22,
                 }}
@@ -317,7 +317,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                   <label
                     style={{
                       fontSize: 12,
-                      color: '#6A6A65',
+                      color: 'var(--color-text-muted)',
                       display: 'block',
                       marginBottom: 6,
                       fontWeight: 500,
@@ -341,7 +341,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                   <label
                     style={{
                       fontSize: 12,
-                      color: '#6A6A65',
+                      color: 'var(--color-text-muted)',
                       display: 'block',
                       marginBottom: 6,
                       fontWeight: 500,
@@ -357,7 +357,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                         left: 13,
                         top: '50%',
                         transform: 'translateY(-50%)',
-                        color: '#3A3A38',
+                        color: 'var(--color-text-faint)',
                         pointerEvents: 'none',
                       }}
                     />
@@ -380,9 +380,9 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                       alignItems: 'center',
                       gap: 6,
                       fontSize: 13,
-                      color: '#E05252',
-                      background: 'rgba(224,82,82,0.08)',
-                      border: '1px solid rgba(224,82,82,0.2)',
+                      color: 'var(--color-error)',
+                      background: 'var(--color-error-muted)',
+                      border: '1px solid var(--color-error-border)',
                       borderRadius: 8,
                       padding: '8px 12px',
                       marginBottom: 14,
@@ -397,7 +397,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                   disabled={isPending}
                   style={{
                     width: '100%',
-                    background: isPending ? '#126E42' : '#1A9E5F',
+                    background: isPending ? 'var(--color-brand-dim)' : 'var(--color-brand)',
                     border: 'none',
                     borderRadius: 10,
                     padding: '13px',
@@ -415,7 +415,7 @@ export default function WaitlistModal({ onClose, waitlistOpen }: WaitlistModalPr
                 <p
                   style={{
                     fontSize: 11,
-                    color: '#2A2A2E',
+                    color: 'var(--color-text-faint)',
                     marginTop: 12,
                     textAlign: 'center',
                     lineHeight: 1.6,
