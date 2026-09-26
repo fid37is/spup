@@ -157,9 +157,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               (function() {
                 try {
                   var saved = localStorage.getItem('spup-theme');
-                  var isApp = /^\/(feed|explore|notifications|profile|wallet|settings|post|user)/.test(window.location.pathname);
-                  if (isApp && saved === 'light') {
-                    document.documentElement.setAttribute('data-theme', 'light');
+                  // Was missing 'messages', 'connections' and 'compose' - reloading
+                  // on those app routes with a saved light theme fell through to
+                  // the hardcoded dark default below and flashed dark before
+                  // AppThemeProvider corrected it after hydration.
+                  var isApp = /^\/(feed|explore|notifications|profile|wallet|settings|post|user|messages|connections|compose)/.test(window.location.pathname);
+                  if (isApp) {
+                    // No saved preference yet - follow the OS/browser setting
+                    // instead of always assuming dark, so a light-system user
+                    // doesn't see a dark flash on their very first visit.
+                    var resolved = (saved === 'light' || saved === 'dark')
+                      ? saved
+                      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+                    if (resolved === 'light') {
+                      document.documentElement.setAttribute('data-theme', 'light');
+                    }
                   }
                 } catch(e) {}
               })();

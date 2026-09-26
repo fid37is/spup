@@ -263,6 +263,10 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
           scrollSnapType: sorted.length > 2 ? 'x mandatory' : undefined,
           WebkitOverflowScrolling: 'touch',
           maxHeight: compact ? cap : undefined,
+          // Stops horizontal swipes through multi-image posts from being
+          // mistaken for the browser/app's edge-swipe "back" gesture once
+          // the scroller hits its start/end.
+          overscrollBehaviorX: 'contain',
         }}
       >
         {sorted.map((m, i) => (
@@ -427,6 +431,11 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
 }) {
   const [animating, setAnimating] = useState(false)
   const wasActive = useRef(active)
+  // Guards against a fast double-tap registering as two taps (a common
+  // mobile mis-touch): without this, the second phantom tap fires right
+  // after the first and immediately undoes it, making the action look like
+  // it "reverted" even though the user never touched back/navigated away.
+  const lastTapAt = useRef(0)
 
   useEffect(() => {
     if (burst && active && !wasActive.current) {
@@ -441,7 +450,13 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
 
   return (
     <button
-      onClick={e => { e.stopPropagation(); onClick(e) }}
+      onClick={e => {
+        e.stopPropagation()
+        const now = Date.now()
+        if (now - lastTapAt.current < 350) return
+        lastTapAt.current = now
+        onClick(e)
+      }}
       aria-label={label}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -696,11 +711,15 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
   return (
     <article
       onClick={() => router.push(`/post/${original.id}`)}
+      onCopy={e => e.preventDefault()}
       style={{
         borderBottom: '1px solid var(--color-border)',
         cursor: 'pointer',
         transition: 'background 0.12s',
         padding: '10px 16px 12px',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
       }}
       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
       onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
@@ -949,11 +968,15 @@ export default function PostCard({
       <article
         ref={articleRef}
         onClick={navigate}
+        onCopy={e => e.preventDefault()}
         style={{
           padding: '14px 16px', borderBottom: '1px solid var(--color-border)',
           display: 'flex', gap: 12,
           transition: 'background 0.12s',
           cursor: 'pointer',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
         }}
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}

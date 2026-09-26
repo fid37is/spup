@@ -44,7 +44,14 @@ const STYLE = `
 `
 
 export function AppThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('dark')
+  // Read the attribute the pre-hydration inline script (layout.tsx) already
+  // set on <html>, instead of always starting from 'dark' - otherwise the
+  // toggle icon itself flashed to the wrong state for a frame on a light-
+  // themed reload, on top of the page-level flash that script now fixes.
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof document === 'undefined') return 'dark'
+    return (document.documentElement.getAttribute('data-theme') as Theme) || 'dark'
+  })
   const animatingRef = useRef(false)
 
   useEffect(() => {
