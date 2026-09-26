@@ -5,6 +5,7 @@ import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
 import ReplyComposer from './reply-composer'
 import ReplyToReply from './reply-to-reply'
+import NestedReplies from './nested-replies'
 import ReplySortMenu from './reply-sort-menu'
 
 const POST_SELECT = `
@@ -179,22 +180,12 @@ export default async function PostDetailPage({
               postId={id}
             />
             {reply.nested && reply.nested.length > 0 && (
-              <div style={{ position: 'relative' }}>
-                <div style={{
-                  position: 'absolute', left: 36, top: 0, bottom: 0,
-                  width: 2, background: 'var(--color-border)',
-                }} />
-                {reply.nested.map((nested: any) => (
-                  <div key={nested.id} style={{ position: 'relative' }}>
-                    <ReplyToReply
-                      reply={nested}
-                      viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
-                      currentUserId={viewerUserId}
-                      postId={id}
-                    />
-                  </div>
-                ))}
-              </div>
+              <NestedReplies
+                nested={reply.nested}
+                viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
+                currentUserId={viewerUserId}
+                postId={id}
+              />
             )}
           </div>
         ))
