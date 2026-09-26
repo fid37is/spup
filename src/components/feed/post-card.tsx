@@ -801,6 +801,7 @@ export default function PostCard({
   currentUserId,
   onReplyClick,
   isReply = false,
+  hideBorder = false,
 }: {
   post: FeedPost
   currentUserId?: string
@@ -817,6 +818,12 @@ export default function PostCard({
   // Impressions/"Post activity" icon - that's a top-level-post analytics
   // feature the Threads reference never shows on a comment row.
   isReply?: boolean
+  // True for a top-level comment that has its own nested replies below it -
+  // suppresses this card's own bottom border so the comment and its
+  // replies read as one visual unit (approved prototype: a divider only
+  // ever separates two *different* comment threads, never a comment from
+  // its own replies).
+  hideBorder?: boolean
 }) {
   const [, startTransition] = useTransition()
   const [bookmarked, setBookmarked] = useState(post.is_bookmarked)
@@ -990,7 +997,7 @@ export default function PostCard({
         onClick={navigate}
         onCopy={e => e.preventDefault()}
         style={{
-          padding: '14px 16px', borderBottom: '1px solid var(--color-border)',
+          padding: '14px 16px', borderBottom: hideBorder ? 'none' : '1px solid var(--color-border)',
           display: 'flex', gap: 12,
           transition: 'background 0.12s',
           cursor: isReply ? 'default' : 'pointer',

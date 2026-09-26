@@ -15,11 +15,13 @@ export default function PostCardWithAnalytics({
   currentUserId,
   onReplyClick,
   isReply,
+  hideBorder,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
   isReply?: boolean
+  hideBorder?: boolean
 }) {
-  return <PostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} isReply={isReply} />
+  return <PostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} isReply={isReply} hideBorder={hideBorder} />
 }

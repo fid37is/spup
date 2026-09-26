@@ -13,6 +13,9 @@ interface ReplyToReplyProps {
   /** The post detail page this thread lives on - after posting, the reply
       screen returns here, not to the replied-to comment's own page. */
   postId: string
+  /** True for a top-level comment that has nested replies below it - see
+      post-card.tsx for why. */
+  hideBorder?: boolean
 }
 
 function useIsMobile() {
@@ -27,7 +30,7 @@ function useIsMobile() {
   return mobile
 }
 
-export default function ReplyToReply({ reply, viewer, currentUserId, postId }: ReplyToReplyProps) {
+export default function ReplyToReply({ reply, viewer, currentUserId, postId, hideBorder }: ReplyToReplyProps) {
   const [showModal, setShowModal] = useState(false)
   const isMobile = useIsMobile()
   const router = useRouter()
@@ -57,6 +60,7 @@ export default function ReplyToReply({ reply, viewer, currentUserId, postId }: R
         currentUserId={currentUserId}
         onReplyClick={handleReplyClick}
         isReply
+        hideBorder={hideBorder}
       />
       {showModal && (
         <PostModal
