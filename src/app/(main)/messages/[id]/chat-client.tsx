@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Send, X, Trash2, CornerUpLeft, Lock, ChevronDown, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Send, X, Trash2, CornerUpLeft, Lock, ChevronDown, Loader2, RefreshCw, WifiOff } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
   sendMessageAction, deleteMessageAction, loadMessagesAction, markConversationReadAction,
@@ -411,10 +411,21 @@ export default function ChatClient({
   // not enabled, RLS, flaky mobile network) and after the phone slept.
   useEffect(() => {
     setOnline(navigator.onLine)
+    // A message only ends up marked failed after a real send attempt threw
+    // (see `deliver` above) - never from a timeout guess - so retrying it
+    // automatically here can't double-send. On a flaky connection this is
+    // the difference between "type it once" and "keep tapping retry every
+    // time a bar of signal comes back".
+    const retryFailedSends = () => {
+      for (const m of messagesRef.current) {
+        if (m._optimistic && m._failed) retrySend(m.id)
+      }
+    }
     const wake = () => {
       if (document.visibilityState !== 'visible') return
       void latest.current.syncLatest({ silent: true })
       latest.current.scheduleAck()
+      retryFailedSends()
     }
     const onOnline  = () => { setOnline(true); wake() }
     const onOffline = () => setOnline(false)
@@ -807,7 +818,7 @@ export default function ChatClient({
                         fontFamily: "'DM Sans', sans-serif",
                         wordBreak: 'break-word', whiteSpace: 'pre-wrap',
                         opacity: msg._optimistic && !msg._failed ? 0.72 : 1,
-                        outline: msg._failed ? '1px solid var(--color-error)' : selected ? '2px solid var(--color-brand-hover)' : 'none',
+                        outline: msg._failed ? '1px solid var(--color-border)' : selected ? '2px solid var(--color-brand-hover)' : 'none',
                         outlineOffset: selected ? 1 : -1,
                         cursor: canAct ? 'pointer' : 'default',
                         transition: 'opacity 0.2s',
@@ -861,7 +872,7 @@ export default function ChatClient({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
                       {status === 'failed' ? (
                         <>
-                          <span style={{ fontSize: 11, color: 'var(--color-error)' }}>Not sent</span>
+                          <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Not sent</span>
                           <button onClick={() => retrySend(msg.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, fontWeight: 700, color: 'var(--color-brand)' }}>Retry</button>
                           <button onClick={() => discardFailed(msg.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, color: 'var(--color-text-secondary)' }}>Discard</button>
                         </>
@@ -915,6 +926,23 @@ export default function ChatClient({
           <button aria-label="Cancel reply" onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
             <X size={16} />
           </button>
+        </div>
+      )}
+
+      {/* Offline notice - a calm heads-up, not an error state. Individual
+          failed sends already get a quiet "Not sent · Retry" of their own;
+          this is just letting the person know why, in one place, instead of
+          reading it off every affected message. */}
+      {!online && (
+        <div style={{
+          margin: '0 12px 8px', padding: '9px 14px',
+          background: 'var(--color-surface-2)', border: '1px solid var(--color-border)',
+          borderRadius: 14, flexShrink: 0,
+          display: 'flex', alignItems: 'center', gap: 8,
+          fontSize: 12.5, color: 'var(--color-text-secondary)', fontFamily: "'DM Sans', sans-serif",
+        }}>
+          <WifiOff size={14} style={{ flexShrink: 0, opacity: 0.7 }} />
+          You&apos;re offline — messages will send once you&apos;re back online.
         </div>
       )}
 

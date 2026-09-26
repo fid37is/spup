@@ -65,7 +65,7 @@ export default function ContentPolicyPage() {
       </Section>
 
       <Section title="6. Intellectual Property">
-        <P>Only post content you own or have rights to. Repeated copyright infringement will result in account termination under our repeat infringer policy. To report a copyright violation, email <strong style={{ color: '#EDEDEA' }}>copyright@spup.ng</strong>.</P>
+        <P>Only post content you own or have rights to. Repeated copyright infringement will result in account termination under our repeat infringer policy. To report a copyright violation, email <strong style={{ color: 'var(--color-text-primary)' }}>copyright@spup.ng</strong>.</P>
       </Section>
 
       <Section title="7. Monetisation Eligibility">
@@ -75,7 +75,7 @@ export default function ContentPolicyPage() {
 
       <Section title="8. Reporting & Enforcement">
         <P>Every post on Spup has a report button. Our moderation team reviews reports and takes action within 24 hours for severe violations and within 72 hours for standard reviews.</P>
-        <P>If your content is removed, you will be notified with a reason. You may appeal removals by emailing <strong style={{ color: '#EDEDEA' }}>appeals@spup.ng</strong> within 14 days.</P>
+        <P>If your content is removed, you will be notified with a reason. You may appeal removals by emailing <strong style={{ color: 'var(--color-text-primary)' }}>appeals@spup.ng</strong> within 14 days.</P>
         <UL items={[
           '1st violation: Content removed + warning',
           '2nd violation: Temporary suspension (7 days)',
@@ -85,7 +85,7 @@ export default function ContentPolicyPage() {
       </Section>
 
       <Section title="9. Updates">
-        <P>This policy will evolve as the platform grows. We will communicate significant changes to creators at least 7 days before they take effect. Questions? Contact our Trust & Safety team at <strong style={{ color: '#EDEDEA' }}>safety@spup.ng</strong>.</P>
+        <P>This policy will evolve as the platform grows. We will communicate significant changes to creators at least 7 days before they take effect. Questions? Contact our Trust & Safety team at <strong style={{ color: 'var(--color-text-primary)' }}>safety@spup.ng</strong>.</P>
       </Section>
     </LegalLayout>
   )

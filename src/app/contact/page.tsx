@@ -52,8 +52,8 @@ export default function ContactPage() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', background: 'var(--color-input-bg)',
-    border: '1px solid var(--color-input-border)',
+    width: '100%', background: 'var(--input-bg)',
+    border: '1px solid var(--color-border)',
     borderRadius: 10, padding: '11px 14px',
     fontSize: 14, color: 'var(--color-text-primary)',
     fontFamily: "'DM Sans', sans-serif",
@@ -62,7 +62,7 @@ export default function ContactPage() {
   }
 
   const labelStyle: React.CSSProperties = {
-    fontSize: 12, color: '#6A6A65',
+    fontSize: 12, color: 'var(--color-text-muted)',
     display: 'block', marginBottom: 6, fontWeight: 500,
   }
 
@@ -73,9 +73,9 @@ export default function ContactPage() {
       lastUpdated="April 23, 2026"
     >
       <style>{`
-        .spup-input::placeholder { color: #3A3A38; }
+        .spup-input::placeholder { color: var(--color-text-faint); }
         .spup-input:focus { border-color: rgba(26,158,95,0.4) !important; }
-        .spup-select option { background: #0A0A0E; color: #EDEDEA; }
+        .spup-select option { background: var(--input-bg); color: var(--color-text-primary); }
       `}</style>
 
       {/* Direct contacts */}
@@ -89,7 +89,7 @@ export default function ContactPage() {
               textDecoration: 'none', transition: 'border-color 0.15s',
             }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(26,158,95,0.3)')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--color-border)')}
             >
               <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>{c.label}</div>
               <div style={{ fontSize: 13, color: G, fontWeight: 600 }}>{c.email}</div>

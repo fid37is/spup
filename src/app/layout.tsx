@@ -8,6 +8,7 @@ import { GoogleAnalytics } from '@next/third-parties/google'
 import { ToastProvider } from '@/components/layout/toast'
 import { NetworkStatusProvider } from '@/lib/network-status'
 import NativeSplashHider from '@/components/layout/native-splash-hider'
+import { AppThemeProvider } from '@/components/layout/theme-provider'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
 
@@ -150,28 +151,30 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
 
-        {/* Theme: only override data-theme in authenticated app routes */}
+        {/* Theme: resolve and paint the real theme before first paint, on
+            EVERY route - not just a hand-maintained whitelist of app paths.
+            (That whitelist was the actual source of the dark flash: it only
+            ever ran on a hard page load, so the first client-side
+            navigation into an app route - from "/", from login, from
+            onboarding - left <html> on whatever the previous page's theme
+            was until AppThemeProvider corrected it a beat later.
+            AppThemeProvider is now mounted once here at the root instead of
+            inside (main)/layout.tsx, so it persists across those
+            navigations instead of remounting into a stale attribute.) */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
                 try {
-                  var saved = localStorage.getItem('spup-theme');
-                  // Was missing 'messages', 'connections' and 'compose' - reloading
-                  // on those app routes with a saved light theme fell through to
-                  // the hardcoded dark default below and flashed dark before
-                  // AppThemeProvider corrected it after hydration.
-                  var isApp = /^\/(feed|explore|notifications|profile|wallet|settings|post|user|messages|connections|compose)/.test(window.location.pathname);
-                  if (isApp) {
-                    // No saved preference yet - follow the OS/browser setting
-                    // instead of always assuming dark, so a light-system user
-                    // doesn't see a dark flash on their very first visit.
-                    var resolved = (saved === 'light' || saved === 'dark')
-                      ? saved
-                      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-                    if (resolved === 'light') {
-                      document.documentElement.setAttribute('data-theme', 'light');
-                    }
+                  var saved = localStorage.getItem('spup-theme'); // 'light' | 'dark' | 'system' | null
+                  var resolved = (saved === 'light' || saved === 'dark')
+                    ? saved
+                    // No explicit choice (first visit, or preference is
+                    // "system") - follow the OS/browser setting instead of
+                    // the hardcoded dark default below.
+                    : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+                  if (resolved === 'light') {
+                    document.documentElement.setAttribute('data-theme', 'light');
                   }
                 } catch(e) {}
               })();
@@ -182,13 +185,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <PWAProvider />
         <NativeSplashHider />
-        <NetworkStatusProvider>
-          <ToastProvider>
-            <WaitlistProvider waitlistOpen={waitlistOpen}>
-              {children}
-            </WaitlistProvider>
-          </ToastProvider>
-        </NetworkStatusProvider>
+        <AppThemeProvider>
+          <NetworkStatusProvider>
+            <ToastProvider>
+              <WaitlistProvider waitlistOpen={waitlistOpen}>
+                {children}
+              </WaitlistProvider>
+            </ToastProvider>
+          </NetworkStatusProvider>
+        </AppThemeProvider>
         {process.env.NEXT_PUBLIC_GA_ID && (
           <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
         )}

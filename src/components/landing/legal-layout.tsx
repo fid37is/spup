@@ -43,7 +43,7 @@ export default function LegalLayout({ title, subtitle, lastUpdated, children }: 
       <nav className="legal-nav" style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200,
         height: 58, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: 'rgba(5,5,8,0.88)', backdropFilter: 'blur(20px)',
+        background: 'var(--nav-bg)', backdropFilter: 'blur(20px)',
         borderBottom: '1px solid var(--color-border)',
       }}>
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>

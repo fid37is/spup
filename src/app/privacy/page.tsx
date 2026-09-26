@@ -78,7 +78,7 @@ export default function PrivacyPage() {
       </Section>
 
       <Section title="9. Contact">
-        <P>For privacy-related questions or data requests, email us at <strong style={{ color: '#EDEDEA' }}>privacy@spup.ng</strong> or visit our <a href="/contact" style={{ color: '#1A9E5F', textDecoration: 'none' }}>Contact page</a>.</P>
+        <P>For privacy-related questions or data requests, email us at <strong style={{ color: 'var(--color-text-primary)' }}>privacy@spup.ng</strong> or visit our <a href="/contact" style={{ color: 'var(--color-brand)', textDecoration: 'none' }}>Contact page</a>.</P>
       </Section>
     </LegalLayout>
   )

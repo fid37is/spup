@@ -8,7 +8,6 @@ import SidebarNav from '@/components/layout/sidebar-nav'
 import RightSidebar from '@/components/layout/right-sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import MobileHeader from '@/components/layout/mobile-header'
-import { AppThemeProvider } from '@/components/layout/theme-provider'
 import PushNotificationsProvider from '@/components/layout/push-notifications-provider'
 import ActivityBeacon from '@/components/layout/activity-beacon' 
 
@@ -49,7 +48,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   const mutualsCount = [...youFollowSet].filter(id => followYouSet.has(id)).length
 
   return (
-    <AppThemeProvider>
+    <>
       <PushNotificationsProvider userId={profile.id} />
       <ActivityBeacon />
       <style>{`
@@ -118,6 +117,6 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <div className="mobile-nav">
         <MobileBottomNav unreadCount={unreadCount} unreadChat={unreadChat} userId={profile.id} />
       </div>
-    </AppThemeProvider>
+    </>
   )
 }

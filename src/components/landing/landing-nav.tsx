@@ -3,6 +3,7 @@
 
 import LandingCTA from '@/components/landing/landing-cta'
 import { useWaitlist } from '@/components/landing/waitlist-context'
+import { ThemeToggle } from '@/components/layout/theme-provider'
 
 const G = 'var(--color-brand)'
 const BORDER = 'var(--color-border)'
@@ -18,7 +19,7 @@ export default function LandingNav() {
           position: fixed;
           top: 0; left: 0; right: 0;
           z-index: 200;
-          background: rgba(5,5,8,0.88);
+          background: var(--nav-bg);
           backdrop-filter: blur(20px);
           border-bottom: 1px solid ${BORDER};
         }
@@ -99,6 +100,8 @@ export default function LandingNav() {
 
           {/* Actions */}
           <div className="landing-nav-actions">
+            <ThemeToggle />
+
             {/* Login */}
             <div className="nav-cta-wrap nav-login-wrap">
               {ENABLE_LOGIN ? (

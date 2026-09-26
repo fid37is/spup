@@ -3,20 +3,39 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 
 type Theme = 'dark' | 'light'
+// The user's actual stored choice. 'system' means "keep following the OS",
+// as opposed to 'light'/'dark' which are an explicit override.
+type ThemePreference = Theme | 'system'
 
 interface ThemeContextValue {
   theme: Theme
-  setTheme: (t: Theme) => void
+  preference: ThemePreference
+  setPreference: (p: ThemePreference) => void
   toggle: () => void
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
   theme: 'dark',
-  setTheme: () => {},
+  preference: 'system',
+  setPreference: () => {},
   toggle: () => {},
 })
 
 export function useTheme() { return useContext(ThemeContext) }
+
+const STORAGE_KEY = 'spup-theme'
+
+function systemPrefersLight() {
+  return typeof window !== 'undefined' && !!window.matchMedia &&
+    window.matchMedia('(prefers-color-scheme: light)').matches
+}
+
+// Turn a stored preference into the concrete theme that actually gets
+// painted. Kept as one function so the provider and the pre-hydration
+// script in app/layout.tsx can't drift out of sync with each other.
+function resolvePreference(pref: ThemePreference): Theme {
+  return pref === 'system' ? (systemPrefersLight() ? 'light' : 'dark') : pref
+}
 
 const STYLE = `
   ::view-transition-old(root),
@@ -44,15 +63,30 @@ const STYLE = `
 `
 
 export function AppThemeProvider({ children }: { children: React.ReactNode }) {
-  // Read the attribute the pre-hydration inline script (layout.tsx) already
-  // set on <html>, instead of always starting from 'dark' - otherwise the
-  // toggle icon itself flashed to the wrong state for a frame on a light-
-  // themed reload, on top of the page-level flash that script now fixes.
+  // Read the attribute the pre-hydration inline script (root layout.tsx)
+  // already set on <html>, instead of always starting from 'dark' -
+  // otherwise the toggle icon itself flashed to the wrong state for a frame,
+  // on top of the page-level flash that script fixes. That script now runs
+  // on every route (this provider is mounted once at the app root), so this
+  // stays correct across client-side navigations too, not just hard loads.
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof document === 'undefined') return 'dark'
     return (document.documentElement.getAttribute('data-theme') as Theme) || 'dark'
   })
+  const [preference, setPreferenceState] = useState<ThemePreference>(() => {
+    if (typeof document === 'undefined') return 'system'
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw === 'light' || raw === 'dark' || raw === 'system') return raw
+    } catch {}
+    return 'system'
+  })
   const animatingRef = useRef(false)
+
+  const applyResolved = useCallback((resolved: Theme) => {
+    setThemeState(resolved)
+    document.documentElement.setAttribute('data-theme', resolved)
+  }, [])
 
   useEffect(() => {
     if (!document.getElementById('theme-anim-style')) {
@@ -61,33 +95,30 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
       s.textContent = STYLE
       document.head.appendChild(s)
     }
-
-    // Source of truth is localStorage, not the DOM attribute — the
-    // pre-hydration inline script in layout.tsx only sets data-theme on a
-    // route whitelist (to avoid overriding marketing-page branding), so it
-    // can't be relied on here. Reading localStorage directly makes theme
-    // persistence correct on every app route regardless of that whitelist.
-    let saved: Theme | null = null
-    try { saved = localStorage.getItem('spup-theme') as Theme | null } catch {}
-
-    const resolved: Theme = saved === 'light' || saved === 'dark'
-      ? saved
-      : (document.documentElement.getAttribute('data-theme') as Theme) || 'dark'
-
-    setThemeState(resolved)
-    if (document.documentElement.getAttribute('data-theme') !== resolved) {
-      document.documentElement.setAttribute('data-theme', resolved)
-    }
   }, [])
 
-  const setTheme = useCallback((next: Theme) => {
-    setThemeState(next)
-    document.documentElement.setAttribute('data-theme', next)
-    try { localStorage.setItem('spup-theme', next) } catch {}
-  }, [])
+  // Keeps the painted theme in sync with the OS while preference is
+  // 'system' - without this, picking "System" only matches the OS at the
+  // moment it was picked, and silently goes stale if the OS theme changes.
+  useEffect(() => {
+    if (preference !== 'system' || typeof window === 'undefined' || !window.matchMedia) return
+    const mql = window.matchMedia('(prefers-color-scheme: light)')
+    const onChange = () => applyResolved(resolvePreference('system'))
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [preference, applyResolved])
+
+  const setPreference = useCallback((next: ThemePreference) => {
+    setPreferenceState(next)
+    try { localStorage.setItem(STORAGE_KEY, next) } catch {}
+    applyResolved(resolvePreference(next))
+  }, [applyResolved])
 
   const toggle = useCallback(() => {
     if (animatingRef.current) return
+    // The quick icon toggle always lands on an explicit light/dark choice,
+    // never back on 'system' - clicking it means "no, I want it THIS way",
+    // not "go recompute what my OS thinks".
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
 
     // Native View Transitions API — no screenshotting, so no CORS/tainted-
@@ -96,7 +127,7 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
     // Cloudinary avatar, was on screen). Falls back to an instant switch on
     // browsers that don't support it yet.
     if (typeof document.startViewTransition !== 'function') {
-      setTheme(next)
+      setPreference(next)
       return
     }
 
@@ -107,7 +138,7 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const transition = document.startViewTransition(() => {
-        setTheme(next)
+        setPreference(next)
       })
 
       const reset = () => {
@@ -127,12 +158,12 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
       // the "toggle works inconsistently" symptom.
       document.documentElement.removeAttribute('data-theme-direction')
       animatingRef.current = false
-      setTheme(next)
+      setPreference(next)
     }
-  }, [theme, setTheme])
+  }, [theme, setPreference])
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggle }}>
+    <ThemeContext.Provider value={{ theme, preference, setPreference, toggle }}>
       {children}
     </ThemeContext.Provider>
   )

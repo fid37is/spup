@@ -79,7 +79,7 @@ export default function ReviewsPage() {
             </p>
 
             {error && (
-              <div style={{ background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 14, color: '#E57373' }}>
+              <div style={{ background: 'var(--color-error-muted)', border: '1px solid var(--color-error-border)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 14, color: 'var(--color-error)' }}>
                 {error}
               </div>
             )}
@@ -123,7 +123,7 @@ export default function ReviewsPage() {
                 type="submit"
                 disabled={isPending}
                 style={{
-                  width: '100%', background: '#1A9E5F', color: 'white', border: 'none',
+                  width: '100%', background: 'var(--color-brand)', color: 'white', border: 'none',
                   borderRadius: 10, padding: '14px', fontFamily: "'Syne', sans-serif",
                   fontWeight: 700, fontSize: 16, cursor: isPending ? 'not-allowed' : 'pointer',
                   opacity: isPending ? 0.6 : 1,

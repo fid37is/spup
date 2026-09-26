@@ -113,15 +113,15 @@ export async function createPostAction(data: CreatePostSchema) {
   // row when it goes live to bump it then) - cancelScheduledPostAction
   // undoes this if the post is cancelled before it publishes.
   bumpCounter(supabase, 'users', 'posts_count', profile.id, 1)
+  // comments_count / quotes_count / reposts_count are no longer bumped here -
+  // trg_sync_post_engagement (034_trigger_based_engagement_counts.sql) recomputes
+  // them straight from the real rows the moment this INSERT commits, so there's
+  // exactly one place that ever writes those columns.
   if (parent_post_id) {
-    bumpCounter(supabase, 'posts', 'comments_count', parent_post_id, 1)
     void notifyPostAuthor(supabase, parent_post_id, profile.id, 'post_comment', { reply_id: post.id })
     revalidatePath(`/post/${parent_post_id}`)
   }
   if (quoted_post_id) {
-    // This was previously never incremented at all - quote posts were being
-    // created with no effect on the quoted post's quotes_count.
-    bumpCounter(supabase, 'posts', 'quotes_count', quoted_post_id, 1)
     void notifyPostAuthor(supabase, quoted_post_id, profile.id, 'post_quote', { reply_id: post.id })
     revalidatePath(`/post/${quoted_post_id}`)
   }
@@ -243,22 +243,13 @@ export async function deletePostAction(postId: string) {
   if (error || !deleted?.length) return { error: 'Could not delete post.' }
   bumpCounter(supabase, 'users', 'posts_count', profile.id, -1)
 
-  if (existingPost?.parent_post_id) {
-    bumpCounter(supabase, 'posts', 'comments_count', existingPost.parent_post_id, -1)
-    revalidatePath(`/post/${existingPost.parent_post_id}`)
-  }
-  // quoted_post_id is used by both 'quote' and 'repost' post_types (a plain
-  // repost points at the original via quoted_post_id with no body) - decrement
-  // the correct counter for which one this actually was.
-  if (existingPost?.quoted_post_id && existingPost.post_type === 'quote') {
-    bumpCounter(supabase, 'posts', 'quotes_count', existingPost.quoted_post_id, -1)
-    revalidatePath(`/post/${existingPost.quoted_post_id}`)
-  }
-  if (existingPost?.quoted_post_id && existingPost.post_type === 'repost') {
-    // Covers deletion via this action (e.g. moderation) - toggleRepostAction
-    // already handles its own decrement for the normal unrepost path.
-    bumpCounter(supabase, 'posts', 'reposts_count', existingPost.quoted_post_id, -1)
-  }
+  // comments_count / quotes_count / reposts_count on the parent/quoted post are
+  // no longer decremented here - trg_sync_post_engagement fires on this UPDATE
+  // (deleted_at going from null to set) and recomputes them from the real rows,
+  // covering this path, moderation deletes, and toggleRepostAction's own
+  // deletes with one trigger instead of three separate call sites to keep in sync.
+  if (existingPost?.parent_post_id) revalidatePath(`/post/${existingPost.parent_post_id}`)
+  if (existingPost?.quoted_post_id) revalidatePath(`/post/${existingPost.quoted_post_id}`)
 
   revalidatePath('/feed')
   revalidatePath('/profile')
@@ -275,25 +266,22 @@ export async function toggleLikeAction(postId: string) {
     .maybeSingle()
 
   if (existing) {
-    // Unlike. .select() confirms a row was actually removed before we
-    // decrement - if a racing/duplicate call already deleted it, this
-    // second delete matches 0 rows and must NOT also decrement the count.
-    const { data: deleted } = await supabase
+    // Unlike. likes_count is no longer decremented here - trg_sync_like_count
+    // fires on this DELETE and recomputes it as COUNT(*) FROM likes, so it
+    // can't drift regardless of how many overlapping calls raced to get here.
+    await supabase
       .from('likes').delete().match({ user_id: profile.id, post_id: postId })
       .select('user_id')
-    if (deleted && deleted.length > 0) {
-      await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: -1 })
-    }
     revalidatePath('/feed')
     revalidatePath(`/post/${postId}`)
     return { liked: false }
   }
 
-  // Like - upsert prevents a duplicate row at the DB level, but with
-  // ignoreDuplicates:true a racing/duplicate call still "succeeds" as a
-  // silent no-op. .select() tells us whether a NEW row was actually
-  // inserted - only then do we bump the counter, or two overlapping calls
-  // insert exactly one like row but increment likes_count by 2.
+  // Like - upsert prevents a duplicate row at the DB level; ignoreDuplicates
+  // makes a racing/duplicate call a silent no-op insert of 0 rows. We used to
+  // gate a manual +1 counter bump on insertedRows.length here, but that's now
+  // moot: trg_sync_like_count recomputes likes_count as COUNT(*) FROM likes
+  // on every insert, so a no-op insert simply has nothing to recompute from.
   const { data: insertedRows, error: insertError } = await supabase
     .from('likes')
     .upsert({ user_id: profile.id, post_id: postId }, { onConflict: 'user_id,post_id', ignoreDuplicates: true })
@@ -302,7 +290,6 @@ export async function toggleLikeAction(postId: string) {
   if (insertError) return { error: 'Failed to like post' }
   if (!insertedRows || insertedRows.length === 0) return { liked: true }
 
-  await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'likes_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_like')
   revalidatePath('/feed')
   revalidatePath(`/post/${postId}`)
@@ -312,18 +299,18 @@ export async function toggleLikeAction(postId: string) {
 export async function toggleRepostAction(postId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
+  // reposts_count is no longer bumped/decremented manually anywhere in this
+  // function - a repost is just a row in posts with post_type='repost', and
+  // trg_sync_post_engagement recomputes reposts_count on the quoted post from
+  // COUNT(*) of those rows on every insert/hard-delete, so this can't drift.
   const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).maybeSingle()
   if (existing) {
-    const { data: deleted } = await supabase.from('posts').delete().match({ id: existing.id }).select('id')
-    if (deleted && deleted.length > 0) {
-      await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: -1 })
-    }
+    await supabase.from('posts').delete().match({ id: existing.id }).select('id')
     revalidatePath('/feed')
     return { reposted: false }
   }
   const { data: inserted } = await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).select('id')
   if (!inserted || inserted.length === 0) return { reposted: true }
-  await supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'reposts_count', p_id: postId, p_amount: 1 })
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
   revalidatePath('/feed')
   return { reposted: true }
