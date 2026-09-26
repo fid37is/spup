@@ -3,9 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
-import ReplyComposer from './reply-composer'
-import ReplyToReply from './reply-to-reply'
-import NestedReplies from './nested-replies'
+import RepliesPanel from './replies-panel'
 import ReplySortMenu from './reply-sort-menu'
 
 const POST_SELECT = `
@@ -153,43 +151,16 @@ export default async function PostDetailPage({
         </div>
       )}
 
-      {/* Reply composer - inline, sticky at bottom; type and post directly */}
-      <ReplyComposer
-        parentPostId={id}
+      {/* Reply composer + replies list - client-side, so a reply you post
+          appears immediately instead of waiting on a page refresh. */}
+      <RepliesPanel
+        postId={id}
+        initialReplies={replies}
+        viewerName={viewerName}
         viewerInitial={viewerInitial}
         viewerAvatar={viewerAvatar}
-        viewerName={viewerName}
+        viewerUserId={viewerUserId}
       />
-
-      {/* Divider */}
-      <div style={{ height: 8, background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)' }} />
-
-      {/* Replies */}
-      {replies.length === 0 ? (
-        <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-          <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>No replies yet. Be the first!</p>
-        </div>
-      ) : (
-        replies.map((reply: any) => (
-          <div key={reply.id}>
-            {/* Reply card - clicking the reply button opens reply-to-reply modal/page */}
-            <ReplyToReply
-              reply={reply}
-              viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
-              currentUserId={viewerUserId}
-              postId={id}
-            />
-            {reply.nested && reply.nested.length > 0 && (
-              <NestedReplies
-                nested={reply.nested}
-                viewer={{ display_name: viewerName, avatar_url: viewerAvatar }}
-                currentUserId={viewerUserId}
-                postId={id}
-              />
-            )}
-          </div>
-        ))
-      )}
     </div>
   )
 }
