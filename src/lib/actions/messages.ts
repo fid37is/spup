@@ -328,9 +328,20 @@ export async function getUnreadChatCountAction(): Promise<number> {
   return getUnreadChatCount(profile.id)
 }
 
-export async function sendMessageAction(conversationId: string, body: string, replyToId?: string) {
+export interface ChatMediaInput {
+  url: string
+  type: 'image' | 'video'
+  thumbnail_url?: string | null
+  width?: number | null
+  height?: number | null
+  duration_secs?: number | null
+  size_bytes?: number | null
+}
+
+export async function sendMessageAction(conversationId: string, body: string, replyToId?: string, media?: ChatMediaInput) {
   const text = body.trim()
-  if (!text) return { error: 'Message cannot be empty' }
+  // A message needs either text or an attachment - never neither.
+  if (!text && !media) return { error: 'Message cannot be empty' }
   if (text.length > MAX_WIRE_LENGTH) return { error: 'Message is too long' }
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
@@ -350,8 +361,15 @@ export async function sendMessageAction(conversationId: string, body: string, re
     .insert({
       conversation_id: conversationId,
       sender_id: profile.id,
-      body: text,
+      body: text || null,
       reply_to_id: replyToId || null,
+      media_url: media?.url ?? null,
+      media_type: media?.type ?? null,
+      media_thumbnail_url: media?.thumbnail_url ?? null,
+      media_width: media?.width ?? null,
+      media_height: media?.height ?? null,
+      media_duration_secs: media?.duration_secs ?? null,
+      media_size_bytes: media?.size_bytes ?? null,
     })
     .select('id, created_at')
     .single()
@@ -364,6 +382,13 @@ export async function sendMessageAction(conversationId: string, body: string, re
   // The message is saved - everything below is bookkeeping. Run it together,
   // and never fail the send because of it (but do log, it used to be silent).
   const recipientId = conv.participant_1 === profile.id ? conv.participant_2 : conv.participant_1
+  // Media isn't E2E encrypted, so when there's no caption we can store a
+  // plain, honest label straight away - no decryption needed to show it in
+  // the chat list (see messages-list-client.tsx).
+  const mediaLabel = media ? (media.type === 'video' ? 'Video' : 'Photo') : null
+  const preview = text
+    ? (text.startsWith('enc:') ? text : text.slice(0, 80))
+    : (mediaLabel as string)
   const [previewRes, unreadRes] = await Promise.all([
     supabase.from('conversations').update({
       last_message_at: msg.created_at,
@@ -376,7 +401,7 @@ export async function sendMessageAction(conversationId: string, body: string, re
       // label if it can't decrypt yet (e.g. key not cached on this device).
       // Ciphertext can't be truncated (AES-GCM needs the full payload to
       // even attempt decryption) - only plaintext gets shortened.
-      last_message_preview: text.startsWith('enc:') ? text : text.slice(0, 80),
+      last_message_preview: preview,
     }).eq('id', conversationId),
     supabase.rpc('increment_unread', { p_conversation_id: conversationId, p_sender_id: profile.id }),
   ])
@@ -407,7 +432,7 @@ export async function deleteMessageAction(messageId: string) {
 
   const { data, error } = await supabase
     .from('messages')
-    .update({ is_deleted: true, body: null })
+    .update({ is_deleted: true, body: null, media_url: null, media_thumbnail_url: null })
     .match({ id: messageId, sender_id: profile.id })
     .select('conversation_id, created_at')
     .maybeSingle()
