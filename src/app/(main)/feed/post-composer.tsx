@@ -12,8 +12,6 @@ import { MAX_MEDIA_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, selectFil
 import { compressImageForUpload, createUploadQueue } from '@/lib/media-client'
 import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
-import { useMentionAutocomplete } from '@/hooks/use-mention-autocomplete'
-import MentionSuggestions from '@/components/shared/mention-suggestions'
 
 const MAX_CHARS = 500
 const MAX_MEDIA = MAX_MEDIA_PER_POST
@@ -188,14 +186,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     setError('')
     const ta = textareaRef.current
     if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
-    mention.recheck()
   }
-
-  const mention = useMentionAutocomplete({
-    value: body,
-    onChange: next => { setBody(next); setError('') },
-    textareaRef,
-  })
 
   const uploadFile = useCallback(async (file: File, type: 'image' | 'video') => {
     const localPreview = URL.createObjectURL(file)
@@ -403,7 +394,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const radius = 10
   const circumference = 2 * Math.PI * radius
   const strokeOffset = circumference - Math.min(body.length / MAX_CHARS, 1) * circumference
-  const isReplyFullscreen = variant === 'fullscreen' && !!replyTo
+  const isFullscreen = variant === 'fullscreen'
 
   return (
     <div style={{
@@ -413,18 +404,18 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       flexDirection: 'column',
       flex: variant === 'fullscreen' ? 1 : undefined,
       minHeight: variant === 'fullscreen' ? 0 : undefined,
-      overflow: isReplyFullscreen ? 'hidden' : undefined,
+      overflow: isFullscreen ? 'hidden' : undefined,
     }}>
-      {/* Thread leading up to what you tapped "Reply" on - root-first,
-          faded and non-interactive. Only shown for a reply-to-a-reply, so
-          you can see the mini-conversation your reply is landing in before
-          you post, the way Threads stacks it on its own reply screen.
-          On the fullscreen reply screen this whole block (ancestors +
-          the thing you're replying to) scrolls on its own, so the input
-          row below can sit right above the toolbar instead of getting
-          stranded near the top with empty space between it and the
-          toolbar - it isn't "wherever it lands", it's a compose bar. */}
-      <div style={isReplyFullscreen ? { flex: 1, minHeight: 0, overflowY: 'auto' } : undefined}>
+      {/* Everything the user can type/attach (reply-chain preview, textarea,
+          media grid, error text) scrolls in its own region so an unbounded
+          amount of text or media can never push the toolbar below the fold -
+          the toolbar (and audience/selling/schedule rows) live outside this
+          box, always pinned to the bottom of the screen. `flex: 1` makes the
+          box fill whatever room is left above the toolbar even when there's
+          little content, so short posts still look the same as before
+          (toolbar at the very bottom, no gap) - overflowY only kicks in once
+          content actually exceeds that space. */}
+      <div style={isFullscreen ? { flex: 1, minHeight: 0, overflowY: 'auto' } : undefined}>
       {replyChain.map(ancestor => (
         <div key={ancestor.id} style={{ display: 'flex', gap: 12, marginBottom: 2, opacity: 0.55 }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 42, flexShrink: 0 }}>
@@ -491,7 +482,6 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           </div>
         </div>
       )}
-      </div>
 
       {/* Top block: avatar + textarea + media */}
       <div style={{ display: 'flex', gap: 12 }}>
@@ -511,18 +501,11 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Textarea */}
-        <div style={{ position: 'relative' }}>
         <textarea
           ref={textareaRef}
           value={body}
           onChange={handleTextChange}
-          onClick={mention.recheck}
-          onKeyUp={mention.recheck}
-          onBlur={mention.close}
-          onKeyDown={e => {
-            if (mention.handleKeyDown(e)) return
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost()
-          }}
+          onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost() }}
           placeholder={replyTo ? `Reply to @${replyTo.authorUsername}...` : 'Wetin dey happen? Share your take…'}
           rows={2}
           style={{
@@ -533,16 +516,6 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             caretColor: 'var(--color-brand)', minHeight: 52,
           }}
         />
-        {mention.isOpen && (
-          <MentionSuggestions
-            results={mention.results}
-            activeIndex={mention.activeIndex}
-            loading={mention.loading}
-            onHover={mention.setActiveIndex}
-            onSelect={mention.selectUser}
-          />
-        )}
-        </div>
 
         {/* Media previews */}
         {media.length > 0 && (
@@ -645,14 +618,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
         )}
       </div>
       </div>
-
-      {/* Spacer - pushes audience line + toolbar to the very bottom of the
-          screen in fullscreen mode, so the compose area actually stretches
-          instead of everything bunching up at the top. Only for a new post:
-          a reply's input row sits right above its toolbar as one grouped
-          compose bar (see the scrollable wrapper above), not floating near
-          the top with a gap before the toolbar. */}
-      {variant === 'fullscreen' && !replyTo && <div style={{ flex: 1 }} />}
+      </div>
 
       <div style={variant === 'fullscreen' ? undefined : { marginLeft: 54 }}>
         {!replyTo && (
