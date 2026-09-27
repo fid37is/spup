@@ -16,6 +16,8 @@ import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import MediaGrid from '@/components/feed/media-grid'
 import { useToast } from '@/components/layout/toast'
+import { useMentionAutocomplete } from '@/hooks/use-mention-autocomplete'
+import MentionSuggestions from '@/components/shared/mention-suggestions'
 
 const MAX_CHARS = 500
 
@@ -90,7 +92,14 @@ export default function ReplyComposer({
     setError('')
     const ta = textareaRef.current
     if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
+    mention.recheck()
   }
+
+  const mention = useMentionAutocomplete({
+    value: body,
+    onChange: next => { setBody(next); setError('') },
+    textareaRef,
+  })
 
   function handleReply() {
     if (!canPost) return
@@ -165,15 +174,20 @@ export default function ReplyComposer({
           }
         </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
           {/* Textarea - type and post directly, right here */}
           <textarea
             ref={textareaRef}
             value={body}
             onChange={handleChange}
             onFocus={() => setFocused(true)}
-            onBlur={() => { if (!body && !media.length) setFocused(false) }}
-            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleReply() }}
+            onClick={mention.recheck}
+            onKeyUp={mention.recheck}
+            onBlur={() => { mention.close(); if (!body && !media.length) setFocused(false) }}
+            onKeyDown={e => {
+              if (mention.handleKeyDown(e)) return
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleReply()
+            }}
             placeholder="Reply..."
             rows={1}
             style={{
@@ -195,6 +209,17 @@ export default function ReplyComposer({
               display: 'block',
             }}
           />
+
+          {mention.isOpen && (
+            <MentionSuggestions
+              results={mention.results}
+              activeIndex={mention.activeIndex}
+              loading={mention.loading}
+              onHover={mention.setActiveIndex}
+              onSelect={mention.selectUser}
+              placement="above"
+            />
+          )}
 
           {/* Media grid */}
           {showMedia && (

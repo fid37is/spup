@@ -10,6 +10,8 @@ import {
 import { signOutAction, saveInterestsAction } from '@/lib/actions'
 import { updateProfileAction, deleteAccountAction, changePasswordAction, changeUsernameAction } from '@/lib/actions/profiles'
 import { useTheme } from '@/components/layout/theme-provider'
+import { useTranslation } from '@/lib/i18n/language-context'
+import { isLocale } from '@/lib/i18n/dictionaries'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { NIGERIAN_INTERESTS } from '@/types'
 
@@ -173,6 +175,7 @@ function Card({ children }: { children: React.ReactNode }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsClient({ profile, interests: initialInterests }: { profile: SettingsProfile; interests: string[] }) {
+  const { setLocale: setAppLocale } = useTranslation()
   const [panel,      setPanel]    = useState<Panel>(null)
   const [isPending,  startT]      = useTransition()
   const [flash,      setFlash]    = useState<{ text: string; ok: boolean } | null>(null)
@@ -299,6 +302,10 @@ export default function SettingsClient({ profile, interests: initialInterests }:
 
   function handleLang(code: string, label: string) {
     setLang(code)
+    // Swap the dictionary for the rest of the app immediately, in this
+    // session, rather than waiting for the next full reload of
+    // (main)/layout.tsx to re-read the saved preference from the DB.
+    if (isLocale(code)) setAppLocale(code)
     startT(async () => {
       await updateProfileAction({ language_preference: code as 'en' | 'yo' | 'ig' | 'ha' | 'pcm' })
       showFlash(`Language set to ${label}`)
