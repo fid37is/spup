@@ -18,6 +18,7 @@ export * from './feed'
 export * from './mentions'
 export * from './admin'
 export * from './waitlist'
+export * from './creator-stats'
 
 // './auth' and './profiles' both export checkUsernameAvailableAction —
 // this explicit re-export resolves the ambiguity in auth.ts's favor, since
