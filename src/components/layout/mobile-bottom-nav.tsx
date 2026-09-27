@@ -4,16 +4,18 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Home, Search, Bell, MessageSquare } from 'lucide-react'
 import { useChatUnread } from '@/hooks/use-chat-unread'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const NAV = [
-  { href: '/feed',          icon: Home,          label: 'Home' },
-  { href: '/explore',       icon: Search,        label: 'Explore' },
-  { href: '/notifications', icon: Bell,          label: 'Alerts',  badge: 'alerts' },
-  { href: '/messages',      icon: MessageSquare, label: 'Chat',    badge: 'chat' },
+  { href: '/feed',          icon: Home,          labelKey: 'nav.home' },
+  { href: '/explore',       icon: Search,        labelKey: 'nav.explore' },
+  { href: '/notifications', icon: Bell,          labelKey: 'nav.alerts',  badge: 'alerts' },
+  { href: '/messages',      icon: MessageSquare, labelKey: 'nav.chat',    badge: 'chat' },
 ]
 
 export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { unreadCount: number; unreadChat: number; userId: string }) {
   const pathname = usePathname()
+  const { t } = useTranslation()
   // Live count for the Chat tab (hooks must run before the early return below).
   const chatUnread = useChatUnread(unreadChat, userId)
 
@@ -34,7 +36,8 @@ export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { u
       display: 'flex',
       paddingBottom: 'env(safe-area-inset-bottom)',
     }}>
-      {NAV.map(({ href, icon: Icon, label, badge }) => {
+      {NAV.map(({ href, icon: Icon, labelKey, badge }) => {
+        const label = t(labelKey)
         const isActive = pathname === href || (href !== '/feed' && pathname.startsWith(href))
         const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
         const showBadge = badgeCount > 0

@@ -15,6 +15,7 @@ export * from './follows'
 export * from './notifications'
 export * from './profiles'
 export * from './feed'
+export * from './mentions'
 export * from './admin'
 export * from './waitlist'
 

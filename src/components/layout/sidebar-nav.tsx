@@ -8,15 +8,16 @@ import { signOutAction } from '@/lib/actions'
 import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
 import { useChatUnread } from '@/hooks/use-chat-unread'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const NAV = [
-  { href: '/feed',          icon: Home,          label: 'Home' },
-  { href: '/explore',       icon: Search,        label: 'Explore' },
-  { href: '/notifications', icon: Bell,          label: 'Notifications', badge: 'alerts' },
-  { href: '/messages',      icon: MessageSquare, label: 'Chat',          badge: 'chat' },
-  { href: '/wallet',        icon: Wallet,        label: 'Wallet' },
-  { href: '/profile',       icon: User,          label: 'Profile' },
-  { href: '/settings',      icon: Settings,      label: 'Settings' },
+  { href: '/feed',          icon: Home,          labelKey: 'nav.home' },
+  { href: '/explore',       icon: Search,        labelKey: 'nav.explore' },
+  { href: '/notifications', icon: Bell,          labelKey: 'nav.notifications', badge: 'alerts' },
+  { href: '/messages',      icon: MessageSquare, labelKey: 'nav.chat',          badge: 'chat' },
+  { href: '/wallet',        icon: Wallet,        labelKey: 'nav.wallet' },
+  { href: '/profile',       icon: User,          labelKey: 'nav.profile' },
+  { href: '/settings',      icon: Settings,      labelKey: 'nav.settings' },
 ]
 
 interface SidebarNavProps {
@@ -38,6 +39,7 @@ export default function SidebarNav({ profile, unreadCount, unreadChat }: Sidebar
   const [, startTransition] = useTransition()
   const [showPostModal, setShowPostModal] = useState(false)
   const { theme } = useTheme()
+  const { t } = useTranslation()
   const initials = profile.display_name?.slice(0, 2).toUpperCase() || 'SP'
 
   const [collapsed, setCollapsed] = useState(false)
@@ -85,7 +87,8 @@ export default function SidebarNav({ profile, unreadCount, unreadChat }: Sidebar
 
         {/* Nav items */}
         <nav style={{ flex: 1 }}>
-          {NAV.map(({ href, icon: Icon, label, badge }) => {
+          {NAV.map(({ href, icon: Icon, labelKey, badge }) => {
+            const label = t(labelKey)
             const isActive = pathname === href || (href !== '/feed' && pathname.startsWith(href))
             const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
             const showBadge = badgeCount > 0
@@ -138,7 +141,7 @@ export default function SidebarNav({ profile, unreadCount, unreadChat }: Sidebar
         <div style={{ padding: '12px 0 10px' }}>
           <button
             onClick={() => setShowPostModal(true)}
-            title={collapsed ? 'New post' : undefined}
+            title={collapsed ? t('nav.new_post') : undefined}
             style={{
               width: '100%', background: 'var(--color-brand)', color: 'white',
               border: 'none', borderRadius: 14,
@@ -151,7 +154,7 @@ export default function SidebarNav({ profile, unreadCount, unreadChat }: Sidebar
             onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-brand)')}
           >
             <PenSquare size={18} />
-            {!collapsed && 'New post'}
+            {!collapsed && t('nav.new_post')}
           </button>
         </div>
 

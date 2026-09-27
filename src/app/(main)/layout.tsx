@@ -10,6 +10,8 @@ import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import MobileHeader from '@/components/layout/mobile-header'
 import PushNotificationsProvider from '@/components/layout/push-notifications-provider'
 import ActivityBeacon from '@/components/layout/activity-beacon' 
+import { LanguageProvider } from '@/lib/i18n/language-context'
+import { isLocale, DEFAULT_LOCALE, loadDictionary } from '@/lib/i18n/dictionaries'
 
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
@@ -27,15 +29,22 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   if (!profile) redirect('/login')
   if (profile.status === 'banned') redirect('/banned')
 
+  // The DB (not a cookie) is the source of truth for locale: this layout is
+  // already fully dynamic (auth-gated, no caching), so it re-reads
+  // language_preference fresh on every request — no separate cookie sync
+  // needed, and no risk of the two disagreeing across devices.
+  const locale = isLocale(profile.language_preference) ? profile.language_preference : DEFAULT_LOCALE
+
   // ── Step 2: onboarding + sidebar data all in parallel ──────────────────────
   const admin = createAdminClient()
-  const [onboardingProgress, unreadCount, unreadChat, wallet, youFollow, followYou] = await Promise.all([
+  const [onboardingProgress, unreadCount, unreadChat, wallet, youFollow, followYou, initialMessages] = await Promise.all([
     getOnboardingProgress(profile.id),
     getUnreadNotificationCount(profile.id),
     getUnreadChatCount(profile.id),
     getWallet(profile.id),
     admin.from('follows').select('following_id').eq('follower_id', profile.id),
     admin.from('follows').select('follower_id').eq('following_id', profile.id),
+    loadDictionary(locale),
   ])
 
   if (!onboardingProgress?.completed_at) redirect('/onboarding')
@@ -48,7 +57,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   const mutualsCount = [...youFollowSet].filter(id => followYouSet.has(id)).length
 
   return (
-    <>
+    <LanguageProvider initialLocale={locale} initialMessages={initialMessages}>
       <PushNotificationsProvider userId={profile.id} />
       <ActivityBeacon />
       <style>{`
@@ -117,6 +126,6 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <div className="mobile-nav">
         <MobileBottomNav unreadCount={unreadCount} unreadChat={unreadChat} userId={profile.id} />
       </div>
-    </>
+    </LanguageProvider>
   )
 }

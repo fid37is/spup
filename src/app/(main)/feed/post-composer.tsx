@@ -12,6 +12,8 @@ import { MAX_MEDIA_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, selectFil
 import { compressImageForUpload, createUploadQueue } from '@/lib/media-client'
 import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
+import { useMentionAutocomplete } from '@/hooks/use-mention-autocomplete'
+import MentionSuggestions from '@/components/shared/mention-suggestions'
 
 const MAX_CHARS = 500
 const MAX_MEDIA = MAX_MEDIA_PER_POST
@@ -186,7 +188,14 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     setError('')
     const ta = textareaRef.current
     if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
+    mention.recheck()
   }
+
+  const mention = useMentionAutocomplete({
+    value: body,
+    onChange: next => { setBody(next); setError('') },
+    textareaRef,
+  })
 
   const uploadFile = useCallback(async (file: File, type: 'image' | 'video') => {
     const localPreview = URL.createObjectURL(file)
@@ -502,11 +511,18 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Textarea */}
+        <div style={{ position: 'relative' }}>
         <textarea
           ref={textareaRef}
           value={body}
           onChange={handleTextChange}
-          onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost() }}
+          onClick={mention.recheck}
+          onKeyUp={mention.recheck}
+          onBlur={mention.close}
+          onKeyDown={e => {
+            if (mention.handleKeyDown(e)) return
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost()
+          }}
           placeholder={replyTo ? `Reply to @${replyTo.authorUsername}...` : 'Wetin dey happen? Share your take…'}
           rows={2}
           style={{
@@ -517,6 +533,16 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             caretColor: 'var(--color-brand)', minHeight: 52,
           }}
         />
+        {mention.isOpen && (
+          <MentionSuggestions
+            results={mention.results}
+            activeIndex={mention.activeIndex}
+            loading={mention.loading}
+            onHover={mention.setActiveIndex}
+            onSelect={mention.selectUser}
+          />
+        )}
+        </div>
 
         {/* Media previews */}
         {media.length > 0 && (

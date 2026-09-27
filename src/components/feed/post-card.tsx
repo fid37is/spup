@@ -24,6 +24,8 @@ import {
   recordProfileVisitFromPostAction,
   togglePinPostAction,
   checkHasPinnedPostAction,
+  recordPromotionImpressionAction,
+  recordPromotionClickAction,
 } from '@/lib/actions'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import type { FeedPost } from '@/lib/actions/feed'
@@ -872,6 +874,7 @@ export default function PostCard({
             if (!impressionFired.current) {
               impressionFired.current = true
               void recordImpressionAction(post.id)
+              if (post.is_promoted && post.promotion_id) void recordPromotionImpressionAction(post.promotion_id)
             }
           }, 1000)
         } else {
@@ -892,6 +895,7 @@ export default function PostCard({
     // Prevent navigation when any interactive element is clicked
     const target = e.target as HTMLElement
     if (target.closest('button,a,textarea,input,video,[data-no-nav]')) return
+    if (post.is_promoted && post.promotion_id) void recordPromotionClickAction(post.promotion_id)
     router.push(`/post/${post.id}`)
   }
 
@@ -1011,8 +1015,15 @@ export default function PostCard({
         <Avatar name={author?.display_name || 'S'} avatarUrl={author?.avatar_url} username={author?.username} clickable postId={post.id} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Pinned badge */}
-          {isPinned && (
+          {/* Promoted badge - same spot Pinned uses, shown instead of it when
+              a post is both (unlikely, but promoted is the more relevant
+              fact to surface: it's here because someone paid for reach). */}
+          {post.is_promoted ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, paddingLeft: 2 }}>
+              <Megaphone size={12} color="#1A9E5F" />
+              <span style={{ fontSize: 12, color: '#1A9E5F', fontWeight: 500 }}>Promoted</span>
+            </div>
+          ) : isPinned && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, paddingLeft: 2 }}>
               <Pin size={12} color="var(--color-text-muted)" />
               <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 500 }}>Pinned</span>

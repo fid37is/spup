@@ -381,15 +381,43 @@ export async function recordProfileVisitFromPostAction(postId: string) {
   void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'profile_visits_count', p_id: postId, p_amount: 1 })
 }
 
+// ── Promoted-post impression / click tracking ─────────────────────────────────
+// A promoted post is a real post that a post_promotions row is currently
+// boosting into the algorithmic feed (see getForYouFeedAction in feed.ts) -
+// tracked separately from the post's own impressions_count/link_clicks_count
+// so the buyer can see how their SPEND performed (the admin promotions page
+// already reads impressions_count/clicks_count off this same table), not
+// just how the underlying post did overall.
+//
+// Restored here: these two actions are imported and called directly from
+// components/feed/post-card.tsx (impression observer + click-through
+// navigate handler). Removing them from this file without also removing or
+// relocating the corresponding exports breaks that import at build time -
+// re-added rather than dropped as part of this update.
+export async function recordPromotionImpressionAction(promotionId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'post_promotions', p_column: 'impressions_count', p_id: promotionId, p_amount: 1 })
+}
+
+export async function recordPromotionClickAction(promotionId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'post_promotions', p_column: 'clicks_count', p_id: promotionId, p_amount: 1 })
+}
+
 async function notifyPostAuthor(
   supabase: Awaited<ReturnType<typeof createClient>>,
   postId: string, actorId: string,
   type: 'post_like' | 'post_repost' | 'post_comment' | 'post_quote',
   metadata: Record<string, unknown> = {},
 ) {
-  const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).single()
+  const { data: post } = await supabase.from('posts').select('user_id, parent_post_id').eq('id', postId).single()
   if (!post || post.user_id === actorId) return
-  await createNotification({ recipientId: post.user_id, actorId, type, entityId: postId, entityType: 'post', metadata })
+  // A like on a reply (parent_post_id set) is a comment_like, not a post_like -
+  // otherwise it was being notified/grouped as if the reply were a top-level post.
+  const resolvedType = type === 'post_like' && post.parent_post_id ? 'comment_like' : type
+  await createNotification({ recipientId: post.user_id, actorId, type: resolvedType, entityId: postId, entityType: 'post', metadata })
 }
 
 export async function getPostAnalyticsAction(postId: string) {
