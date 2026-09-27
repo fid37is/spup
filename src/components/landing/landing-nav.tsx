@@ -60,10 +60,6 @@ export default function LandingNav() {
           white-space: nowrap;
         }
 
-        /* Show/hide full vs short labels */
-        .nav-join-full  { display: inline; }
-        .nav-join-short { display: none;   }
-
         @media (max-width: 767px) {
           .landing-nav-inner { padding: 0 16px; }
         }
@@ -75,8 +71,6 @@ export default function LandingNav() {
             padding: 8px 14px !important;
             font-size: 13px !important;
           }
-          .nav-join-full  { display: none;   }
-          .nav-join-short { display: inline; }
         }
 
         /* Hide login button on very small screens */
@@ -125,22 +119,19 @@ export default function LandingNav() {
               )}
             </div>
 
-            {/* Join — two versions, CSS shows/hides */}
+            {/* Register — reverted from the waitlist-modal "Join now" button
+                back to a direct link to signup. No waitlist gating here:
+                unlike the Login button above, this one always links straight
+                to /signup regardless of ENABLE_LOGIN. "Register" is short
+                enough on its own that it no longer needs the separate
+                full/short responsive label swap "Join the waitlist" used to. */}
             <div className="nav-cta-wrap">
-              <span className="nav-join-full">
-                <LandingCTA
-                  label="Join the waitlist"
-                  variant="primary"
-                  opensModal={true}
-                />
-              </span>
-              <span className="nav-join-short">
-                <LandingCTA
-                  label="Join"
-                  variant="primary"
-                  opensModal={true}
-                />
-              </span>
+              <LandingCTA
+                label="Register"
+                variant="primary"
+                opensModal={false}
+                href="/signup"
+              />
             </div>
           </div>
         </div>
