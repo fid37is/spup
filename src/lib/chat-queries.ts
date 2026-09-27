@@ -26,6 +26,7 @@ export interface ReplyRef {
   body: string | null
   sender_id: string
   is_deleted: boolean
+  media_type?: 'image' | 'video' | null
 }
 
 export interface MessageRow {
@@ -39,6 +40,13 @@ export interface MessageRow {
   delivered_at?: string | null
   reply_to_id?: string | null
   reply_to?: ReplyRef | null
+  /** Attached photo/video, if any. Hosted on Cloudinary - not E2E encrypted (unlike `body`). */
+  media_url?: string | null
+  media_type?: 'image' | 'video' | null
+  media_thumbnail_url?: string | null
+  media_width?: number | null
+  media_height?: number | null
+  media_duration_secs?: number | null
 }
 
 export interface MessagePage {
@@ -80,7 +88,7 @@ export async function fetchMessagePage(
   if (missing.length > 0) {
     const { data: targets, error: tErr } = await supabase
       .from('messages')
-      .select('id, body, sender_id, is_deleted')
+      .select('id, body, sender_id, is_deleted, media_type')
       .eq('conversation_id', conversationId)
       .in('id', missing)
     if (tErr) console.error('[chat] reply target lookup failed (messages still shown):', tErr.message)
@@ -91,7 +99,7 @@ export async function fetchMessagePage(
     const t = r.reply_to_id ? (inPage.get(r.reply_to_id) ?? extra.get(r.reply_to_id)) : undefined
     return {
       ...r,
-      reply_to: t ? { id: t.id, body: t.is_deleted ? null : t.body, sender_id: t.sender_id, is_deleted: !!t.is_deleted } : null,
+      reply_to: t ? { id: t.id, body: t.is_deleted ? null : t.body, sender_id: t.sender_id, is_deleted: !!t.is_deleted, media_type: t.media_type ?? null } : null,
     }
   })
 

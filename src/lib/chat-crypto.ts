@@ -314,6 +314,23 @@ export function isEncrypted(text: string | null): boolean {
   return !!text?.startsWith(ENC_PREFIX)
 }
 
+// ── Peer public-key cache (fast decryption on repeat visits) ──────────────────
+// Deriving the shared key needs the other person's public key, which otherwise
+// means a network round trip on every single chat open before anything can be
+// decrypted - the "messages take a moment to show up" delay. Once we've fetched
+// it once, remember it locally so a returning visit can decrypt immediately;
+// the caller still re-fetches in the background afterwards and reconciles if
+// it ever changed (see connectPeer() in chat-client.tsx).
+const peerKeyStoreKey = (userId: string, peerId: string) => `spup_peer_pubkey:${userId}:${peerId}`
+
+export function getCachedPeerPublicKey(userId: string, peerId: string): string | null {
+  try { return localStorage.getItem(peerKeyStoreKey(userId, peerId)) } catch { return null }
+}
+
+export function setCachedPeerPublicKey(userId: string, peerId: string, publicKeyB64: string): void {
+  try { localStorage.setItem(peerKeyStoreKey(userId, peerId), publicKeyB64) } catch { /* ignore */ }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function uint8ToBase64(buf: Uint8Array): string {

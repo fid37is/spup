@@ -8,7 +8,11 @@ import { createBrowserClient } from '@/lib/supabase/client'
 import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction } from '@/lib/actions/messages'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
 import { formatRelativeTime } from '@/lib/utils'
-import { getStoredKeyPair, deriveSharedKey, decryptMessage, isEncrypted, UNDECRYPTABLE } from '@/lib/chat-crypto'
+import { Trash2, Image as ImageIcon, Video } from 'lucide-react'
+import {
+  getStoredKeyPair, deriveSharedKey, decryptMessage, isEncrypted, UNDECRYPTABLE,
+  getCachedPeerPublicKey, setCachedPeerPublicKey,
+} from '@/lib/chat-crypto'
 import Link from 'next/link'
 
 const AVATAR_COLORS = ['#1A9E5F','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A']
@@ -51,29 +55,48 @@ export default function MessagesListClient({ initialConversations, currentUserId
       const keyPair = await getStoredKeyPair(currentUserId)
       if (!keyPair || cancelled) return // no local key cached yet on this device - leave previews as the generic label
 
+      async function decryptWith(cipher: string, key: CryptoKey) {
+        const plain = await decryptMessage(cipher, key)
+        if (!cancelled && plain !== UNDECRYPTABLE) setDecrypted(prev => ({ ...prev, [cipher]: plain }))
+      }
+
       for (const conv of conversations) {
         if (cancelled) return
         const cipher = conv.last_message_preview
-        if (!conv.other?.id || !isEncrypted(cipher)) continue
+        const peerId = conv.other?.id
+        if (!peerId || !isEncrypted(cipher)) continue
         if (decrypted[cipher!] !== undefined) continue // already decrypted this exact ciphertext
 
-        let sharedKey = sharedKeyCache.current.get(conv.other.id)
-        if (sharedKey === undefined) {
-          try {
-            const { publicKey } = await getPublicKeyAction(conv.other.id)
-            sharedKey = publicKey ? await deriveSharedKey(keyPair.privateKey, publicKey) : null
-          } catch {
-            sharedKey = null
+        const cachedKey = sharedKeyCache.current.get(peerId)
+        if (cachedKey) {
+          // Fast path: decrypt immediately with whatever key we derived last
+          // time, no network wait - this is what makes the preview appear
+          // right away on a returning visit instead of showing the generic
+          // "Message" label for a beat first.
+          void decryptWith(cipher!, cachedKey)
+        } else {
+          const cachedPub = getCachedPeerPublicKey(currentUserId, peerId)
+          if (cachedPub) {
+            try {
+              const key = await deriveSharedKey(keyPair.privateKey, cachedPub)
+              sharedKeyCache.current.set(peerId, key)
+              void decryptWith(cipher!, key)
+            } catch { /* fall through to the server fetch below */ }
           }
-          sharedKeyCache.current.set(conv.other.id, sharedKey)
         }
-        if (!sharedKey) continue
 
-        const plain = await decryptMessage(cipher!, sharedKey)
-        if (cancelled) return
-        if (plain !== UNDECRYPTABLE) {
-          setDecrypted(prev => ({ ...prev, [cipher!]: plain }))
-        }
+        // Verify/refresh against the server in the background - reconciles a
+        // rotated key without blocking every other row's decryption on it.
+        ;(async () => {
+          try {
+            const { publicKey } = await getPublicKeyAction(peerId)
+            if (!publicKey || cancelled) return
+            setCachedPeerPublicKey(currentUserId, peerId, publicKey)
+            const key = await deriveSharedKey(keyPair.privateKey, publicKey)
+            sharedKeyCache.current.set(peerId, key)
+            if (!cancelled) void decryptWith(cipher!, key)
+          } catch { /* best-effort preview - the thread itself still opens fine */ }
+        })()
       }
     })()
     return () => { cancelled = true }
@@ -151,12 +174,16 @@ export default function MessagesListClient({ initialConversations, currentUserId
         const other    = conv.other
         const initials = other?.display_name?.slice(0, 2).toUpperCase() ?? '??'
         const color    = AVATAR_COLORS[(other?.username?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]
+        // Encryption is an implementation detail - it's only ever surfaced inside
+        // an open conversation (the "End-to-end encrypted" line under the other
+        // person's name). The list never mentions it: an undecrypted preview
+        // just falls back to a plain, generic label instead.
         const preview  = isEncrypted(conv.last_message_preview) && decrypted[conv.last_message_preview!] !== undefined
           ? decrypted[conv.last_message_preview!]
           : isEncrypted(conv.last_message_preview) || conv.last_message_preview === '[Encrypted message]'
-            ? '🔒 Encrypted message' // isEncrypted: new rows we can't decrypt (yet); the literal string: rows written before this fix
+            ? 'Message' // isEncrypted: new rows we can't decrypt (yet); the literal string: rows written before this fix
             : conv.last_message_preview === 'Message deleted'
-              ? '🚫 Message deleted'
+              ? 'Message deleted'
               : (conv.last_message_preview ?? 'No messages yet')
 
         return (
@@ -199,12 +226,14 @@ export default function MessagesListClient({ initialConversations, currentUserId
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
                     fontSize: 13,
                     color: conv.unread_count > 0 ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     fontWeight: conv.unread_count > 0 ? 600 : 400,
                   }}>
-                    {preview}
+                    {conv.last_message_preview === 'Message deleted' && <Trash2 size={12} style={{ flexShrink: 0, opacity: 0.7 }} />}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview}</span>
                   </span>
                   {conv.unread_count > 0 && (
                     <div style={{

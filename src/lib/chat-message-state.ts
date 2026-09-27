@@ -21,6 +21,13 @@ export interface ChatMsg {
   /** Absent when the `delivered_at` column has not been migrated yet. */
   delivered_at?: string | null
   reply_to_id?: string | null
+  /** Attached photo/video, if any. Not E2E encrypted (unlike `body`). */
+  media_url?: string | null
+  media_type?: 'image' | 'video' | null
+  media_thumbnail_url?: string | null
+  media_width?: number | null
+  media_height?: number | null
+  media_duration_secs?: number | null
   /** Not confirmed by the server yet: either still sending, or failed. */
   _optimistic?: boolean
   /** Only meaningful together with _optimistic: the send did not go through. */
@@ -67,10 +74,16 @@ function keepReceipt(prev: string | null | undefined, next: string | null | unde
  * match one-to-one, and no decryption is needed to decide.
  */
 export function findPendingMatch<T extends ChatMsg>(prev: T[], incoming: ChatMsg): T | undefined {
-  if (incoming.body == null) return undefined
-  return prev.find(m =>
-    m._optimistic && m.sender_id === incoming.sender_id && m.body != null && m.body === incoming.body
-  )
+  if (incoming.body != null) {
+    return prev.find(m =>
+      m._optimistic && m.sender_id === incoming.sender_id && m.body != null && m.body === incoming.body
+    )
+  }
+  // Media-only message (no caption): match on the uploaded URL instead.
+  if (incoming.media_url) {
+    return prev.find(m => m._optimistic && m.sender_id === incoming.sender_id && m.media_url === incoming.media_url)
+  }
+  return undefined
 }
 
 /**
@@ -143,6 +156,7 @@ export function applyRowUpdate<T extends ChatMsg>(prev: T[], row: Partial<ChatMs
   next[i] = {
     ...cur,
     body: deleted ? null : (row.body !== undefined ? row.body : cur.body),
+    media_url: deleted ? null : (row.media_url !== undefined ? row.media_url : cur.media_url),
     is_deleted: deleted,
     read_at: keepReceipt(cur.read_at, row.read_at) ?? null,
     delivered_at: keepReceipt(cur.delivered_at, row.delivered_at),
