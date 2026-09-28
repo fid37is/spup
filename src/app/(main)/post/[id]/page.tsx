@@ -7,6 +7,7 @@ import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
 import RepliesPanel from './replies-panel'
 import ReplySortMenu from './reply-sort-menu'
+import BackButton from './back-button'
 
 const POST_SELECT = `
   id, body, post_type, likes_count, comments_count, reposts_count,
@@ -55,7 +56,7 @@ function attachNested(node: any, byParent: Record<string, any[]>): any {
 
 async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postId: string, viewerId: string | null, replySort: 'recent' | 'top') {
   const { data: post } = await supabase
-    .from('posts').select(POST_SELECT)
+    .from('posts').select(`${POST_SELECT}, parent_post_id`)
     .eq('id', postId).is('deleted_at', null).single()
 
   if (!post) return null
@@ -179,9 +180,13 @@ export default async function PostDetailPage({
         borderBottom: '1px solid var(--color-border)',
         display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px',
       }}>
-        <Link href="/feed" style={{ color: 'var(--color-text-primary)', display: 'flex' }}>
+        {/* A reply/comment goes back to the thing it replies to (so opening
+            one from a like notification and pressing back lands on its
+            parent, not the feed). A top-level post goes back to wherever the
+            viewer came from, falling back to the feed. */}
+        <BackButton parentPostId={(post as any).parent_post_id ?? null}>
           <ArrowLeft size={20} />
-        </Link>
+        </BackButton>
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
           Post
         </h1>

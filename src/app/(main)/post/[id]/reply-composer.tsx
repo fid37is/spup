@@ -350,10 +350,15 @@ export default function ReplyComposer({
                     transition: 'background 0.15s, color 0.15s',
                     display: 'flex', alignItems: 'center', gap: 5,
                     whiteSpace: 'nowrap', minHeight: 34,
+                    // Fixed width + centred so swapping the label for the
+                    // spinner doesn't make the button jump in size.
+                    minWidth: 70, justifyContent: 'center',
                   }}
                 >
-                  {isPending && <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} />}
-                  {isPending ? 'Replying…' : 'Reply'}
+                  {/* Spinner only while sending - no "Replying…" text. */}
+                  {isPending
+                    ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+                    : 'Reply'}
                 </button>
               </div>
             </div>

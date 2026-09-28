@@ -67,8 +67,9 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   }
 
   const { canPost, isPending, isScheduled } = composerState
+  // Replies show just the spinner while sending (no "Replying..." text).
   const postLabel = replyTo
-    ? (isPending ? 'Replying...' : 'Reply')
+    ? (isPending ? '' : 'Reply')
     : isPending
       ? (isScheduled ? 'Scheduling...' : 'Posting...')
       : (isScheduled ? 'Schedule' : 'Post')
@@ -114,7 +115,8 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
               border: 'none', borderRadius: 20, padding: '8px 20px',
               fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
               cursor: canPost ? 'pointer' : 'not-allowed',
-              display: 'flex', alignItems: 'center', gap: 6, minHeight: 36,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 36,
+              ...(replyTo ? { minWidth: 76 } : {}),
             }}
           >
             {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}

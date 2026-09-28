@@ -17,6 +17,7 @@ import {
 } from '@/lib/actions/follows'
 import { getOrCreateConversationAction } from '@/lib/actions/messages'
 import { useToast } from '@/components/layout/toast'
+import ReportDialog from '@/components/feed/report-dialog'
 
 interface ProfileActionBarProps {
   targetUserId: string
@@ -53,6 +54,7 @@ export default function ProfileActionBar({
   const [muted,      setMuted]      = useState(initialMuted)
   const [blocked,    setBlocked]    = useState(initialBlocked)
   const [showMenu,   setShowMenu]   = useState(false)
+  const [showReport, setShowReport] = useState(false)
   // Position of the dropdown itself, computed from the trigger button's
   // actual on-screen location and rendered via a fixed-position portal to
   // document.body (see openMenu below for why — the trigger button lives
@@ -240,7 +242,7 @@ export default function ProfileActionBar({
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
               <Ban size={16} /> Block @{username}
             </button>
-            <button onClick={() => { setShowMenu(false); toastError('Report submitted. Thank you.') }}
+            <button onClick={() => { setShowMenu(false); setShowReport(true) }}
               style={{ ...MENU_BTN, color: 'var(--color-error)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
@@ -253,7 +255,15 @@ export default function ProfileActionBar({
     document.body
   )
 
-  const moreButtonRendered = <>{triggerRendered}{menuRendered}</>
+  const moreButtonRendered = (
+    <>
+      {triggerRendered}
+      {menuRendered}
+      {showReport && (
+        <ReportDialog entityType="user" entityId={targetUserId} subject={`@${username}`} onClose={() => setShowReport(false)} />
+      )}
+    </>
+  )
 
   if (blocked) {
     return (
