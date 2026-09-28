@@ -9,8 +9,10 @@ import { createAdminClient } from '@/lib/supabase/server'
  * getWaitlistCountAction() which only counts people who've signed up to be
  * invited and haven't necessarily created an account yet.
  *
- * "Active creator" = a non-deleted, non-suspended/banned account, excluding
- * staff (admin/moderator) so the number reflects real users of the app.
+ * Counts every member who is still in good standing: active accounts plus
+ * ones still pending email verification (they've joined, they just haven't
+ * confirmed yet). Suspended/banned and deleted accounts are left out, and so
+ * is the admin account, since that isn't a member.
  */
 export async function getActiveCreatorCountAction(): Promise<number> {
   const admin = createAdminClient()
@@ -18,8 +20,8 @@ export async function getActiveCreatorCountAction(): Promise<number> {
     .from('users')
     .select('id', { count: 'exact', head: true })
     .is('deleted_at', null)
-    .eq('status', 'active')
-    .not('role', 'in', '(admin,moderator)')
+    .in('status', ['active', 'pending_verification'])
+    .neq('role', 'admin')
 
   if (error) {
     // Don't swallow this silently - see getWaitlistCountAction for why:

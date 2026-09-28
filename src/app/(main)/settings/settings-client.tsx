@@ -1,5 +1,6 @@
 'use client'
 
+import { usernameLengthError, clampUsername } from '@/lib/validations/username-length'
 import { useState, useTransition, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
@@ -617,11 +618,14 @@ export default function SettingsClient({ profile, interests: initialInterests }:
               <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', fontSize: 14, pointerEvents: 'none' }}>@</span>
               <input
                 value={username}
-                onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                maxLength={20} autoCapitalize="none" autoCorrect="off"
+                onChange={e => setUsername(clampUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '')))}
+                autoCapitalize="none" autoCorrect="off"
                 style={{ ...INP, paddingLeft: 26 }}
               />
             </div>
+            <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 10, marginTop: 4 }}>
+              5–12 characters · Letters, numbers, underscores only
+            </p>
             {usernameErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 12 }}>{usernameErr}</p>}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
               <button
@@ -632,8 +636,8 @@ export default function SettingsClient({ profile, interests: initialInterests }:
               </button>
               <button
                 onClick={handleUsernameChange}
-                disabled={isPending || username.length < 3 || username === profile.username}
-                style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 14, fontWeight: 700, cursor: isPending || username.length < 3 || username === profile.username ? 'not-allowed' : 'pointer', opacity: isPending || username.length < 3 || username === profile.username ? 0.5 : 1, fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
+                disabled={isPending || usernameLengthError(username) !== null || username === profile.username}
+                style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 14, fontWeight: 700, cursor: isPending || usernameLengthError(username) !== null || username === profile.username ? 'not-allowed' : 'pointer', opacity: isPending || usernameLengthError(username) !== null || username === profile.username ? 0.5 : 1, fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
                 {isPending ? 'Saving…' : 'Save'}

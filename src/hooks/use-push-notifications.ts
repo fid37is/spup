@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { registerFcmTokenAction } from '@/lib/actions/push'
 
 // Dynamically import Capacitor only in native context
-async function setupPushNotifications(userId: string) {
+async function setupPushNotifications(userId: string, navigate: (href: string) => void) {
   // Only run in Capacitor native environment
   if (typeof window === 'undefined') return
   if (!(window as any).Capacitor?.isNativePlatform()) return
@@ -36,9 +37,17 @@ async function setupPushNotifications(userId: string) {
     // PushPayload (lib/push/send.ts) actually sends - this previously read
     // data.postId, which doesn't exist on that payload at all, so
     // post_like/post_comment taps never routed anywhere.
+    //
+    // navigate() is the App Router's client-side push, not
+    // window.location.href - the app's single Capacitor webview stays alive
+    // for the life of the session, so a raw location assignment here was a
+    // full reload of the whole SPA (re-running every query in the root
+    // layout) every time someone tapped a notification while the app was
+    // already open. router.push keeps that same webview and just swaps the
+    // page segment in, like any other in-app navigation.
     switch (data?.type) {
       case 'new_follower':
-        window.location.href = `/user/${data.actorUsername}`
+        navigate(`/user/${data.actorUsername}`)
         break
       case 'post_like':
       case 'post_comment':
@@ -46,15 +55,15 @@ async function setupPushNotifications(userId: string) {
       case 'post_quote':
       case 'mention':
       case 'new_post':
-        window.location.href = `/post/${data.entityId}`
+        navigate(`/post/${data.entityId}`)
         break
       case 'tip_received':
       case 'subscription_new':
       case 'earning_milestone':
-        window.location.href = '/wallet'
+        navigate('/wallet')
         break
       case 'new_message':
-        window.location.href = `/messages/${data.entityId}`
+        navigate(`/messages/${data.entityId}`)
         break
       case 'escrow_hold_received':
       case 'escrow_delivered':
@@ -62,19 +71,20 @@ async function setupPushNotifications(userId: string) {
       case 'escrow_disputed':
       case 'escrow_proposal':
       case 'escrow_escalated':
-        window.location.href = `/wallet/orders/${data.entityId}`
+        navigate(`/wallet/orders/${data.entityId}`)
         break
       case 'monetisation_approved':
-        window.location.href = '/wallet'
+        navigate('/wallet')
         break
       default:
-        window.location.href = '/notifications'
+        navigate('/notifications')
     }
   })
 }
 
 export function usePushNotifications(userId: string | undefined) {
+  const router = useRouter()
   useEffect(() => {
-    if (userId) setupPushNotifications(userId)
-  }, [userId])
+    if (userId) setupPushNotifications(userId, router.push)
+  }, [userId, router])
 }

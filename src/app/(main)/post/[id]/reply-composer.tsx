@@ -46,6 +46,7 @@ export default function ReplyComposer({
   const [showMedia, setShowMedia] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
+  const anchorRef = useRef<HTMLDivElement>(null)
   const { media, uploading, progress, error: uploadError, upload, remove, clear } = useMediaUpload()
 
   // This bar must always sit at the very bottom of what's actually visible
@@ -73,6 +74,40 @@ export default function ReplyComposer({
     return () => {
       vv.removeEventListener('resize', apply)
       vv.removeEventListener('scroll', apply)
+    }
+  }, [])
+
+  // This bar is `position: fixed` so it stays pinned to the bottom of the
+  // viewport while replies scroll underneath it - same as the mobile app,
+  // and unchanged from how this has always worked. But `fixed` positions
+  // against the whole viewport, with no idea that .main-layout centers a
+  // bounded, sidebar-flanked column (see (main)/layout.tsx) - left a plain
+  // `left: 0; right: 0` stretching the bar edge-to-edge over both sidebars
+  // on desktop. `anchorRef` is a zero-height div left in the composer's
+  // *normal* DOM position, right where it's always sat in the thread (under
+  // the root post) - since it isn't fixed, it naturally takes on the feed
+  // column's real width and left offset. We measure it and paint those
+  // exact numbers onto the fixed bar, so the bar tracks the column instead
+  // of the viewport. On mobile the sidebars are hidden and the column
+  // already spans the full width, so this measurement collapses back to
+  // the original edge-to-edge behavior with no separate mobile-only case.
+  useEffect(() => {
+    const anchor = anchorRef.current
+    const bar = barRef.current
+    if (!anchor || !bar) return
+    function apply() {
+      if (!anchor || !bar) return
+      const rect = anchor.getBoundingClientRect()
+      bar.style.left = `${rect.left}px`
+      bar.style.width = `${rect.width}px`
+    }
+    apply()
+    window.addEventListener('resize', apply)
+    const ro = new ResizeObserver(apply)
+    ro.observe(anchor)
+    return () => {
+      window.removeEventListener('resize', apply)
+      ro.disconnect()
     }
   }, [])
 
@@ -140,18 +175,24 @@ export default function ReplyComposer({
   }, [upload])
 
   return (
-    <div
-      ref={barRef}
-      style={{
-        position: 'fixed',
-        left: 0, right: 0, bottom: 0,
-        zIndex: 20,
-        background: 'var(--nav-bg)',
-        backdropFilter: 'blur(20px)',
-        borderTop: '1px solid var(--color-border)',
-        transition: 'bottom 0.1s ease-out',
-      }}
-    >
+    <>
+      {/* Zero-height, stays in normal flow right where this composer has
+          always lived in the thread - purely a ruler for the fixed bar
+          below to measure the feed column's real width/offset against. */}
+      <div ref={anchorRef} aria-hidden style={{ height: 0 }} />
+      <div
+        ref={barRef}
+        className="reply-composer-bar"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          zIndex: 20,
+          background: 'var(--nav-bg)',
+          backdropFilter: 'blur(20px)',
+          borderTop: '1px solid var(--color-border)',
+          transition: 'bottom 0.1s ease-out',
+        }}
+      >
       <div style={{
         padding: isExpanded
           ? '12px 16px calc(8px + env(safe-area-inset-bottom))'
@@ -355,7 +396,8 @@ export default function ReplyComposer({
       />
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
+      </div>
+    </>
   )
 }
 

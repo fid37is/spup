@@ -1,5 +1,5 @@
 import { createClient, getAuthUser } from '@/lib/supabase/server'
-import { getForYouFeedAction } from '@/lib/actions'
+import { getForYouFeedAction, getCatchUpAction } from '@/lib/actions'
 import FeedClient from './feed-client'
 import { redirect } from 'next/navigation'
 
@@ -29,9 +29,18 @@ export default async function FeedPage() {
     return null
   })
 
-  const [{ data: viewer }, result] = await Promise.all([
+  // "While you were away" - optional extra, so it gets its own shorter timeout
+  // and any failure/timeout just means no module (never a slower or broken
+  // feed). Runs alongside the feed fetch, not after it.
+  const catchUpPromise = Promise.race([
+    getCatchUpAction(),
+    new Promise<null>(resolve => setTimeout(() => resolve(null), 4000)),
+  ]).catch(() => null)
+
+  const [{ data: viewer }, result, catchUp] = await Promise.all([
     supabase.from('users').select('id, avatar_url, display_name').eq('auth_id', user.id).maybeSingle(),
     feedPromise,
+    catchUpPromise,
   ])
   const currentUserId = viewer?.id ?? undefined
 
@@ -42,6 +51,7 @@ export default async function FeedPage() {
     <FeedClient
       initialPosts={posts}
       initialCursor={nextCursor}
+      initialCatchUp={catchUp}
       currentUserId={currentUserId}
       currentUserAvatarUrl={viewer?.avatar_url ?? null}
       currentUserDisplayName={viewer?.display_name ?? null}

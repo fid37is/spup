@@ -11,6 +11,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { nameField } from '@/lib/validations/schemas'
 import { z } from 'zod'
+import { usernameLengthError } from '@/lib/validations/username-length'
 
 async function getCallerProfile() {
   const supabase = await createClient()
@@ -124,7 +125,8 @@ export async function updateBannerAction(bannerUrl: string) {
 // ─── Check username availability ─────────────────────────────────────────────
 
 export async function checkUsernameAvailableAction(username: string) {
-  const usernameSchema = z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/)
+  if (usernameLengthError(username)) return { available: false, error: 'Username too short' }
+  const usernameSchema = z.string().regex(/^[a-zA-Z0-9_]+$/)
   const parsed = usernameSchema.safeParse(username.toLowerCase())
   if (!parsed.success) return { available: false, error: 'Invalid username format' }
 
@@ -145,7 +147,9 @@ export async function checkUsernameAvailableAction(username: string) {
 // ─── Change username ──────────────────────────────────────────────────────────
 
 export async function changeUsernameAction(newUsername: string) {
-  const usernameSchema = z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/)
+  const lengthErr = usernameLengthError(newUsername)
+  if (lengthErr) return { error: lengthErr }
+  const usernameSchema = z.string().regex(/^[a-zA-Z0-9_]+$/)
   const parsed = usernameSchema.safeParse(newUsername.toLowerCase())
   if (!parsed.success) return { error: 'Username must be 3–20 chars, letters/numbers/underscores only.' }
 

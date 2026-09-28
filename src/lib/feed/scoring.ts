@@ -19,6 +19,12 @@ export const SCORE_WEIGHTS = {
   // score *= e^(-DECAY_RATE * hours_old)
   DECAY_RATE: 0.05,    // at 24h old: score * ~0.30, at 48h: ~0.09
 
+  // The "While you were away" catch-up ranks posts from a window that can be
+  // days long, so it needs a much gentler decay - otherwise the newest posts
+  // always win and a genuinely great post from yesterday never surfaces.
+  // ~0.01 => half-life of roughly 70 hours.
+  CATCH_UP_DECAY_RATE: 0.01,
+
   // Penalty
   SENSITIVE_CONTENT: 0.5,  // multiply score by this if is_sensitive
 }
@@ -28,7 +34,7 @@ export interface ScoringContext {
   mutualIds: Set<string>
 }
 
-export function scorePost(post: any, ctx: ScoringContext): number {
+export function scorePost(post: any, ctx: ScoringContext, opts?: { decayRate?: number }): number {
   const hoursOld = (Date.now() - new Date(post.created_at).getTime()) / 3_600_000
 
   // Base engagement score
@@ -47,7 +53,7 @@ export function scorePost(post: any, ctx: ScoringContext): number {
   if (post.author?.is_monetised) score *= SCORE_WEIGHTS.IS_MONETISED
 
   // Recency decay — exponential
-  score *= Math.exp(-SCORE_WEIGHTS.DECAY_RATE * hoursOld)
+  score *= Math.exp(-(opts?.decayRate ?? SCORE_WEIGHTS.DECAY_RATE) * hoursOld)
 
   // Sensitivity penalty
   if (post.is_sensitive) score *= SCORE_WEIGHTS.SENSITIVE_CONTENT

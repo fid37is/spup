@@ -8,11 +8,22 @@ import { Copy, Check } from 'lucide-react'
 import { generatePromoCodeAction, revokePromoCodeAction } from '@/lib/actions/promo-codes'
 import { TIERS } from '@/lib/promotions'
 
+// A code's expiry is driven entirely by the tier it's for - "Boost (1 day)"
+// should mean the code stops being redeemable after 1 day, same as the
+// promotion it grants. Letting an admin type an arbitrary number of days
+// alongside the tier defeats the point of the tier (e.g. a "Boost" code that
+// stays redeemable for 90 days). "Any tier" isn't tied to one duration, so it
+// has no auto expiry - it just never expires unless revoked.
+function tierExpiryDays(tier: 'any' | keyof typeof TIERS): number | null {
+  if (tier === 'any') return null
+  return Math.ceil(TIERS[tier].duration_hours / 24)
+}
+
 export function GeneratePromoCodeForm() {
   const [tier, setTier] = useState<'any' | keyof typeof TIERS>('any')
   const [label, setLabel] = useState('')
   const [maxUses, setMaxUses] = useState('1')
-  const [expiresInDays, setExpiresInDays] = useState('')
+  const expiresInDays = tierExpiryDays(tier)
   const [error, setError] = useState<string | null>(null)
   const [newCode, setNewCode] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -27,7 +38,7 @@ export function GeneratePromoCodeForm() {
         tier,
         label: label || undefined,
         maxUses: Number(maxUses) || 1,
-        expiresInDays: expiresInDays ? Number(expiresInDays) : undefined,
+        expiresInDays: expiresInDays ?? undefined,
       })
 
       if ('error' in result) {
@@ -38,7 +49,6 @@ export function GeneratePromoCodeForm() {
       setNewCode(result.code)
       setLabel('')
       setMaxUses('1')
-      setExpiresInDays('')
       router.refresh()
     })
   }
@@ -91,17 +101,12 @@ export function GeneratePromoCodeForm() {
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-xs text-secondary">
-          Expires in <span className="text-faint">(days, optional)</span>
-          <input
-            type="number"
-            min={1}
-            value={expiresInDays}
-            onChange={e => setExpiresInDays(e.target.value)}
-            placeholder="Never"
-            className="rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-primary"
-          />
-        </label>
+        <div className="flex flex-col gap-1 text-xs text-secondary">
+          Expires in <span className="text-faint">(set by tier)</span>
+          <div className="rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-faint">
+            {expiresInDays !== null ? `${expiresInDays} day${expiresInDays === 1 ? '' : 's'}` : 'Never'}
+          </div>
+        </div>
 
         <div className="flex items-end sm:col-span-3">
           <button

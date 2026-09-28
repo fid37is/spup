@@ -1,6 +1,7 @@
 // src/lib/validations/schemas.ts
 import { z } from 'zod'
 import { MAX_MEDIA_PER_POST, MAX_VIDEOS_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, totalMediaBytes } from '@/lib/media-limits'
+import { usernameLengthError } from '@/lib/validations/username-length'
 
 export function toE164(phone: string): string {
   const cleaned = phone.replace(/\s+/g, '')
@@ -76,7 +77,7 @@ export const phoneSchema = z.object({
 export type PhoneSchema = z.infer<typeof phoneSchema>
 
 export const profileSetupSchema = z.object({
-  username: z.string().min(3,'At least 3 characters').max(20,'Max 20 characters').regex(/^[a-zA-Z0-9_]+$/,'Letters, numbers and underscores only').transform(v=>v.toLowerCase()),
+  username: z.string().refine(v => !usernameLengthError(v), 'Must be 5-12 characters (an emoji counts as 1), with at least 4 letters, numbers or underscores').regex(/^[a-zA-Z0-9_]+$/,'Letters, numbers and underscores only').transform(v=>v.toLowerCase()),
   bio: z.string().max(160,'Max 160 characters').optional(),
 })
 export type ProfileSetupSchema = z.infer<typeof profileSetupSchema>
