@@ -9,7 +9,8 @@
  * Cursor-based pagination so the client can implement infinite scroll.
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { scorePost, SCORE_WEIGHTS } from '@/lib/feed/scoring'
 
 const PAGE_SIZE = 20
 
@@ -503,6 +504,240 @@ export async function getMutualsFeedAction(cursor?: string): Promise<{
   const nextCursor = hasMore ? page[page.length - 1].created_at : null
 
   return { posts: await hydrateEngagement(supabase, profile.id, spaceOutSellingPosts(page)), nextCursor }
+}
+
+// ─── "While you were away" — catch-up for returning users ────────────────────
+// The feed is newest-first, so someone who has been gone a while lands on the
+// latest page and everything they missed in between is buried far below.
+// This is the same idea as X/Twitter's "While you were away" / "In case you
+// missed it" module: when a user comes back after a real absence, surface the
+// best posts from the window they missed at the TOP, ranked (not just newest).
+//
+// How it works:
+//   1. The client heartbeats markFeedSeenAction() while the feed is open, so
+//      user_feed_state.last_seen_at means "last actively on the feed".
+//   2. On load, if that was >= CATCH_UP_AWAY_MS ago we pin an anchor
+//      (catchup_since) and keep it until the user dismisses it - so a reload
+//      or a trip into a post and back doesn't make the module vanish.
+//   3. We pull candidates from the missed window (most-engaged + from people
+//      they follow), rank them with scorePost() using a gentle decay, cap posts
+//      per author, and hydrate the top few.
+//
+// State lives in user_feed_state (migration 036), read/written with the
+// service role - the table has RLS on and no policies, so this is the only path.
+
+const CATCH_UP_AWAY_MS = 3 * 60 * 60 * 1000          // away this long => offer a catch-up
+const CATCH_UP_MIN_MISSED = 8                          // fewer new posts than this => not worth a module
+const CATCH_UP_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000 // never look back further than a week
+const CATCH_UP_HIGHLIGHTS = 5
+const CATCH_UP_MAX_PER_AUTHOR = 2
+const CATCH_UP_POOL = 40                               // candidates pulled per source
+const CATCH_UP_FOLLOWING_CAP = 500                     // keep the .in() list URL-safe
+
+export interface CatchUp {
+  /** ISO time the user was last on the feed - start of the window they missed. */
+  since: string
+  /** How many posts were published in that window (excluding blocked/muted/own). */
+  missedCount: number
+  /** Top posts from the window, best first. */
+  highlights: FeedPost[]
+}
+
+export async function getCatchUpAction(): Promise<CatchUp | null> {
+  // Strictly optional feature: any failure must degrade to "no module", never
+  // break the feed it sits on top of.
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+
+    const { data: profile } = await supabase
+      .from('users').select('id').eq('auth_id', user.id).single()
+    if (!profile) return null
+
+    const admin = createAdminClient()
+    const nowMs = Date.now()
+
+    const { data: state } = await admin
+      .from('user_feed_state')
+      .select('last_seen_at, catchup_since')
+      .eq('user_id', profile.id)
+      .maybeSingle()
+
+    // First time we've seen this user on the feed - nothing to catch up on yet.
+    if (!state) {
+      await admin.from('user_feed_state').upsert(
+        { user_id: profile.id, last_seen_at: new Date(nowMs).toISOString() },
+        { onConflict: 'user_id' }
+      )
+      return null
+    }
+
+    // Decide the anchor. A fresh absence wins; otherwise keep a pending
+    // (not-yet-dismissed) one. Idempotent: last_seen_at doesn't move here, so
+    // a double render computes the same anchor.
+    const lastSeenMs = Date.parse(state.last_seen_at)
+    let anchorIso: string | null = state.catchup_since ?? null
+    if (nowMs - lastSeenMs >= CATCH_UP_AWAY_MS) {
+      anchorIso = state.last_seen_at
+      if (state.catchup_since !== state.last_seen_at) {
+        await admin.from('user_feed_state')
+          .update({ catchup_since: state.last_seen_at, updated_at: new Date(nowMs).toISOString() })
+          .eq('user_id', profile.id)
+      }
+    }
+    if (!anchorIso) return null
+
+    const sinceIso = new Date(
+      Math.max(Date.parse(anchorIso), nowMs - CATCH_UP_MAX_WINDOW_MS)
+    ).toISOString()
+    const nowIsoStr = new Date(nowMs).toISOString()
+
+    // Who to leave out, and who the viewer follows (for relevance boosts).
+    const [{ data: blocks }, { data: mutes }, { data: following }, { data: followers }] = await Promise.all([
+      supabase.from('user_blocks').select('blocked_id').eq('blocker_id', profile.id),
+      supabase.from('user_mutes').select('muted_id').eq('muter_id', profile.id),
+      supabase.from('follows').select('following_id').eq('follower_id', profile.id),
+      supabase.from('follows').select('follower_id').eq('following_id', profile.id),
+    ])
+    const excludeIds = [
+      ...(blocks || []).map((b: { blocked_id: string }) => b.blocked_id),
+      ...(mutes || []).map((m: { muted_id: string }) => m.muted_id),
+    ]
+    const excludeSet = new Set(excludeIds)
+    const followingIds: string[] = (following || []).map((f: { following_id: string }) => f.following_id)
+    const followingSet = new Set<string>(followingIds)
+    const mutualSet = new Set<string>(
+      (followers || [])
+        .map((f: { follower_id: string }) => f.follower_id)
+        .filter((id: string) => followingSet.has(id))
+    )
+
+    const SELECT = `
+      id, body, post_type, likes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling, user_id,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `
+    // Same base filters as the main feed, scoped to the missed window.
+    const windowed = () => {
+      let q = supabase.from('posts').select(SELECT)
+        .is('deleted_at', null)
+        .is('parent_post_id', null)
+        .neq('post_type', 'repost')
+        .neq('user_id', profile.id)
+        .gt('created_at', sinceIso)
+        .lte('created_at', nowIsoStr)
+      if (excludeIds.length) q = q.not('user_id', 'in', `(${excludeIds.join(',')})`)
+      return q
+    }
+
+    let countQuery = supabase.from('posts')
+      .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .is('parent_post_id', null)
+      .neq('post_type', 'repost')
+      .neq('user_id', profile.id)
+      .gt('created_at', sinceIso)
+      .lte('created_at', nowIsoStr)
+    if (excludeIds.length) countQuery = countQuery.not('user_id', 'in', `(${excludeIds.join(',')})`)
+
+    const [countRes, topRes, followedRes] = await Promise.all([
+      countQuery,
+      // What the whole network found worth engaging with...
+      windowed().order('likes_count', { ascending: false }).limit(CATCH_UP_POOL),
+      // ...plus what the people they follow posted, so a quiet post from a
+      // close connection isn't lost just because it has few likes yet.
+      followingIds.length
+        ? windowed().in('user_id', followingIds.slice(0, CATCH_UP_FOLLOWING_CAP))
+            .order('created_at', { ascending: false }).limit(CATCH_UP_POOL)
+        : Promise.resolve({ data: [] as unknown[] }),
+    ])
+
+    const missedCount = countRes.count ?? 0
+    if (missedCount < CATCH_UP_MIN_MISSED) {
+      // Not enough to justify a module. Clear the anchor so it doesn't linger
+      // and later resurface posts the user has by then already read.
+      await admin.from('user_feed_state')
+        .update({ catchup_since: null, updated_at: nowIsoStr })
+        .eq('user_id', profile.id)
+      return null
+    }
+
+    // Merge + dedupe the two pools, then rank.
+    const byId = new Map<string, RawFeedRow>()
+    for (const row of [...asRawRows(topRes.data), ...asRawRows(followedRes.data)]) {
+      if (!byId.has(row.id)) byId.set(row.id, row)
+    }
+    const ctx = { followingIds: followingSet, mutualIds: mutualSet }
+    const ranked = [...byId.values()]
+      .filter(p => !p.is_selling && p.author && !excludeSet.has(p.author.id))
+      .map(p => ({ p, score: scorePost(p, ctx, { decayRate: SCORE_WEIGHTS.CATCH_UP_DECAY_RATE }) }))
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || (a.p.created_at < b.p.created_at ? 1 : -1))
+
+    // Take the best, but don't let one prolific author fill the whole module.
+    const perAuthor = new Map<string, number>()
+    const picked: RawFeedRow[] = []
+    for (const { p } of ranked) {
+      const n = perAuthor.get(p.author.id) ?? 0
+      if (n >= CATCH_UP_MAX_PER_AUTHOR) continue
+      perAuthor.set(p.author.id, n + 1)
+      picked.push(p)
+      if (picked.length >= CATCH_UP_HIGHLIGHTS) break
+    }
+    if (!picked.length) return null
+
+    const highlights = await hydrateEngagement(supabase, profile.id, picked)
+    return { since: sinceIso, missedCount, highlights }
+  } catch (err) {
+    console.error('[getCatchUpAction] failed:', err)
+    return null
+  }
+}
+
+/** Heartbeat: "the user is actively on the feed right now". */
+export async function markFeedSeenAction(): Promise<void> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data: profile } = await supabase
+      .from('users').select('id').eq('auth_id', user.id).single()
+    if (!profile) return
+
+    const nowStr = new Date().toISOString()
+    // Only the provided columns are touched on conflict, so this never
+    // clobbers a pending catchup_since.
+    await createAdminClient().from('user_feed_state').upsert(
+      { user_id: profile.id, last_seen_at: nowStr, updated_at: nowStr },
+      { onConflict: 'user_id' }
+    )
+  } catch (err) {
+    console.error('[markFeedSeenAction] failed:', err)
+  }
+}
+
+/** The user closed the catch-up module - don't show this window again. */
+export async function dismissCatchUpAction(): Promise<void> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data: profile } = await supabase
+      .from('users').select('id').eq('auth_id', user.id).single()
+    if (!profile) return
+
+    const nowStr = new Date().toISOString()
+    await createAdminClient().from('user_feed_state').upsert(
+      { user_id: profile.id, last_seen_at: nowStr, catchup_since: null, updated_at: nowStr },
+      { onConflict: 'user_id' }
+    )
+  } catch (err) {
+    console.error('[dismissCatchUpAction] failed:', err)
+  }
 }
 
 // ─── Replies for a post ───────────────────────────────────────────────────────

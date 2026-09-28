@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowDownToLine, X, ChevronDown, CheckCircle, AlertCircle, Loader2, Search } from 'lucide-react'
+import Link from 'next/link'
 import { formatNaira } from '@/lib/utils'
 import { BIG_TRANSACTION_THRESHOLD_KOBO } from '@/lib/constants'
 import { useRouter } from 'next/navigation'
@@ -245,7 +246,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                 {needsBvnForAmount && (
                   <p style={{ fontSize: 12, color: 'var(--color-gold)', marginTop: 8, lineHeight: 1.5 }}>
                     Withdrawals of {formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO)} or more need BVN verification first.{' '}
-                    <a href="/settings/verify-bvn" style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>Verify BVN</a>
+                    <Link href="/settings/verify-bvn" style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>Verify BVN</Link>
                   </p>
                 )}
               </div>

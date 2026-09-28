@@ -28,6 +28,7 @@ import {
   recordPromotionClickAction,
 } from '@/lib/actions'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
+import { shouldAutoplay } from '@/lib/autoplay'
 import type { FeedPost } from '@/lib/actions/feed'
 import { useToast } from '@/components/layout/toast'
 import MediaViewer from '@/components/feed/media-viewer'
@@ -84,12 +85,6 @@ function Avatar({
 }
 
 // ── MediaRow ──────────────────────────────────────────────────────────────────
-function getAutoplayPreference(): boolean {
-  if (typeof window === 'undefined') return true
-  const stored = window.localStorage.getItem('spup-autoplay-videos')
-  return stored === null ? true : stored === 'true'
-}
-
 function TrackedVideo({ src, postId, width, height }: { src: string; postId: string; width?: number | null; height?: number | null }) {
   const viewFired = useRef(false)
   const completionFired = useRef(false)
@@ -97,16 +92,18 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
   const containerRef = useRef<HTMLDivElement>(null)
   const [muted, setMuted] = useState(true)
   const [playing, setPlaying] = useState(false)
-  const autoplayEnabled = useRef(getAutoplayPreference())
 
   useEffect(() => {
-    if (!autoplayEnabled.current) return
     const video = videoRef.current
     const container = containerRef.current
     if (!video || !container) return
 
     const observer = new IntersectionObserver(
       ([entry]) => {
+        // Read the setting each time (not once at mount) so a change in
+        // Settings and a switch from Wi-Fi to mobile data both take effect.
+        // When it says no, leave the video alone - the play button is there.
+        if (!shouldAutoplay()) return
         if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
           video.play().catch(() => {})
         } else {

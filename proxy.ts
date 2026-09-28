@@ -139,11 +139,19 @@ export async function proxy(request: NextRequest) {
       return withRefreshedCookies(NextResponse.next({ request }))
     }
 
+    // Every (admin) route EXCEPT the dashboard overview itself lives at its own
+    // top-level path - src/app/(admin)/promo-codes/page.tsx is served at
+    // /promo-codes, src/app/(admin)/users/page.tsx at /users, etc. - not nested
+    // under /dashboard. Only "/" needs mapping onto the dashboard overview page;
+    // every other admin path already matches a real route as-is. Rewriting them
+    // to /dashboard/* (as this used to do) targets a route that doesn't exist -
+    // this proxy file only started actually running once it was moved from the
+    // project root into src/ (Next.js's file-system convention for a src/
+    // layout), so that broken rewrite was silently never hit in practice until
+    // then, and it 404s every admin page except / and /dashboard the moment it
+    // does run.
     const rewriteUrl = request.nextUrl.clone()
-    rewriteUrl.pathname =
-      pathname === '/' ? '/dashboard'
-      : pathname.startsWith('/dashboard') ? pathname   // avoid double-prefixing /dashboard/dashboard
-      : `/dashboard${pathname}`
+    rewriteUrl.pathname = pathname === '/' ? '/dashboard' : pathname
 
     // { request } for the same reason as above: forward the refreshed cookies
     // to the page/layout/server actions rather than the stale originals.

@@ -7,6 +7,7 @@ import { headers } from 'next/headers'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { generateUniqueUsername, suggestUsernames } from '@/lib/username'
+import { usernameLengthError } from '@/lib/validations/username-length'
 import {
   signupSchema, loginSchema, emailOtpSchema,
   profileSetupSchema, interestsSchema, completeSocialProfileSchema,
@@ -419,7 +420,7 @@ export async function getUsernameSuggestionsAction() {
 // ── Onboarding: save username ─────────────────────────────────────────────────
 
 export async function checkUsernameAvailableAction(username: string) {
-  if (!username || username.length < 3) return { available: false }
+  if (!username || usernameLengthError(username)) return { available: false }
   const admin = createAdminClient()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -436,9 +437,9 @@ export async function checkUsernameAvailableAction(username: string) {
 }
 
 export async function saveUsernameAction(username: string) {
-  if (!username || username.length < 3) return { error: 'Username must be at least 3 characters.' }
+  const lengthErr = usernameLengthError(username)
+  if (lengthErr) return { error: lengthErr }
   if (!/^[a-zA-Z0-9_]+$/.test(username)) return { error: 'Letters, numbers and underscores only.' }
-  if (username.length > 20) return { error: 'Username must be 20 characters or less.' }
 
   const { supabase, user } = await getAuthUser()
   if (!user) return { error: 'Not authenticated' }

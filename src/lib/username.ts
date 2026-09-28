@@ -9,8 +9,8 @@ import type { createAdminClient } from '@/lib/supabase/server'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
-const MIN_LEN = 3
-const MAX_LEN = 20 // matches the cap saveUsernameAction enforces
+const MIN_LEN = 5
+const MAX_LEN = 12 // matches the cap usernameLengthError enforces
 
 /** Same character rule saveUsernameAction enforces: lowercase letters and digits (no underscore here - added explicitly where wanted). */
 function clean(s: string): string {
@@ -47,9 +47,9 @@ export function nameBasedCandidates(fullName: string): string[] {
   } else if (first) {
     add(first)                // john
   }
-  // Name existed but every candidate was under 3 chars (e.g. "Jo").
+  // Name existed but every candidate was under the minimum (e.g. "Jo", "John").
   if (out.length === 0 && (first || last)) add((first || last).padEnd(MIN_LEN, '0'))
-  if (out.length === 0) add('user')
+  if (out.length === 0) add('user'.padEnd(MIN_LEN, '0'))
   return out
 }
 

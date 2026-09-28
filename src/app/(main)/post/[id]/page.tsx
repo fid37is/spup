@@ -92,20 +92,33 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
 
     if (viewer) {
       const allIds = [post.id, ...(replies || []).map((r: any) => r.id), ...allDescendants.map((r: any) => r.id)]
-      const [{ data: likes }, { data: bookmarks }, { data: reposts }] = await Promise.all([
+      const [{ data: likes }, { data: bookmarks }, { data: reposts }, { data: promotions }] = await Promise.all([
         supabase.from('likes').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
         supabase.from('bookmarks').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
         supabase.from('posts').select('parent_post_id').eq('user_id', viewer.id).eq('post_type', 'repost').in('parent_post_id', allIds),
+        // Same "is this post actually promoted" check the feed queries do
+        // (see hydrateEngagement in lib/actions/feed.ts) - this page has its
+        // own separate hydration path, not that shared one, so it needs its
+        // own copy or a promoted post's own permalink page - exactly where
+        // its author would go to confirm the promotion is live - never
+        // showed the badge at all.
+        supabase.from('post_promotions').select('id, post_id')
+          .eq('status', 'active')
+          .or(`ends_at.is.null,ends_at.gt.${new Date().toISOString()}`)
+          .in('post_id', allIds),
       ])
       const likedSet = new Set((likes || []).map((l: any) => l.post_id))
       const bookmarkedSet = new Set((bookmarks || []).map((b: any) => b.post_id))
       const repostedSet = new Set((reposts || []).map((r: any) => r.parent_post_id))
+      const promotedMap = new Map((promotions || []).map((p: any) => [p.post_id, p.id]))
 
       const hydrate = (p: any) => ({
         ...p,
         is_liked: likedSet.has(p.id),
         is_bookmarked: bookmarkedSet.has(p.id),
         is_reposted: repostedSet.has(p.id),
+        is_promoted: promotedMap.has(p.id),
+        promotion_id: promotedMap.get(p.id),
       })
 
       return {
@@ -118,12 +131,12 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
   }
 
   return {
-    post: { ...post, is_liked: false, is_bookmarked: false, is_reposted: false },
+    post: { ...post, is_liked: false, is_bookmarked: false, is_reposted: false, is_promoted: false },
     replies: (replies || []).map((r: any) => attachNested(
-      { ...r, is_liked: false, is_bookmarked: false, is_reposted: false },
+      { ...r, is_liked: false, is_bookmarked: false, is_reposted: false, is_promoted: false },
       Object.fromEntries(
         Object.entries(nestedByParent).map(([k, v]) => [
-          k, (v as any[]).map((n: any) => ({ ...n, is_liked: false, is_bookmarked: false, is_reposted: false })),
+          k, (v as any[]).map((n: any) => ({ ...n, is_liked: false, is_bookmarked: false, is_reposted: false, is_promoted: false })),
         ])
       )
     )),

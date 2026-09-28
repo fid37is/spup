@@ -8,6 +8,7 @@
  * No changes required to ProfileHeader or ProfileTabs.
  */
 
+import { usernameLengthError, clampUsername } from '@/lib/validations/username-length'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -214,15 +215,14 @@ export default function AccountSettingsSection({
               }}>@</span>
               <input
                 value={username}
-                onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                maxLength={20}
+                onChange={e => setUsername(clampUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '')))}
                 autoCapitalize="none"
                 autoCorrect="off"
                 style={{ ...INP, paddingLeft: 28 }}
               />
             </div>
             <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 14, marginTop: 4 }}>
-              3–20 characters · Letters, numbers, underscores only
+              5–12 characters · Letters, numbers, underscores only
             </p>
             {usernameErr && (
               <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 10 }}>{usernameErr}</p>
@@ -236,7 +236,7 @@ export default function AccountSettingsSection({
               </button>
               <button
                 onClick={handleUsernameChange}
-                disabled={isPending || username.length < 3 || username === initialUsername}
+                disabled={isPending || usernameLengthError(username) !== null || username === initialUsername}
                 className="para-btn-primary"
                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}
               >

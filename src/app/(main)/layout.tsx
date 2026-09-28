@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import { getAuthUser, createAdminClient } from '@/lib/supabase/server'
 import { getProfileByAuthId, getOnboardingProgress, getUnreadNotificationCount } from '@/lib/queries'
-import { getWallet } from '@/lib/queries'
 import { getUnreadChatCount } from '@/lib/queries/chat'
 import SidebarNav from '@/components/layout/sidebar-nav'
 import RightSidebar from '@/components/layout/right-sidebar'
@@ -10,6 +9,7 @@ import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import MobileHeader from '@/components/layout/mobile-header'
 import PushNotificationsProvider from '@/components/layout/push-notifications-provider'
 import ActivityBeacon from '@/components/layout/activity-beacon' 
+import AutoplayPrefSync from '@/components/layout/autoplay-pref-sync'
 import { LanguageProvider } from '@/lib/i18n/language-context'
 import { isLocale, DEFAULT_LOCALE, loadDictionary } from '@/lib/i18n/dictionaries'
 
@@ -37,11 +37,10 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
   // ── Step 2: onboarding + sidebar data all in parallel ──────────────────────
   const admin = createAdminClient()
-  const [onboardingProgress, unreadCount, unreadChat, wallet, youFollow, followYou, initialMessages] = await Promise.all([
+  const [onboardingProgress, unreadCount, unreadChat, youFollow, followYou, initialMessages] = await Promise.all([
     getOnboardingProgress(profile.id),
     getUnreadNotificationCount(profile.id),
     getUnreadChatCount(profile.id),
-    getWallet(profile.id),
     admin.from('follows').select('following_id').eq('follower_id', profile.id),
     admin.from('follows').select('follower_id').eq('following_id', profile.id),
     loadDictionary(locale),
@@ -60,6 +59,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
     <LanguageProvider initialLocale={locale} initialMessages={initialMessages}>
       <PushNotificationsProvider userId={profile.id} />
       <ActivityBeacon />
+      <AutoplayPrefSync value={profile.autoplay_preference} />
       <style>{`
         .main-layout {
           display: flex;

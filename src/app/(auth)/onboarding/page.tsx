@@ -1,6 +1,7 @@
 // src/app/(auth)/onboarding/page.tsx
 'use client'
 
+import { usernameLengthError, clampUsername } from '@/lib/validations/username-length'
 import { useState, useRef, useEffect, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -172,7 +173,7 @@ export default function OnboardingPage() {
 
     if (
       !val ||
-      val.length < 3 ||
+      usernameLengthError(val) !== null ||
       !/^[a-zA-Z0-9_]+$/.test(val)
     ) {
       setUsernameStatus('idle')
@@ -188,10 +189,11 @@ export default function OnboardingPage() {
   }, [])
 
   function handleUsernameChange(val: string) {
-    const clean = val
-      .toLowerCase()
-      .replace(/[^a-z0-9_]/g, '')
-      .slice(0, 20)
+    const clean = clampUsername(
+      val
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '')
+    )
 
     setUsername(clean)
     setError('')
@@ -563,7 +565,6 @@ export default function OnboardingPage() {
                   handleUsernameChange(e.target.value)
                 }
                 placeholder="yourhandle"
-                maxLength={20}
                 autoFocus
                 style={{
                   ...BASE,
@@ -633,7 +634,7 @@ export default function OnboardingPage() {
 
               {usernameStatus === 'idle' && (
                 <span style={{ color: '#44444A' }}>
-                  3–20 characters. Letters, numbers,
+                  5–12 characters. Letters, numbers,
                   underscores only.
                 </span>
               )}
@@ -675,7 +676,7 @@ export default function OnboardingPage() {
             onClick={submitUsername}
             disabled={
               pendingUsername ||
-              username.length < 3 ||
+              usernameLengthError(username) !== null ||
               usernameStatus === 'taken' ||
               usernameStatus === 'checking'
             }
@@ -683,7 +684,7 @@ export default function OnboardingPage() {
               ...BTN,
               opacity:
                 pendingUsername ||
-                username.length < 3 ||
+                usernameLengthError(username) !== null ||
                 usernameStatus === 'taken' ||
                 usernameStatus === 'checking'
                   ? 0.45
