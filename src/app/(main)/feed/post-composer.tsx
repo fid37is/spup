@@ -400,94 +400,15 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const strokeOffset = circumference - Math.min(body.length / MAX_CHARS, 1) * circumference
   const isFullscreen = variant === 'fullscreen'
 
-  return (
-    <div style={{
-      padding: variant === 'fullscreen' ? '14px 0' : '14px 16px',
-      borderBottom: variant === 'modal' ? '1px solid var(--color-border)' : undefined,
-      display: 'flex',
-      flexDirection: 'column',
-      flex: variant === 'fullscreen' ? 1 : undefined,
-      minHeight: variant === 'fullscreen' ? 0 : undefined,
-      overflow: isFullscreen ? 'hidden' : undefined,
-    }}>
-      {/* Everything the user can type/attach (reply-chain preview, textarea,
-          media grid, error text) scrolls in its own region so an unbounded
-          amount of text or media can never push the toolbar below the fold -
-          the toolbar (and audience/selling/schedule rows) live outside this
-          box, always pinned to the bottom of the screen. `flex: 1` makes the
-          box fill whatever room is left above the toolbar even when there's
-          little content, so short posts still look the same as before
-          (toolbar at the very bottom, no gap) - overflowY only kicks in once
-          content actually exceeds that space. */}
-      <div style={isFullscreen ? { flex: 1, minHeight: 0, overflowY: 'auto' } : undefined}>
-      {replyChain.map(ancestor => (
-        <div key={ancestor.id} style={{ display: 'flex', gap: 12, marginBottom: 2, opacity: 0.55 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 42, flexShrink: 0 }}>
-            <div style={{
-              width: 26, height: 26, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
-              background: ancestor.authorAvatarUrl ? 'transparent' : 'var(--color-surface-3)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 10, color: 'var(--color-text-secondary)',
-            }}>
-              {ancestor.authorAvatarUrl
-                ? <img src={cloudinaryImage(ancestor.authorAvatarUrl, 52)} alt="" onError={fallbackToOriginal(ancestor.authorAvatarUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : ancestor.authorName.slice(0, 2).toUpperCase()}
-            </div>
-            <div style={{ width: 2, flex: 1, minHeight: 6, background: 'var(--color-border)', marginTop: 4 }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0, paddingTop: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-              <span style={{ fontWeight: 700, color: 'var(--color-text-secondary)', fontFamily: "'Syne', sans-serif" }}>{ancestor.authorName}</span>
-              <span style={{ color: 'var(--color-text-faint)' }}>@{ancestor.authorUsername}</span>
-            </div>
-            {ancestor.body?.trim() && (
-              <p style={{
-                margin: '2px 0 0', fontSize: 13, lineHeight: 1.4, color: 'var(--color-text-faint)',
-                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-              }}>
-                {ancestor.body}
-              </p>
-            )}
-          </div>
-        </div>
-      ))}
+  // Mobile reply screen only: thread scrolls, reply box stays pinned above the toolbar.
+  const pinInput = isFullscreen && !!replyTo
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // Long thread: open scrolled to the post being replied to, not the root.
+    if (pinInput && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [pinInput])
 
-      {/* Who you're replying to - read-only, no actions. Mirrors the compact
-          look comment rows use elsewhere, so a reply and a comment thread
-          read as the same visual language. */}
-      {replyTo && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 42, flexShrink: 0 }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
-              background: replyTo.authorAvatarUrl ? 'transparent' : 'var(--color-surface-3)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 12, color: 'var(--color-text-secondary)',
-            }}>
-              {replyTo.authorAvatarUrl
-                ? <img src={cloudinaryImage(replyTo.authorAvatarUrl, 64)} alt="" onError={fallbackToOriginal(replyTo.authorAvatarUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : replyTo.authorName.slice(0, 2).toUpperCase()}
-            </div>
-            <div style={{ width: 2, flex: 1, minHeight: 10, background: 'var(--color-border)', marginTop: 4 }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13.5 }}>
-              <span style={{ fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne', sans-serif" }}>{replyTo.authorName}</span>
-              <span style={{ color: 'var(--color-text-muted)' }}>@{replyTo.authorUsername}</span>
-            </div>
-            {replyTo.body?.trim() && (
-              <p style={{
-                margin: '2px 0 0', fontSize: 14, lineHeight: 1.45, color: 'var(--color-text-secondary)',
-                display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-              }}>
-                {replyTo.body}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Top block: avatar + textarea + media */}
+  const inputBlock = (
       <div style={{ display: 'flex', gap: 12 }}>
       {/* Avatar */}
       <div style={{
@@ -622,7 +543,108 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
         )}
       </div>
       </div>
+  )
+
+  return (
+    <div style={{
+      padding: variant === 'fullscreen' ? '14px 0' : '14px 16px',
+      borderBottom: variant === 'modal' ? '1px solid var(--color-border)' : undefined,
+      display: 'flex',
+      flexDirection: 'column',
+      flex: variant === 'fullscreen' ? 1 : undefined,
+      minHeight: variant === 'fullscreen' ? 0 : undefined,
+      overflow: isFullscreen ? 'hidden' : undefined,
+    }}>
+      {/* Everything the user can type/attach (reply-chain preview, textarea,
+          media grid, error text) scrolls in its own region so an unbounded
+          amount of text or media can never push the toolbar below the fold -
+          the toolbar (and audience/selling/schedule rows) live outside this
+          box, always pinned to the bottom of the screen. `flex: 1` makes the
+          box fill whatever room is left above the toolbar even when there's
+          little content, so short posts still look the same as before
+          (toolbar at the very bottom, no gap) - overflowY only kicks in once
+          content actually exceeds that space. */}
+      <div ref={scrollRef} style={isFullscreen ? { flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: pinInput ? 8 : 0 } : undefined}>
+      {replyChain.map(ancestor => (
+        <div key={ancestor.id} style={{ display: 'flex', gap: 12, paddingBottom: 18, opacity: 0.55 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 42, flexShrink: 0 }}>
+            <div style={{
+              width: 26, height: 26, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+              background: ancestor.authorAvatarUrl ? 'transparent' : 'var(--color-surface-3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 10, color: 'var(--color-text-secondary)',
+            }}>
+              {ancestor.authorAvatarUrl
+                ? <img src={cloudinaryImage(ancestor.authorAvatarUrl, 52)} alt="" onError={fallbackToOriginal(ancestor.authorAvatarUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : ancestor.authorName.slice(0, 2).toUpperCase()}
+            </div>
+            <div style={{ width: 2, flex: 1, minHeight: 6, background: 'var(--color-border)', marginTop: 4 }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <span style={{ fontWeight: 700, color: 'var(--color-text-secondary)', fontFamily: "'Syne', sans-serif" }}>{ancestor.authorName}</span>
+              <span style={{ color: 'var(--color-text-faint)' }}>@{ancestor.authorUsername}</span>
+            </div>
+            {ancestor.body?.trim() && (
+              <p style={{
+                margin: '4px 0 0', fontSize: 13, lineHeight: 1.45, color: 'var(--color-text-faint)',
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>
+                {ancestor.body}
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Who you're replying to - read-only, no actions. Mirrors the compact
+          look comment rows use elsewhere, so a reply and a comment thread
+          read as the same visual language. */}
+      {replyTo && (
+        <div style={{ display: 'flex', gap: 12, paddingBottom: 18 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 42, flexShrink: 0 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+              background: replyTo.authorAvatarUrl ? 'transparent' : 'var(--color-surface-3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 12, color: 'var(--color-text-secondary)',
+            }}>
+              {replyTo.authorAvatarUrl
+                ? <img src={cloudinaryImage(replyTo.authorAvatarUrl, 64)} alt="" onError={fallbackToOriginal(replyTo.authorAvatarUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : replyTo.authorName.slice(0, 2).toUpperCase()}
+            </div>
+            <div style={{ width: 2, flex: 1, minHeight: 10, background: 'var(--color-border)', marginTop: 4 }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13.5 }}>
+              <span style={{ fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne', sans-serif" }}>{replyTo.authorName}</span>
+              <span style={{ color: 'var(--color-text-muted)' }}>@{replyTo.authorUsername}</span>
+            </div>
+            {replyTo.body?.trim() && (
+              <p style={{
+                margin: '4px 0 0', fontSize: 14, lineHeight: 1.5, color: 'var(--color-text-secondary)',
+                display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>
+                {replyTo.body}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!pinInput && inputBlock}
       </div>
+
+      {/* Reply screen: the reply box is pinned right above the toolbar (same
+          as the new-post screen and other pages) instead of riding along at
+          the end of the scrolling thread. The thread above scrolls
+          underneath it. Its own max height + scroll keeps a long reply or
+          big media from squeezing the thread out entirely. */}
+      {pinInput && (
+        <div style={{ flexShrink: 0, maxHeight: '45vh', overflowY: 'auto', paddingTop: 12 }}>
+          {inputBlock}
+        </div>
+      )}
 
       <div style={variant === 'fullscreen' ? undefined : { marginLeft: 54 }}>
         {!replyTo && (
