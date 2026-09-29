@@ -13,6 +13,7 @@ import { NotifAvatar } from '@/components/notifications/avatar'
 import { useNetworkStatus } from '@/lib/network-status'
 import { useOfflinePostSync } from '@/hooks/use-offline-post-sync'
 import { WifiOff, Send } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 type Tab = 'for-you' | 'following' | 'mutuals' | 'selling'
 const AD_EVERY = 5
@@ -38,11 +39,11 @@ interface FeedClientProps {
   currentUserDisplayName?: string | null
 }
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'for-you',   label: 'For You'   },
-  { key: 'following', label: 'Following' },
-  { key: 'mutuals',   label: 'Mutuals'   },
-  { key: 'selling',   label: 'Selling'   },
+const TABS: { key: Tab; labelKey: string }[] = [
+  { key: 'for-you',   labelKey: 'feed.for_you'   },
+  { key: 'following', labelKey: 'feed.following' },
+  { key: 'mutuals',   labelKey: 'feed.mutuals'   },
+  { key: 'selling',   labelKey: 'feed.selling'   },
 ]
 
 function getFeedFn(tab: Tab) {
@@ -52,14 +53,15 @@ function getFeedFn(tab: Tab) {
   return getForYouFeedAction
 }
 
-const EMPTY: Record<Tab, { icon: React.ReactNode; title: string; body: string }> = {
-  'for-you':   { icon: <Sparkles size={32} />, title: 'Nothing here yet',     body: 'Be the first to post today.' },
-  'following': { icon: <Users size={32} />,    title: 'Follow some creators', body: 'Follow people to see their posts here.' },
-  'mutuals':   { icon: <Rss size={32} />,      title: 'No mutuals yet',       body: 'When someone follows you back, their posts appear here.' },
-  'selling':   { icon: <Tag size={32} />,      title: 'Nothing for sale yet', body: 'Posts marked as selling something will show up here.' },
+const EMPTY: Record<Tab, { icon: React.ReactNode; titleKey: string; bodyKey: string }> = {
+  'for-you':   { icon: <Sparkles size={32} />, titleKey: 'feed.empty_for_you_title',   bodyKey: 'feed.empty_for_you_desc' },
+  'following': { icon: <Users size={32} />,    titleKey: 'feed.empty_following_title', bodyKey: 'feed.empty_following_desc' },
+  'mutuals':   { icon: <Rss size={32} />,      titleKey: 'feed.empty_mutuals',         bodyKey: 'feed.empty_mutuals_desc' },
+  'selling':   { icon: <Tag size={32} />,      titleKey: 'feed.empty_selling',         bodyKey: 'feed.empty_selling_desc' },
 }
 
 export default function FeedClient({ initialPosts, initialCursor, initialCatchUp = null, currentUserId, currentUserAvatarUrl, currentUserDisplayName }: FeedClientProps) {
+  const { t } = useTranslation()
   const [activeTab, setActiveTab]       = useState<Tab>('for-you')
   const [posts, setPosts]               = useState<FeedPost[]>(initialPosts)
   const [cursor, setCursor]             = useState<string | null>(initialCursor)
@@ -298,7 +300,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
         borderBottom: '1px solid var(--color-border)',
       }}>
         <div style={{ display: 'flex' }}>
-          {TABS.map(({ key, label }) => (
+          {TABS.map(({ key, labelKey }) => (
             <button
               key={key}
               onClick={() => switchTab(key)}
@@ -311,7 +313,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
                 cursor: 'pointer', transition: 'color 0.15s',
               }}
             >
-              {label}
+              {t(labelKey)}
             </button>
           ))}
         </div>
@@ -326,8 +328,8 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
         }}>
           <WifiOff size={14} />
           {isOffline
-            ? "You're offline - showing what's already loaded."
-            : 'Slow connection - showing what\'s loaded. Refresh and new media are paused.'}
+            ? t('feed.offline_notice')
+            : t('feed.slow_connection')}
         </div>
       )}
 
@@ -341,7 +343,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
         }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Send size={14} />
-            {pendingCount} post{pendingCount > 1 ? 's' : ''} queued - will send once you're back online
+            {t('feed.queued_offline', { count: pendingCount, plural: pendingCount > 1 ? 's' : '' })}
           </span>
           {networkStatus === 'online' && (
             <button
@@ -349,7 +351,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
               onClick={() => trySync()}
               style={{ background: 'none', border: 'none', color: 'var(--color-brand)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
             >
-              Retry now
+              {t('feed.retry_now')}
             </button>
           )}
         </div>
@@ -394,7 +396,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
                 ))}
               </span>
             )}
-            {isFetchingNew ? 'Loading…' : 'posted'}
+            {isFetchingNew ? t('feed.new_posts_loading') : t('feed.new_posts_posted')}
           </button>
         </div>
       )}
@@ -425,7 +427,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
               textTransform: 'uppercase', color: 'var(--color-text-muted)',
               background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)',
             }}>
-              From before your last visit
+              {t('feed.from_before_last_visit')}
             </div>
           )}
           <PostCardWithAnalytics post={post} currentUserId={currentUserId} />
@@ -442,10 +444,10 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
             {EMPTY[activeTab].icon}
           </div>
           <h3 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--color-text-primary)', marginBottom: 8 }}>
-            {EMPTY[activeTab].title}
+            {t(EMPTY[activeTab].titleKey)}
           </h3>
           <p style={{ fontSize: 15, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
-            {EMPTY[activeTab].body}
+            {t(EMPTY[activeTab].bodyKey)}
           </p>
         </div>
       )}
@@ -461,20 +463,20 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
       {!isPending && hasMore && posts.length > 0 && networkStatus !== 'online' && (
         <div style={{ padding: '24px 20px', textAlign: 'center' }}>
           <p style={{ fontSize: 13, color: 'var(--color-text-faint)' }}>
-            {isOffline ? 'Reconnect to load more' : 'Loading more paused on this connection'}
+            {isOffline ? t('feed.reconnect_to_load_more') : t('feed.loading_paused')}
           </p>
         </div>
       )}
 
       {!hasMore && posts.length > 0 && (
         <div style={{ padding: '32px 20px', textAlign: 'center' }}>
-          <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>You&apos;re all caught up</p>
+          <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>{t('feed.caught_up')}</p>
         </div>
       )}
 
       <FloatingComposeBtn
         authorAvatarUrl={currentUserAvatarUrl}
-        authorName={currentUserDisplayName || 'You'}
+        authorName={currentUserDisplayName || t('feed.you')}
         userId={currentUserId}
         onPosted={post => {
           if (!post) return

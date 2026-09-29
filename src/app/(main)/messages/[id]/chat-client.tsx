@@ -22,14 +22,14 @@ import {
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
   sendMessageAction, deleteMessageAction, loadMessagesAction, markConversationReadAction,
-  uploadPublicKeyAction, getPublicKeyAction, verifyChatPinAction, getWrappedKeyAction, uploadWrappedKeyAction,
+  uploadPublicKeyAction, getPublicKeyAction, getWrappedKeyAction, uploadWrappedKeyAction,
   type ChatMediaInput,
 } from '@/lib/actions/messages'
 import {
   recoverOrCreateKeyPair, deriveSharedKey, encryptMessage, decryptMessage, isEncrypted,
   UNDECRYPTABLE, WrongPasswordError, getCachedPeerPublicKey, setCachedPeerPublicKey,
 } from '@/lib/chat-crypto'
-import { getSessionPinMaterial, setSessionPinMaterial } from '@/lib/chat-pin-session'
+import { getSessionPinMaterial } from '@/lib/chat-pin-session'
 import {
   arrange, upsertIncoming, confirmOptimistic, markFailed, markSending, removeMessage,
   applyRowUpdate, mergeFetched, statusOf, findPendingMatch, dayKey, dayLabel, type ChatMsg,
@@ -108,16 +108,15 @@ export default function ChatClient({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const attachAbortRef = useRef<AbortController | null>(null)
 
-  // Fallback PIN prompt for recoverOrCreateKeyPair(): only shown when
-  // getSessionPinMaterial() is empty (e.g. this tab reloaded after PinGate
-  // already unlocked it - the persisted unlock record still says "unlocked"
-  // for this session so PinGate won't re-ask, but the in-memory PIN+pepper
-  // was cleared on reload).
-  const [pinPromptOpen,  setPinPromptOpen]  = useState(false)
-  const [pinDigits,      setPinDigits]      = useState('')
-  const [pinPromptError, setPinPromptError] = useState('')
-  const [pinBusy,        setPinBusy]        = useState(false)
-  const pinResolverRef = useRef<((password: string | null) => void) | null>(null)
+  // Supplies recoverOrCreateKeyPair() with `${pin}:${pepper}` whenever
+  // PinGate (the one and only chat PIN prompt) already unlocked it this
+  // page load - never shows any UI of its own. If it's not cached (e.g.
+  // this tab reloaded after PinGate took its fast localStorage-only path),
+  // recovery is just skipped for this session rather than asking again.
+  const getPassword = useCallback((): string | null => {
+    const cached = getSessionPinMaterial()
+    return cached ? `${cached.pin}:${cached.pepper}` : null
+  }, [])
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const listRef      = useRef<HTMLDivElement>(null)
@@ -180,47 +179,6 @@ export default function ChatClient({
   }, [])
 
   // ── Crypto ─────────────────────────────────────────────────────────────────
-
-  // Supplies recoverOrCreateKeyPair() with `${pin}:${pepper}`. The common
-  // case (PinGate unlocked this same page load) resolves instantly from the
-  // in-memory session material with no UI. Only when that's empty do we
-  // show a prompt - and only submitPinPrompt() resolves it, and only after
-  // verifyChatPinAction confirms the PIN against the server-side bcrypt
-  // hash, so a wrong PIN never gets passed through to the unwrap step.
-  const getPassword = useCallback((): Promise<string | null> => {
-    const cached = getSessionPinMaterial()
-    if (cached) return Promise.resolve(`${cached.pin}:${cached.pepper}`)
-    setPinPromptError('')
-    setPinDigits('')
-    setPinPromptOpen(true)
-    return new Promise<string | null>(resolve => { pinResolverRef.current = resolve })
-  }, [])
-
-  async function submitPinPrompt() {
-    if (pinDigits.length !== 4 || pinBusy) return
-    setPinBusy(true)
-    const result = await verifyChatPinAction(pinDigits)
-    setPinBusy(false)
-    if (!result.valid || !result.pepper) {
-      setPinPromptError(
-        'rateLimited' in result && result.rateLimited ? 'Too many attempts. Please wait a few minutes and try again.'
-        : 'noPin' in result && result.noPin ? 'No chat PIN is set for this account yet.'
-        : 'Incorrect PIN. Try again.'
-      )
-      setPinDigits('')
-      return
-    }
-    setSessionPinMaterial(pinDigits, result.pepper)
-    setPinPromptOpen(false)
-    pinResolverRef.current?.(`${pinDigits}:${result.pepper}`)
-    pinResolverRef.current = null
-  }
-
-  function cancelPinPrompt() {
-    setPinPromptOpen(false)
-    pinResolverRef.current?.(null) // recoverOrCreateKeyPair treats this as "cancelled" and leaves messages unencrypted
-    pinResolverRef.current = null
-  }
 
   /** Fetch the other person's public key and derive the shared key. false = they have none yet. */
   const connectPeer = useCallback(async (): Promise<boolean> => {
@@ -285,23 +243,18 @@ export default function ChatClient({
       } catch (e) {
         if (cancelled) return
         if (e instanceof WrongPasswordError) {
-          // Only possible if the stored pepper doesn't match the wrapped
-          // key at all (data inconsistency) - a wrong PIN is already
-          // rejected inside submitPinPrompt before it ever gets here.
+          // The cached PIN+pepper didn't unlock the saved key - a data
+          // inconsistency, not a user mistake (PinGate already verified the
+          // PIN server-side before this ever runs).
           console.warn('Chat key recovery: PIN did not unlock the saved key', e)
         } else {
           console.warn('Crypto init failed - messages will be unencrypted', e)
         }
         setCryptoState('unavailable')
       } finally {
-        // Only the run that is still current may settle/close, otherwise React
-        // StrictMode's first (cancelled) run would release queued sends early
-        // and close a PIN prompt the second run is waiting on.
-        if (!cancelled) {
-          setPinPromptOpen(false)
-          pinResolverRef.current = null
-          settledRef.current?.resolve()
-        }
+        // Only the run that is still current may settle, otherwise React
+        // StrictMode's first (cancelled) run would release queued sends early.
+        if (!cancelled) settledRef.current?.resolve()
       }
     })()
     return () => { cancelled = true }
@@ -1234,76 +1187,6 @@ export default function ChatClient({
         <div style={{ padding: '14px 16px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-secondary)', borderTop: '1px solid var(--color-border)', flexShrink: 0 }}>
           This account no longer exists, so you can&apos;t send messages here.
         </div>
-      )}
-
-      {/* Fallback PIN prompt - only shown when recoverOrCreateKeyPair() needs
-          PIN material getSessionPinMaterial() didn't have (see getPassword above) */}
-      {pinPromptOpen && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'var(--overlay-bg)' }} />
-          <div style={{ position: 'fixed', inset: 0, zIndex: 501, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-            <div style={{
-              background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-              borderRadius: 20, padding: 24, width: '100%', maxWidth: 320,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-                <div style={{
-                  width: 52, height: 52, borderRadius: '50%', background: 'var(--color-brand)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Lock size={22} color="white" />
-                </div>
-              </div>
-              <h3 style={{ margin: '0 0 6px', textAlign: 'center', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--color-text-primary)' }}>
-                Confirm your chat PIN
-              </h3>
-              <p style={{ margin: '0 0 18px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
-                Needed to unlock your message history on this device
-              </p>
-              <input
-                value={pinDigits}
-                onChange={e => { setPinDigits(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinPromptError('') }}
-                onKeyDown={e => { if (e.key === 'Enter') void submitPinPrompt() }}
-                type="password"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={4}
-                autoFocus
-                placeholder="••••"
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  background: 'var(--input-bg)', border: '1px solid var(--color-border)', borderRadius: 10,
-                  padding: '12px 14px', color: 'var(--color-text-primary)',
-                  fontSize: 20, letterSpacing: '0.6em', textAlign: 'center', outline: 'none',
-                  fontFamily: "'DM Sans', sans-serif", marginBottom: 12,
-                }}
-              />
-              {pinPromptError && (
-                <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--color-error)', textAlign: 'center' }}>
-                  {pinPromptError}
-                </p>
-              )}
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  onClick={cancelPinPrompt}
-                  disabled={pinBusy}
-                  className="para-btn-ghost"
-                  style={{ flex: 1, padding: '12px 0', fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 600 }}
-                >
-                  Skip
-                </button>
-                <button
-                  onClick={() => void submitPinPrompt()}
-                  disabled={pinDigits.length !== 4 || pinBusy}
-                  className="para-btn-primary"
-                  style={{ flex: 1, padding: 12, fontSize: 14, fontFamily: "'Syne', sans-serif", fontWeight: 700 }}
-                >
-                  {pinBusy ? 'Checking…' : 'Unlock'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
       )}
 
       {/* Media lightbox */}

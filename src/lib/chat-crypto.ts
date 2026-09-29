@@ -140,14 +140,14 @@ function withKeyLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
  *  1b. Only the legacy shared slot has a key, and it matches this account's
  *     server-side public key -> adopt it (existing users keep their history).
  *  2. Not cached, but the server has a wrapped key from another device ->
- *     this is a "new device for an existing identity" - ask for the
- *     account password via getPassword(), unwrap, cache locally, return.
- *     A wrong password throws WrongPasswordError; caller should let the
- *     user retry rather than falling through to key generation, or a
- *     mistyped password would silently fork the identity.
+ *     "a new device recovering an existing identity". getPassword() is
+ *     asked for whatever PinGate already has on hand; if it has nothing,
+ *     recovery is skipped rather than prompting a second time (see
+ *     getPassword's doc below - there is only ONE PIN prompt in this app).
  *  3. Not cached, and the server has nothing wrapped yet -> brand new
- *     identity. Generate it, and if getPassword() is provided, also wrap
- *     and upload it immediately so a future device can recover it.
+ *     identity (the common case: someone's very first message on this
+ *     device). Generated and used immediately either way; if getPassword()
+ *     happens to have something, it's also backed up for a future device.
  *     `replacedExistingIdentity` is true when the server already had a public
  *     key for this account that this replaces (older encrypted messages
  *     can no longer be opened) - worth telling the person.
@@ -157,7 +157,15 @@ export async function recoverOrCreateKeyPair(opts: {
   fetchPublicKey?: () => Promise<string | null>
   fetchWrapped: () => Promise<{ wrapped: string; salt: string; iv: string } | null>
   uploadWrapped: (wrapped: string, salt: string, iv: string) => Promise<void>
-  getPassword: () => Promise<string | null> // null = user cancelled
+  /**
+   * Supplies `${pin}:${pepper}` if PinGate (the ONE chat PIN prompt in this
+   * app) already unlocked it this page load, else null. This must never
+   * itself show a prompt - there is deliberately no second "enter your PIN
+   * again" UI anywhere in chat. When it's null and a remote key needs
+   * unwrapping, recovery is just skipped for this session (cryptoState
+   * ends up 'unavailable') rather than interrupting the person again.
+   */
+  getPassword: () => string | null
 }): Promise<KeyPairResult & { recoveredFromServer: boolean; replacedExistingIdentity: boolean }> {
   const { userId } = opts
   return withKeyLock(userId, async () => {
@@ -169,8 +177,8 @@ export async function recoverOrCreateKeyPair(opts: {
 
     const remote = await opts.fetchWrapped()
     if (remote) {
-      const password = await opts.getPassword()
-      if (password === null) throw new Error('Password entry cancelled')
+      const password = opts.getPassword()
+      if (password === null) throw new Error('No PIN material available to recover this identity')
       const privJwk = await unwrapPrivateKeyJwk(remote.wrapped, remote.salt, remote.iv, password)
       const pair = await storeRecoveredKeyPair(userId, privJwk)
       return { ...pair, recoveredFromServer: true, replacedExistingIdentity: false }
@@ -178,7 +186,7 @@ export async function recoverOrCreateKeyPair(opts: {
 
     const hadServerKey = opts.fetchPublicKey ? !!(await opts.fetchPublicKey().catch(() => null)) : false
     const generated = await generateAndStoreKeyPair(userId)
-    const password = await opts.getPassword().catch(() => null)
+    const password = opts.getPassword()
     if (password) {
       const { wrapped, salt, iv } = await wrapPrivateKeyJwk(generated.privateKeyJwk, password)
       await opts.uploadWrapped(wrapped, salt, iv)

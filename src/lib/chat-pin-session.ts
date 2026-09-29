@@ -10,9 +10,10 @@
 // Deliberately in-memory only, not sessionStorage/localStorage: this holds
 // the PIN itself, which is materially more sensitive than the derived
 // wrapped-key blob (see 022_chat_pin_pepper.sql), so it shouldn't linger in
-// any inspectable storage. It's cleared on a full page reload, which is
-// fine — recoverOrCreateKeyPair() falls back to its own PIN prompt in that
-// case (see chat-client.tsx), and the common case (device already has a
+// any inspectable storage. It's cleared on a full page reload - PinGate is
+// the ONE and only PIN prompt in this app (see pin-gate.tsx), so if this is
+// empty when chat-crypto's recoverOrCreateKeyPair() wants it, it just does
+// without rather than asking again; the common case (device already has a
 // cached key in localStorage) never needs this at all.
 
 let material: { pin: string; pepper: string } | null = null
