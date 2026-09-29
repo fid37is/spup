@@ -262,13 +262,10 @@ function PreviewCard({
   primary: boolean
   lines: number
 }) {
+  const { t } = useTranslation()
   const body = post.body?.trim() || ''
   const hasThumb = !!post.media_thumb
   if (!body && !hasThumb) return null
-
-  function t(arg0: string): ReactNode {
-    throw new Error('Function not implemented.')
-  }
 
   return (
     <div style={{
