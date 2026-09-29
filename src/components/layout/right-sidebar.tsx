@@ -105,9 +105,24 @@ function ProgressBar({ pct }: { pct: number }) {
 // informationally — it's required at withdrawal, not for monetisation itself.
 // BVN (the extra check for large withdrawals) stays out of this widget
 // entirely — it only comes up in the wallet flow if/when it's relevant.
-function MonetisationProgress({ profile }: { profile: User }) {
+async function MonetisationProgress({ profile }: { profile: User }) {
   const followersVal = profile.followers_count ?? 0
-  const postsVal     = profile.posts_count     ?? 0
+  // profile.posts_count is the public "X posts" stat shown elsewhere on the
+  // profile - it deliberately counts every post the author makes, replies
+  // included, as a measure of overall activity. Monetisation eligibility is
+  // meant to reward original content though, so reusing that same number
+  // let a reply-heavy account clear "100 posts" without ever having posted
+  // 100 original things. This counts only top-level, non-repost posts -
+  // mirrors the same filter lib/actions/monetisation.ts uses server-side.
+  const { count: eligiblePostsCount } = await createAdminClient()
+    .from('posts')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', profile.id)
+    .is('parent_post_id', null)
+    .neq('post_type', 'repost')
+    .is('deleted_at', null)
+    .lte('created_at', new Date().toISOString())
+  const postsVal = eligiblePostsCount ?? 0
   const ninDone       = profile.nin_verified ?? false
   const accountAgeDays = Math.floor(
     (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24)
@@ -134,8 +149,9 @@ function MonetisationProgress({ profile }: { profile: User }) {
         <div style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
             <span style={{ color: 'var(--color-text-secondary)' }}>Followers</span>
-            <span style={{ fontWeight: 600, color: followersPct >= 100 ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
-              {formatNumber(followersVal)} / {formatNumber(REQUIRED_FOLLOWERS)}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: followersPct >= 100 ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
+              {followersPct >= 100 && <CheckCircle2 size={13} />}
+              {formatNumber(Math.min(followersVal, REQUIRED_FOLLOWERS))} / {formatNumber(REQUIRED_FOLLOWERS)}
             </span>
           </div>
           <ProgressBar pct={followersPct} />
@@ -144,8 +160,9 @@ function MonetisationProgress({ profile }: { profile: User }) {
         <div style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
             <span style={{ color: 'var(--color-text-secondary)' }}>Posts</span>
-            <span style={{ fontWeight: 600, color: postsPct >= 100 ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
-              {postsVal} / {REQUIRED_POSTS}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: postsPct >= 100 ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
+              {postsPct >= 100 && <CheckCircle2 size={13} />}
+              {Math.min(postsVal, REQUIRED_POSTS)} / {REQUIRED_POSTS}
             </span>
           </div>
           <ProgressBar pct={postsPct} />
@@ -154,7 +171,8 @@ function MonetisationProgress({ profile }: { profile: User }) {
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
             <span style={{ color: 'var(--color-text-secondary)' }}>Account age</span>
-            <span style={{ fontWeight: 600, color: agePct >= 100 ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: agePct >= 100 ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
+              {agePct >= 100 && <CheckCircle2 size={13} />}
               {Math.min(accountAgeDays, REQUIRED_ACCOUNT_AGE_DAYS)} / {REQUIRED_ACCOUNT_AGE_DAYS} days
             </span>
           </div>

@@ -30,9 +30,9 @@ function MonetisationChecklist({
   }
 
   const items = [
-    { label: '500+ followers',    ...safeCriteria.followers,    display: `${formatNumber(safeCriteria.followers.value as number)} / 500` },
+    { label: '500+ followers',    ...safeCriteria.followers,    display: `${formatNumber(Math.min(safeCriteria.followers.value as number, 500))} / 500` },
     { label: '90-day account',    ...safeCriteria.account_age,  display: `${Math.min(safeCriteria.account_age.value as number, 90)} / 90 days` },
-    { label: '100+ posts',        ...safeCriteria.posts,        display: `${formatNumber(safeCriteria.posts.value as number)} / 100` },
+    { label: '100+ posts',        ...safeCriteria.posts,        display: `${formatNumber(Math.min(safeCriteria.posts.value as number, 100))} / 100` },
   ]
   const metCount = items.filter(i => i.met).length
   const pct = Math.round((metCount / items.length) * 100)
