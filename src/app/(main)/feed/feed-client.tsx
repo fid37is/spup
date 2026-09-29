@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef, useCallback, useMemo } from 'react'
-import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, getSellingFeedAction, markFeedSeenAction, dismissCatchUpAction, type FeedPost, type CatchUp } from '@/lib/actions'
+import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, getSellingFeedAction, markFeedSeenAction, dismissCatchUpAction, getPostsByIdsAction, getFeedAudienceAction, type FeedPost, type CatchUp } from '@/lib/actions'
 import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import AdSlot from '@/components/feed/ad-card'
 import CatchUpCard from '@/components/feed/catch-up-card'
@@ -22,6 +22,20 @@ const AD_EVERY = 5
 const MAX_PILL_AVATARS = 3
 
 type NewAuthor = { id: string; display_name: string; avatar_url: string | null }
+
+// Who the viewer follows / is mutuals with / has hidden - lets a realtime INSERT be
+// judged against the tab on screen with no query per event.
+type Audience = { following: Set<string>; mutuals: Set<string>; hidden: Set<string> }
+
+// New posts waiting behind the pill are tracked by id and fetched by id on click
+// (one small indexed read of exactly those posts). Past this many the pill click
+// refreshes the top of the feed instead, so a long-idle tab can't leave a gap.
+const MAX_PENDING_IDS = 40
+
+// Engagement counts on posts already on screen are refreshed with one batched read
+// this often (while the tab is visible) - see the note on the polling effect.
+const COUNT_POLL_MS = 25_000
+const COUNT_POLL_MAX_IDS = 100
 
 // Feed "seen" heartbeat (drives the While-you-were-away catch-up): count the
 // user as having been on the feed once it's been visible for a few seconds -
@@ -71,6 +85,9 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
   const [isFetchingNew, setIsFetchingNew] = useState(false)
   const [newAuthors, setNewAuthors]     = useState<NewAuthor[]>([])
   const seenAuthorsRef = useRef<Set<string>>(new Set())
+  const pendingIdsRef = useRef<string[]>([])            // arrival order, oldest first
+  const pendingOverflowRef = useRef(false)              // more arrived than we track
+  const audienceRef = useRef<Promise<Audience | null> | null>(null)
   const [catchUp, setCatchUp]           = useState<CatchUp | null>(initialCatchUp)
   const feedTopRef  = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -140,6 +157,9 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
     setHasNew(false)
     setNewAuthors([])
     seenAuthorsRef.current = new Set()
+    pendingIdsRef.current = []
+    pendingOverflowRef.current = false
+    audienceRef.current = null // re-read follows/blocks lazily, they may have changed
     setCursor(null)
     setHasMore(true)
     startTransition(async () => {
@@ -179,10 +199,107 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
   const postsRef = useRef<FeedPost[]>(initialPosts)
   postsRef.current = posts
 
-  // Realtime - update counts on existing posts + detect new posts
+  // Live engagement for the posts on screen: other people's likes/reposts/comments,
+  // and this person's own like/repost state (so a like made on another device or in
+  // another view shows up too).
+  //
+  // Deliberately NOT a realtime subscription to posts UPDATEs: every like,
+  // impression and video view is an UPDATE on posts, and Realtime would push each
+  // one to every connected user and re-check RLS per subscriber - cost grows with
+  // (users x site-wide writes). Three small batched reads every COUNT_POLL_MS grow
+  // with users only, and are skipped while the tab is hidden or offline.
+  //
+  // Read straight from the browser (RLS-protected, same as the feed's own
+  // queries) rather than through a server action: server actions run one at a
+  // time per client, so a poll could otherwise make a like tap wait behind it.
+  // The person's own taps are unaffected either way - they're applied instantly
+  // by lib/engagement-state and only reconciled against these snapshots.
   useEffect(() => {
     const supabase = createBrowserClient()
-    const tab = activeTab
+    let inFlight = false
+    let lastRun = 0
+    async function refreshCounts() {
+      if (inFlight || document.visibilityState !== 'visible' || networkStatusRef.current !== 'online') return
+      if (Date.now() - lastRun < 5000) return
+      const ids = postsRef.current.slice(0, COUNT_POLL_MAX_IDS).map(p => p.id)
+      if (!ids.length) return
+      inFlight = true
+      lastRun = Date.now()
+      try {
+        const [countsRes, likesRes, repostsRes] = await Promise.all([
+          supabase.from('posts')
+            .select('id, likes_count, reposts_count, comments_count, impressions_count')
+            .in('id', ids).is('deleted_at', null),
+          currentUserId
+            ? supabase.from('likes').select('post_id').eq('user_id', currentUserId).in('post_id', ids)
+            : Promise.resolve(null),
+          currentUserId
+            ? supabase.from('posts').select('quoted_post_id')
+                .eq('user_id', currentUserId).eq('post_type', 'repost').in('quoted_post_id', ids)
+            : Promise.resolve(null),
+        ])
+        if (countsRes.error || !countsRes.data?.length) return
+        const byId = new Map<string, {
+          id: string; likes_count: number; reposts_count: number; comments_count: number; impressions_count: number
+        }>(countsRes.data.map((r: {
+          id: string; likes_count: number; reposts_count: number; comments_count: number; impressions_count: number
+        }) => [r.id, r]))
+        // Only trust the person's own state if its query succeeded - a failed one
+        // must not read as "you've unliked everything".
+        const likedSet = likesRes && !likesRes.error && likesRes.data
+          ? new Set<string>(likesRes.data.map((l: { post_id: string }) => l.post_id)) : null
+        const repostedSet = repostsRes && !repostsRes.error && repostsRes.data
+          ? new Set<string>(repostsRes.data.map((r: { quoted_post_id: string }) => r.quoted_post_id)) : null
+
+        setPosts(prev => {
+          let changed = false
+          const next = prev.map(p => {
+            const r = byId.get(p.id)
+            if (!r) return p
+            const is_liked = likedSet ? likedSet.has(p.id) : p.is_liked
+            const is_reposted = repostedSet ? repostedSet.has(p.id) : p.is_reposted
+            if (
+              r.likes_count === p.likes_count && r.reposts_count === p.reposts_count &&
+              r.comments_count === p.comments_count && r.impressions_count === p.impressions_count &&
+              is_liked === p.is_liked && is_reposted === p.is_reposted
+            ) return p
+            changed = true
+            return {
+              ...p,
+              likes_count: r.likes_count, reposts_count: r.reposts_count,
+              comments_count: r.comments_count, impressions_count: r.impressions_count,
+              is_liked, is_reposted,
+            }
+          })
+          return changed ? next : prev // untouched list => no re-render at all
+        })
+      } catch { /* best effort */ } finally { inFlight = false }
+    }
+    const timer = setInterval(refreshCounts, COUNT_POLL_MS)
+    const onVisible = () => { if (document.visibilityState === 'visible') void refreshCounts() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [currentUserId])
+
+  // Realtime - new posts only. One channel for the life of the feed (the tab is
+  // read from tabRef at event time, so switching tabs doesn't tear down and
+  // re-subscribe). No fetch happens here: an event is judged locally and, if it
+  // belongs in the tab on screen, its id is queued behind the pill.
+  useEffect(() => {
+    const supabase = createBrowserClient()
+
+    function getAudience(): Promise<Audience | null> {
+      if (!audienceRef.current) {
+        audienceRef.current = getFeedAudienceAction()
+          .then(a => ({
+            following: new Set<string>(a.following),
+            mutuals: new Set<string>(a.mutuals),
+            hidden: new Set<string>(a.hidden),
+          }))
+          .catch(() => { audienceRef.current = null; return null })
+      }
+      return audienceRef.current
+    }
 
     // Resolve at most MAX_PILL_AVATARS distinct authors per pill cycle with a
     // single-row lookup each (avatar + name only) - never a feed query.
@@ -190,6 +307,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
       const seen = seenAuthorsRef.current
       if (seen.size >= MAX_PILL_AVATARS || seen.has(authorId)) return
       seen.add(authorId)
+      const tabAtCall = tabRef.current
       supabase
         .from('users')
         .select('id, display_name, avatar_url')
@@ -197,51 +315,60 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
         .maybeSingle()
         .then(({ data }) => {
           if (!data) { seen.delete(authorId); return }
-          if (tabRef.current !== tab) return // tab changed while resolving
+          if (tabRef.current !== tabAtCall) return // tab changed while resolving
           setNewAuthors(prev => (prev.some(a => a.id === data.id) ? prev : [...prev, data as NewAuthor]))
         })
     }
 
+    function queuePending(id: string, authorId: string) {
+      if (postsRef.current.some(p => p.id === id)) return
+      const queue = pendingIdsRef.current
+      if (queue.includes(id)) return
+      if (queue.length >= MAX_PENDING_IDS) pendingOverflowRef.current = true
+      else queue.push(id)
+      setHasNew(true)
+      trackAuthor(authorId)
+    }
+
     const channel = supabase
-      .channel(`feed:posts:${activeTab}`)
-      // Update counts on existing posts
-      .on('postgres_changes', {
-        event: 'UPDATE', schema: 'public', table: 'posts',
-      }, payload => {
-        const u = payload.new as {
-          id: string; likes_count: number
-          reposts_count: number; comments_count: number; impressions_count: number
-        }
-        const visibleIds = new Set(postsRef.current.map(p => p.id))
-        if (!visibleIds.has(u.id)) return
-        setPosts(prev => prev.map(p =>
-          p.id === u.id
-            ? { ...p, likes_count: u.likes_count, reposts_count: u.reposts_count, comments_count: u.comments_count, impressions_count: u.impressions_count }
-            : p
-        ))
-      })
-      // New post inserted - no fetch here, just flag that something is waiting.
-      // The pill click does the (single) fetch.
+      .channel('feed:new-posts')
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'posts',
       }, payload => {
-        if (tabRef.current === 'mutuals') return
         const row = payload.new as {
-          user_id?: string; parent_post_id?: string | null; post_type?: string; is_selling?: boolean
+          id?: string; user_id?: string; parent_post_id?: string | null
+          is_selling?: boolean; created_at?: string
         }
-        // Replies and reposts never appear in these feeds
-        if (row.parent_post_id || row.post_type === 'repost') return
+        const id = row.id
+        const authorId = row.user_id
+        if (!id || !authorId) return
+        // Replies never appear in these feeds. (Reposts do - the feed queries
+        // include them - so they must be able to raise the pill too.)
+        if (row.parent_post_id) return
         // Your own posts are already added locally via onPosted
-        if (currentUserId && row.user_id === currentUserId) return
+        if (currentUserId && authorId === currentUserId) return
+        // Scheduled posts are inserted early with a future created_at; the feed
+        // queries hide them until due, so they must not raise the pill either.
+        if (row.created_at && Date.parse(row.created_at) > Date.now() + 5000) return
+
+        const tab = tabRef.current
         // Selling tab only cares about posts marked as selling
-        if (tabRef.current === 'selling' && !row.is_selling) return
-        setHasNew(true)
-        if (row.user_id) trackAuthor(row.user_id)
+        if (tab === 'selling' && !row.is_selling) return
+
+        // Mirror the feed queries: Following/Mutuals only include those people;
+        // For You and Selling leave out anyone blocked or muted.
+        void getAudience().then(aud => {
+          if (tabRef.current !== tab) return
+          if (tab === 'following' && !aud?.following.has(authorId)) return
+          if (tab === 'mutuals'   && !aud?.mutuals.has(authorId))   return
+          if ((tab === 'for-you' || tab === 'selling') && aud?.hidden.has(authorId)) return
+          queuePending(id, authorId)
+        })
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [activeTab, currentUserId])
+  }, [currentUserId])
 
   // Catch-up only belongs on the For You tab. Posts it already highlights are
   // pulled out of the stream below so nothing appears twice, and a divider marks
@@ -268,22 +395,37 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
   async function showNewPosts() {
     if (isFetchingNew || networkStatusRef.current !== 'online') return
     const tab = tabRef.current
+    const ids = pendingIdsRef.current
+    const overflowed = pendingOverflowRef.current
     setIsFetchingNew(true)
-    // Clear first so an event arriving mid-fetch re-arms the pill instead of being lost
+    // Take the queue first so an event arriving mid-fetch re-arms the pill instead of being lost
+    pendingIdsRef.current = []
+    pendingOverflowRef.current = false
     setHasNew(false)
     try {
-      const { posts: latest } = await getFeedFn(tab)()
+      let incoming: FeedPost[]
+      if (overflowed || ids.length === 0) {
+        // Too many to patch in (or nothing tracked): refresh the top of the feed
+        incoming = (await getFeedFn(tab)()).posts
+      } else {
+        // Exactly the posts that arrived - not a whole ranked page - newest first
+        incoming = (await getPostsByIdsAction([...ids].reverse()))
+          .sort((x, y) => (x.created_at < y.created_at ? 1 : x.created_at > y.created_at ? -1 : 0))
+      }
       if (tabRef.current !== tab) return // user switched tabs while loading
       setPosts(prev => {
         const existingIds = new Set(prev.map(p => p.id))
-        const toAdd = latest.filter(p => !existingIds.has(p.id))
+        const toAdd = incoming.filter(p => !existingIds.has(p.id))
         return toAdd.length ? [...toAdd, ...prev] : prev
       })
       setNewAuthors([])
       seenAuthorsRef.current = new Set()
       feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
     } catch {
-      setHasNew(true) // keep the pill so they can retry
+      // Put them back (ahead of anything that arrived meanwhile) so the pill can retry
+      pendingIdsRef.current = [...ids, ...pendingIdsRef.current].slice(0, MAX_PENDING_IDS)
+      pendingOverflowRef.current = pendingOverflowRef.current || overflowed
+      setHasNew(true)
     } finally {
       setIsFetchingNew(false)
     }

@@ -10,13 +10,14 @@ import {
   VolumeX, Volume2, Ban, Flag, Link2, Share2,
 } from 'lucide-react'
 import {
-  toggleFollowAction,
   toggleBlockAction,
   toggleMuteAction,
   togglePostNotificationsAction,
 } from '@/lib/actions/follows'
 import { getOrCreateConversationAction } from '@/lib/actions/messages'
 import { useToast } from '@/components/layout/toast'
+import { useEngagement, setEngagement } from '@/lib/engagement-sync'
+import ReportDialog from '@/components/feed/report-dialog'
 
 interface ProfileActionBarProps {
   targetUserId: string
@@ -47,12 +48,15 @@ export default function ProfileActionBar({
   const { success, error: toastError } = useToast()
   const [, startT] = useTransition()
 
-  const [following,  setFollowing]  = useState(initialFollowing)
+  // Saved instantly and delivered in the background (retried on a weak
+  // connection) - see engagement-sync.
+  const { active: following } = useEngagement('follow', targetUserId, initialFollowing)
   const [hovering,   setHovering]   = useState(false)
   const [notifs,     setNotifs]     = useState(initialNotifsEnabled)
   const [muted,      setMuted]      = useState(initialMuted)
   const [blocked,    setBlocked]    = useState(initialBlocked)
   const [showMenu,   setShowMenu]   = useState(false)
+  const [showReport, setShowReport] = useState(false)
   // Position of the dropdown itself, computed from the trigger button's
   // actual on-screen location and rendered via a fixed-position portal to
   // document.body (see openMenu below for why — the trigger button lives
@@ -76,13 +80,8 @@ export default function ProfileActionBar({
   }
 
   function handleFollow() {
-    const next = !following
-    setFollowing(next)
     setHovering(false)
-    startT(async () => {
-      const r = await toggleFollowAction(targetUserId)
-      if ('error' in r) { setFollowing(!next); toastError((r as any).error) }
-    })
+    setEngagement('follow', targetUserId, !following)
   }
 
   function handleNotif() {
@@ -110,7 +109,8 @@ export default function ProfileActionBar({
     setShowMenu(false)
     const next = !blocked
     setBlocked(next)
-    if (next) setFollowing(false)
+    // Blocking removes the follow; safe alongside the block request (unfollow is idempotent)
+    if (next) setEngagement('follow', targetUserId, false)
     startT(async () => {
       const r = await toggleBlockAction(targetUserId)
       if ('error' in r) { setBlocked(!next); toastError((r as any).error); return }
@@ -240,7 +240,7 @@ export default function ProfileActionBar({
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
               <Ban size={16} /> Block @{username}
             </button>
-            <button onClick={() => { setShowMenu(false); toastError('Report submitted. Thank you.') }}
+            <button onClick={() => { setShowMenu(false); setShowReport(true) }}
               style={{ ...MENU_BTN, color: 'var(--color-error)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
@@ -253,7 +253,15 @@ export default function ProfileActionBar({
     document.body
   )
 
-  const moreButtonRendered = <>{triggerRendered}{menuRendered}</>
+  const moreButtonRendered = (
+    <>
+      {triggerRendered}
+      {menuRendered}
+      {showReport && (
+        <ReportDialog entityType="user" entityId={targetUserId} subject={`@${username}`} onClose={() => setShowReport(false)} />
+      )}
+    </>
+  )
 
   if (blocked) {
     return (

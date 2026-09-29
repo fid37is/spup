@@ -101,6 +101,7 @@ export type ReportStatus =
 // ─── Database Row Types ────────────────────────────────────────────────────────
 
 export interface User {
+  original_posts_count: number
   id: string
   auth_id: string
   username: string

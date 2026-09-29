@@ -594,24 +594,12 @@ export async function getCatchUpAction(): Promise<CatchUp | null> {
     const nowIsoStr = new Date(nowMs).toISOString()
 
     // Who to leave out, and who the viewer follows (for relevance boosts).
-    const [{ data: blocks }, { data: mutes }, { data: following }, { data: followers }] = await Promise.all([
-      supabase.from('user_blocks').select('blocked_id').eq('blocker_id', profile.id),
-      supabase.from('user_mutes').select('muted_id').eq('muter_id', profile.id),
-      supabase.from('follows').select('following_id').eq('follower_id', profile.id),
-      supabase.from('follows').select('follower_id').eq('following_id', profile.id),
-    ])
-    const excludeIds = [
-      ...(blocks || []).map((b: { blocked_id: string }) => b.blocked_id),
-      ...(mutes || []).map((m: { muted_id: string }) => m.muted_id),
-    ]
-    const excludeSet = new Set(excludeIds)
-    const followingIds: string[] = (following || []).map((f: { following_id: string }) => f.following_id)
+    const graph = await loadViewerGraph(supabase, profile.id)
+    const excludeIds = graph.hidden
+    const excludeSet = new Set<string>(excludeIds)
+    const followingIds = graph.following
     const followingSet = new Set<string>(followingIds)
-    const mutualSet = new Set<string>(
-      (followers || [])
-        .map((f: { follower_id: string }) => f.follower_id)
-        .filter((id: string) => followingSet.has(id))
-    )
+    const mutualSet = new Set<string>(graph.mutuals)
 
     const SELECT = `
       id, body, post_type, likes_count, comments_count, reposts_count,
@@ -737,6 +725,55 @@ export async function dismissCatchUpAction(): Promise<void> {
     )
   } catch (err) {
     console.error('[dismissCatchUpAction] failed:', err)
+  }
+}
+
+// ─── Viewer's social graph (shared) ──────────────────────────────────────────
+// Who the viewer has blocked/muted, follows, and is mutuals with. Used by the
+// catch-up ranking and by the client's realtime "new posts" filter, so both
+// agree with what the feed queries themselves include.
+
+async function loadViewerGraph(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  profileId: string
+): Promise<{ hidden: string[]; following: string[]; mutuals: string[] }> {
+  const [{ data: blocks }, { data: mutes }, { data: following }, { data: followers }] = await Promise.all([
+    supabase.from('user_blocks').select('blocked_id').eq('blocker_id', profileId),
+    supabase.from('user_mutes').select('muted_id').eq('muter_id', profileId),
+    supabase.from('follows').select('following_id').eq('follower_id', profileId),
+    supabase.from('follows').select('follower_id').eq('following_id', profileId),
+  ])
+  const hidden: string[] = [
+    ...(blocks || []).map((b: { blocked_id: string }) => b.blocked_id),
+    ...(mutes || []).map((m: { muted_id: string }) => m.muted_id),
+  ]
+  const followingIds: string[] = (following || []).map((f: { following_id: string }) => f.following_id)
+  const followingSet = new Set<string>(followingIds)
+  const mutuals: string[] = (followers || [])
+    .map((f: { follower_id: string }) => f.follower_id)
+    .filter((id: string) => followingSet.has(id))
+  return { hidden, following: followingIds, mutuals }
+}
+
+/**
+ * Lets the client decide, without a query per event, whether a post that just
+ * arrived over realtime belongs in the tab it is looking at.
+ */
+export async function getFeedAudienceAction(): Promise<{
+  following: string[]; mutuals: string[]; hidden: string[]
+}> {
+  const empty = { following: [], mutuals: [], hidden: [] }
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return empty
+    const { data: profile } = await supabase
+      .from('users').select('id').eq('auth_id', user.id).single()
+    if (!profile) return empty
+    return await loadViewerGraph(supabase, profile.id)
+  } catch (err) {
+    console.error('[getFeedAudienceAction] failed:', err)
+    return empty
   }
 }
 

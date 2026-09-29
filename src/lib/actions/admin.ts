@@ -8,6 +8,7 @@ import { sendWaitlistInviteEmail, sendUserDataExportEmail } from '@/lib/email/se
 import { checkRateLimit } from '@/lib/rate-limit'
 import { fetchAllRows, maskEmail } from '@/lib/admin/export'
 import { buildUserDataExport } from '@/lib/admin/user-data-export'
+import { invalidateContentRulesCache } from '@/lib/content-rules'
 
 // ─── Guard: caller must be admin or moderator ─────────────────────────────────
 
@@ -121,17 +122,143 @@ export async function adminResolveReportAction(reportId: string, decision: Repor
   const { error, admin, profile } = await requireAdmin()
   if (error || !admin || !profile) return { error: error || 'Forbidden' }
 
-  const { error: reportError } = await admin.from('reports').update({
+  const { data: report } = await admin.from('reports')
+    .select('entity_type, entity_id').eq('id', reportId).single()
+  if (!report) return { error: 'Report not found' }
+
+  // One decision covers every pending report about the same post/account -
+  // otherwise removing a post leaves its other reports stuck in the queue
+  // pointing at something that no longer exists. Reviewer notes go in their
+  // own column so the reporter's own "details" text is never overwritten.
+  const { data: resolved, error: reportError } = await admin.from('reports').update({
     status: decision === 'dismiss' ? 'dismissed' : 'actioned',
     reviewer_id: profile.id,
     reviewed_at: new Date().toISOString(),
-    ...(notes && { details: notes }),
-  }).eq('id', reportId)
+    ...(notes && { review_notes: notes }),
+  })
+    .eq('entity_type', report.entity_type)
+    .eq('entity_id', report.entity_id)
+    .eq('status', 'pending')
+    .select('id')
 
   if (reportError) return { error: 'Update failed' }
+  if (!resolved || resolved.length === 0) return { error: 'This report was already handled.' }
 
-  await auditLog(profile.id, `report_${decision}`, 'report', reportId)
+  await auditLog(profile.id, `report_${decision}`, 'report', reportId, { resolved: resolved.length })
   revalidatePath('/reports')
+  revalidatePath('/moderation')
+  return { success: true }
+}
+
+// Sends the account a real warning (shows in their notifications). "Warn user"
+// on a report used to just close the report without telling anyone.
+export async function adminWarnUserAction(userId: string, reason: string) {
+  const { error, admin, profile } = await requireAdmin()
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  const { error: notifError } = await admin.from('notifications').insert({
+    recipient_id: userId,
+    type: 'system',
+    metadata: { message: `Warning from the Spup team: ${reason}` },
+  })
+  if (notifError) return { error: 'Could not send the warning' }
+
+  await auditLog(profile.id, 'warn_user', 'user', userId, { reason })
+  return { success: true }
+}
+
+// ─── Word rules (forbidden words) ─────────────────────────────────────────────
+
+const RULE_CATEGORIES = ['abuse', 'hate', 'threat', 'scam', 'spam', 'sexual', 'self_harm', 'other'] as const
+
+export async function adminAddRulesAction(input: {
+  terms: string
+  match_type: 'word' | 'contains'
+  action: 'flag' | 'block' | 'support'
+  category: string
+}) {
+  const { error, admin, profile } = await requireAdmin()
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  if (!['word', 'contains'].includes(input.match_type)) return { error: 'Invalid match type' }
+  if (!['flag', 'block', 'support'].includes(input.action)) return { error: 'Invalid action' }
+  if (!(RULE_CATEGORIES as readonly string[]).includes(input.category)) return { error: 'Invalid category' }
+
+  // One per line, or comma-separated - handy for pasting a list in.
+  const terms = [...new Set(
+    input.terms.split(/[\n,]/).map(t => t.trim().replace(/\s+/g, ' ')).filter(Boolean)
+  )]
+  if (terms.length === 0) return { error: 'Enter at least one word or phrase' }
+  if (terms.length > 200) return { error: 'Add at most 200 at a time' }
+  if (terms.some(t => t.length < 2 || t.length > 80)) return { error: 'Each word or phrase must be 2-80 characters' }
+
+  const { data: existing } = await admin.from('content_rules').select('term')
+  const have = new Set((existing || []).map((r: { term: string }) => r.term.toLowerCase()))
+  const fresh = terms.filter(t => !have.has(t.toLowerCase()))
+  if (fresh.length === 0) return { error: terms.length === 1 ? 'That one is already in the list' : 'All of those are already in the list' }
+
+  const { error: insertError } = await admin.from('content_rules').insert(
+    fresh.map(term => ({
+      term, match_type: input.match_type, action: input.action, category: input.category, created_by: profile.id,
+    }))
+  )
+  if (insertError) return { error: 'Could not add. Please try again.' }
+
+  invalidateContentRulesCache()
+  await auditLog(profile.id, 'add_content_rules', 'content_rule', profile.id, { count: fresh.length, action: input.action, category: input.category })
+  revalidatePath('/word-rules')
+  return { success: true, added: fresh.length, skipped: terms.length - fresh.length }
+}
+
+export async function adminUpdateRuleAction(ruleId: string, patch: { is_active?: boolean; action?: 'flag' | 'block' }) {
+  const { error, admin, profile } = await requireAdmin()
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  const update: Record<string, unknown> = {}
+  if (typeof patch.is_active === 'boolean') update.is_active = patch.is_active
+  if (patch.action === 'flag' || patch.action === 'block') update.action = patch.action
+  if (Object.keys(update).length === 0) return { error: 'Nothing to update' }
+
+  const { error: updateError } = await admin.from('content_rules').update(update).eq('id', ruleId)
+  if (updateError) return { error: 'Update failed' }
+
+  invalidateContentRulesCache()
+  await auditLog(profile.id, 'update_content_rule', 'content_rule', ruleId, update)
+  revalidatePath('/word-rules')
+  return { success: true }
+}
+
+export async function adminDeleteRuleAction(ruleId: string) {
+  const { error, admin, profile } = await requireAdmin()
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  const { error: deleteError } = await admin.from('content_rules').delete().eq('id', ruleId)
+  if (deleteError) return { error: 'Delete failed' }
+
+  invalidateContentRulesCache()
+  await auditLog(profile.id, 'delete_content_rule', 'content_rule', ruleId)
+  revalidatePath('/word-rules')
+  return { success: true }
+}
+
+// ─── Flagged content review ───────────────────────────────────────────────────
+
+export async function adminResolveFlagAction(flagId: string, decision: 'dismiss' | 'action_taken', notes?: string) {
+  const { error, admin, profile } = await requireAdmin()
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  const { data: resolved, error: flagError } = await admin.from('content_flags').update({
+    status: decision === 'dismiss' ? 'dismissed' : 'actioned',
+    reviewer_id: profile.id,
+    reviewed_at: new Date().toISOString(),
+    ...(notes && { review_notes: notes }),
+  }).eq('id', flagId).eq('status', 'pending').select('id')
+
+  if (flagError) return { error: 'Update failed' }
+  if (!resolved || resolved.length === 0) return { error: 'This flag was already handled.' }
+
+  await auditLog(profile.id, `flag_${decision}`, 'content_flag', flagId)
+  revalidatePath('/flagged')
   return { success: true }
 }
 

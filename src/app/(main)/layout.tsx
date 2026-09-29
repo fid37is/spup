@@ -10,6 +10,8 @@ import MobileHeader from '@/components/layout/mobile-header'
 import PushNotificationsProvider from '@/components/layout/push-notifications-provider'
 import ActivityBeacon from '@/components/layout/activity-beacon' 
 import AutoplayPrefSync from '@/components/layout/autoplay-pref-sync'
+import EngagementSyncProvider from '@/components/layout/engagement-sync-provider'
+import SupportResourcesHost from '@/components/layout/support-resources-host'
 import { LanguageProvider } from '@/lib/i18n/language-context'
 import { isLocale, DEFAULT_LOCALE, loadDictionary } from '@/lib/i18n/dictionaries'
 
@@ -60,6 +62,8 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <PushNotificationsProvider userId={profile.id} />
       <ActivityBeacon />
       <AutoplayPrefSync value={profile.autoplay_preference} />
+      <EngagementSyncProvider />
+      <SupportResourcesHost />
       <style>{`
         .main-layout {
           display: flex;

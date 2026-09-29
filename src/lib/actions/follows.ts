@@ -7,7 +7,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -23,6 +23,48 @@ function bumpCounter(supabase: SupabaseClient, table: string, column: string, id
     })
 }
 
+// ─── Follow-spam limits ──────────────────────────────────────────────────────
+// Following too many accounts too quickly pauses the person's ability to follow
+// for a few hours. Tune the numbers here - no migration needed.
+const FOLLOW_BURST_LIMIT      = 25          // new follows allowed inside the burst window...
+const FOLLOW_BURST_WINDOW_SEC = 10 * 60     // ...of 10 minutes
+const FOLLOW_BURST_PAUSE_SEC  = 3 * 3600    // pause after a burst: 3 hours
+const FOLLOW_DAILY_LIMIT      = 150         // new follows allowed in any 24 hours
+const FOLLOW_DAILY_PAUSE_SEC  = 6 * 3600    // pause after hitting the daily cap: 6 hours
+
+// Records a new follow against the person's limits. Returns when the pause ends
+// if they are (now) paused, or null if the follow may go ahead. Fails open on an
+// unexpected error: a limiter outage shouldn't stop everyone from following.
+async function registerFollowAttempt(userId: string): Promise<Date | null> {
+  try {
+    const { data, error } = await createAdminClient().rpc('register_follow_attempt', {
+      p_user: userId,
+      p_burst_limit: FOLLOW_BURST_LIMIT,
+      p_burst_window_secs: FOLLOW_BURST_WINDOW_SEC,
+      p_burst_pause_secs: FOLLOW_BURST_PAUSE_SEC,
+      p_daily_limit: FOLLOW_DAILY_LIMIT,
+      p_daily_pause_secs: FOLLOW_DAILY_PAUSE_SEC,
+    })
+    if (error) {
+      console.error('register_follow_attempt failed, allowing follow:', error.message)
+      return null
+    }
+    return data ? new Date(data as string) : null
+  } catch (err) {
+    console.error('register_follow_attempt threw, allowing follow:', err)
+    return null
+  }
+}
+
+function followPausedResponse(until: Date) {
+  const hours = Math.max(1, Math.ceil((until.getTime() - Date.now()) / 3_600_000))
+  return {
+    error: `You're following people too quickly, so following is paused for about ${hours} hour${hours === 1 ? '' : 's'}. Please try again later.`,
+    code: 'follow_paused' as const,
+    pausedUntil: until.toISOString(),
+  }
+}
+
 async function getCallerProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -33,14 +75,15 @@ async function getCallerProfile() {
 
 // ─── Follow / Unfollow ────────────────────────────────────────────────────────
 
-export async function toggleFollowAction(targetUserId: string) {
+// `desired` is the state being asked for (true = following). When given, the
+// action is idempotent: following someone already followed (a retried request,
+// a double tap, a stale screen) changes nothing instead of unfollowing them.
+// Without it this behaves as a plain toggle. `changed` reports whether the
+// database actually moved.
+export async function toggleFollowAction(targetUserId: string, desired?: boolean) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
   if (profile.id === targetUserId) return { error: 'You cannot follow yourself' }
-
-  // Get target username for path revalidation
-  const { data: targetUser } = await supabase.from('users').select('username').eq('id', targetUserId).single()
-  const targetUsername = targetUser?.username ?? targetUserId
 
   const { data: existing } = await supabase
     .from('follows')
@@ -48,17 +91,32 @@ export async function toggleFollowAction(targetUserId: string) {
     .match({ follower_id: profile.id, following_id: targetUserId })
     .maybeSingle()
 
-  if (existing) {
+  const isFollowing = !!existing
+  const target = desired ?? !isFollowing
+  if (target === isFollowing) return { following: isFollowing, changed: false }
+
+  // A brand-new follow counts against the spam limit. Unfollows and no-op
+  // repeats (a retried request, a double tap) never do.
+  if (!isFollowing) {
+    const pausedUntil = await registerFollowAttempt(profile.id)
+    if (pausedUntil) return followPausedResponse(pausedUntil)
+  }
+
+  // Only look the username up when something is actually changing
+  const { data: targetUser } = await supabase.from('users').select('username').eq('id', targetUserId).single()
+  const targetUsername = targetUser?.username ?? targetUserId
+
+  if (isFollowing) {
     await supabase.from('follows').delete().match({ follower_id: profile.id, following_id: targetUserId })
     bumpCounter(supabase, 'users', 'following_count', profile.id, -1)
     bumpCounter(supabase, 'users', 'followers_count', targetUserId, -1)
     revalidatePath('/profile')
     revalidatePath(`/user/${targetUsername}`)
-    return { following: false }
+    return { following: false, changed: true }
   }
 
   const { error } = await supabase.from('follows').insert({ follower_id: profile.id, following_id: targetUserId })
-  if (error?.code === '23505') return { following: true }
+  if (error?.code === '23505') return { following: true, changed: false }
   if (error?.code === '42501') return { error: 'Permission denied. Please log out and back in.' }
   if (error) return { error: `Could not follow: ${error.message}` }
 
@@ -70,7 +128,7 @@ export async function toggleFollowAction(targetUserId: string) {
   })
   revalidatePath('/profile')
   revalidatePath(`/user/${targetUsername}`)
-  return { following: true }
+  return { following: true, changed: true }
 }
 
 // ─── Read-only: check if currently following ──────────────────────────────────

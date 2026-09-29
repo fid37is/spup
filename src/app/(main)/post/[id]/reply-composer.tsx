@@ -12,13 +12,13 @@
 import { useState, useRef, useEffect, useTransition, useCallback } from 'react'
 import { ImageIcon, VideoIcon, X, Loader2, BarChart2, MapPin, Maximize2 } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
+import { showSupportResources } from '@/lib/support-resources'
 import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import MediaGrid from '@/components/feed/media-grid'
 import { useToast } from '@/components/layout/toast'
 import { useMentionAutocomplete } from '@/hooks/use-mention-autocomplete'
 import MentionSuggestions from '@/components/shared/mention-suggestions'
-import { useTranslation } from '@/lib/i18n/language-context'
 
 const MAX_CHARS = 500
 
@@ -37,7 +37,6 @@ export default function ReplyComposer({
   viewerAvatar,
   onPosted,
 }: ReplyComposerProps) {
-  const { t } = useTranslation()
   const router = useRouter()
   const { success, error: toastError } = useToast()
 
@@ -159,13 +158,14 @@ export default function ReplyComposer({
         toastError(result.error)
         return
       }
+      if ('support' in result && result.support) showSupportResources()
       setBody('')
       setError('')
       setShowMedia(false)
       setFocused(false)
       clear()
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      success(t('post.reply_posted'))
+      success('Reply posted')
       if (onPosted && 'post' in result && result.post) onPosted(result.post)
       else router.refresh()
     })
@@ -231,7 +231,7 @@ export default function ReplyComposer({
               if (mention.handleKeyDown(e)) return
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleReply()
             }}
-            placeholder={t('composer.reply_input_placeholder')}
+            placeholder="Reply..."
             rows={1}
             style={{
               width: '100%',
@@ -295,7 +295,7 @@ export default function ReplyComposer({
               <div style={{ display: 'flex', gap: 2 }}>
                 <ToolbarBtn
                   icon={<ImageIcon size={17} />}
-                  label={t('composer.add_image')}
+                  label="Add image"
                   onClick={() => {
                     setShowMedia(true)
                     ;(document.getElementById('reply-img-input') as HTMLInputElement | null)?.click()
@@ -303,7 +303,7 @@ export default function ReplyComposer({
                 />
                 <ToolbarBtn
                   icon={<VideoIcon size={17} />}
-                  label={t('composer.add_video')}
+                  label="Add video"
                   onClick={() => {
                     setShowMedia(true)
                     ;(document.getElementById('reply-vid-input') as HTMLInputElement | null)?.click()
@@ -313,7 +313,7 @@ export default function ReplyComposer({
                 <ToolbarBtn icon={<MapPin size={17} />} label="Location (coming soon)" onClick={() => {}} disabled />
                 <ToolbarBtn
                   icon={<Maximize2 size={16} />}
-                  label={t('composer.expand_fullscreen')}
+                  label="Expand to fullscreen"
                   onClick={() => router.push(`/compose?replyTo=${parentPostId}`)}
                 />
               </div>
@@ -352,10 +352,15 @@ export default function ReplyComposer({
                     transition: 'background 0.15s, color 0.15s',
                     display: 'flex', alignItems: 'center', gap: 5,
                     whiteSpace: 'nowrap', minHeight: 34,
+                    // Fixed width + centred so swapping the label for the
+                    // spinner doesn't make the button jump in size.
+                    minWidth: 70, justifyContent: 'center',
                   }}
                 >
-                  {isPending && <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} />}
-                  {isPending ? t('composer.replying') : t('composer.reply')}
+                  {/* Spinner only while sending - no "Replying…" text. */}
+                  {isPending
+                    ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+                    : 'Reply'}
                 </button>
               </div>
             </div>

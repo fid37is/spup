@@ -1,8 +1,8 @@
 // src/app/(main)/user/[username]/follow-button.tsx
 'use client'
 
-import { useState, useTransition } from 'react'
-import { toggleFollowAction } from '@/lib/actions'
+import { useState } from 'react'
+import { useEngagement, setEngagement } from '@/lib/engagement-sync'
 import { UserPlus, UserCheck, UserMinus } from 'lucide-react'
 
 interface FollowButtonProps {
@@ -18,10 +18,10 @@ export default function FollowButton({
   followsMe,
   isPrivate,
 }: FollowButtonProps) {
-  const [following, setFollowing] = useState(initialFollowing)
+  // Saved instantly and delivered in the background (retried on a weak
+  // connection) - see engagement-sync.
+  const { active: following } = useEngagement('follow', targetUserId, initialFollowing)
   const [hovering, setHovering] = useState(false)
-  const [isPending, startTransition] = useTransition()
-  const [error, setError] = useState('')
 
   // Label logic:
   // - Not following + they follow me → "Follow back"
@@ -31,18 +31,8 @@ export default function FollowButton({
   const isFollowBack = !following && followsMe
 
   function handleClick() {
-    const next = !following
-    setError('')
-    setFollowing(next)
     setHovering(false)
-
-    startTransition(async () => {
-      const result = await toggleFollowAction(targetUserId)
-      if ('error' in result) {
-        setFollowing(!next) // revert
-        setError(result.error ?? 'Something went wrong')
-      }
-    })
+    setEngagement('follow', targetUserId, !following)
   }
 
   if (!following) {
@@ -50,26 +40,19 @@ export default function FollowButton({
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
         <button
           onClick={handleClick}
-          disabled={isPending}
           style={{
             display: 'flex', alignItems: 'center', gap: 7,
             background: isFollowBack ? 'var(--color-brand)' : 'var(--color-brand)',
             border: 'none', borderRadius: 20, padding: '9px 20px',
-            cursor: isPending ? 'default' : 'pointer',
+            cursor: 'pointer',
             color: 'white', fontSize: 14, fontWeight: 700,
             fontFamily: "'Syne', sans-serif",
-            opacity: isPending ? 0.7 : 1,
             transition: 'opacity 0.15s, background 0.15s',
           }}
         >
           <UserPlus size={15} />
           {isFollowBack ? 'Follow back' : 'Follow'}
         </button>
-        {error && (
-          <span style={{ fontSize: 12, color: 'var(--color-error)', fontFamily: "'DM Sans', sans-serif" }}>
-            {error}
-          </span>
-        )}
       </div>
     )
   }
@@ -79,7 +62,6 @@ export default function FollowButton({
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
       <button
         onClick={handleClick}
-        disabled={isPending}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
         style={{
@@ -87,11 +69,10 @@ export default function FollowButton({
           background: hovering ? 'var(--color-error-muted, #2a0a0a)' : 'transparent',
           border: `1px solid ${hovering ? 'var(--color-error)' : 'var(--color-border)'}`,
           borderRadius: 20, padding: '9px 20px',
-          cursor: isPending ? 'default' : 'pointer',
+          cursor: 'pointer',
           color: hovering ? 'var(--color-error)' : 'var(--color-text-secondary)',
           fontSize: 14, fontWeight: 700,
           fontFamily: "'Syne', sans-serif",
-          opacity: isPending ? 0.7 : 1,
           transition: 'all 0.15s',
           minWidth: 110,
         }}
@@ -101,11 +82,6 @@ export default function FollowButton({
           : <><UserCheck size={15} /> Following</>
         }
       </button>
-      {error && (
-        <span style={{ fontSize: 12, color: 'var(--color-error)', fontFamily: "'DM Sans', sans-serif" }}>
-          {error}
-        </span>
-      )}
     </div>
   )
 }

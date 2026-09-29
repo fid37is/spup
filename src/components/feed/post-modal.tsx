@@ -4,6 +4,7 @@ import { useState, useRef, useTransition, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X, ImageIcon, Camera, Mic, BarChart2, MapPin, Tag } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
+import { showSupportResources } from '@/lib/support-resources'
 import { useRouter } from 'next/navigation'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import MediaGrid from './media-grid'
@@ -11,7 +12,6 @@ import SchedulePicker, { formatScheduled } from './schedule-picker'
 import DraftsPanel from './drafts-panel'
 import { saveDraft, deleteDraft, hasMeaningfulContent, newDraftId, type LocalDraft } from '@/lib/local-drafts'
 import { useToast } from '@/components/layout/toast'
-import { useTranslation } from '@/lib/i18n/language-context'
 
 const MAX_CHARS = 500
 
@@ -53,7 +53,6 @@ const AvatarCircle = ({ name, url, size = 44 }: { name: string; url?: string | n
 }
 
 export default function PostModal({ onClose, parentPostId, replyTo, viewer, userId }: PostModalProps) {
-  const { t } = useTranslation()
   const router = useRouter()
   const [body, setBody] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -161,6 +160,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
         })) : undefined,
       })
       if ('error' in result && result.error) { setError(result.error); return }
+      if ('support' in result && result.support) showSupportResources()
       if (userId) deleteDraft(userId, draftIdRef.current)
       const wasScheduled = 'scheduled' in result && result.scheduled
       const scheduledFor = 'scheduledFor' in result ? result.scheduledFor : undefined
@@ -309,7 +309,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
                   value={body}
                   onChange={handleChange}
                   onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost() }}
-                  placeholder={parentPostId ? t('composer.post_your_reply') : t('composer.main_placeholder')}
+                  placeholder={parentPostId ? 'Post your reply' : 'Wetin dey happen? Share your take…'}
                   autoFocus
                   rows={3}
                   style={{
@@ -407,7 +407,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
               />
               <ToolbarBtn
                 icon={<ImageIcon size={18} />}
-                label={t('composer.add_photo_video')}
+                label="Add photo or video"
                 onClick={() => mediaInputRef.current?.click()}
               />
 
@@ -422,7 +422,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
               />
               <ToolbarBtn
                 icon={<Camera size={18} />}
-                label={t('composer.take_photo_video')}
+                label="Take photo or video"
                 onClick={() => cameraInputRef.current?.click()}
               />
 
@@ -472,8 +472,8 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
                 }}
               >
                 {isPending
-                  ? (parentPostId ? t('composer.replying') : scheduledAt ? t('composer.scheduling') : t('composer.posting'))
-                  : (parentPostId ? t('composer.reply') : scheduledAt ? t('composer.schedule') : t('composer.post'))
+                  ? (parentPostId ? 'Replying…' : scheduledAt ? 'Scheduling…' : 'Posting…')
+                  : (parentPostId ? 'Reply' : scheduledAt ? 'Schedule' : 'Post')
                 }
               </button>
             </div>

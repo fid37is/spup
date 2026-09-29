@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, FileText, Megaphone,
   Flag, ShieldAlert, LogOut, Activity, Radio,
-  Wallet, BadgeCheck, UserPlus, Menu, Ticket, X, Quote,BarChart2, Scale,
+  Wallet, BadgeCheck, UserPlus, Menu, Ticket, X, Quote,BarChart2, Scale, Ban, AlertTriangle,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { cn } from '@/lib/utils'
@@ -47,6 +47,8 @@ const NAV_GROUPS = [
     label: 'Trust & safety',
     items: [
       { href: '/reports',     icon: Flag,        label: 'Reports' },
+      { href: '/flagged',     icon: AlertTriangle, label: 'Flagged content' },
+      { href: '/word-rules',  icon: Ban,         label: 'Word rules' },
       { href: '/moderation',  icon: ShieldAlert, label: 'Moderation' },
       { href: '/disputes',    icon: Scale,       label: 'Disputes' },
     ],

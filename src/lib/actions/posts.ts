@@ -11,6 +11,7 @@ import { createNotification } from '@/lib/notifications'
 import { notifyMentions, notifyPostSubscribers, queuePostNotifications } from '@/lib/post-notifications'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
 import { getPostById } from '@/lib/queries/posts'
+import { screenContent, recordContentFlag } from '@/lib/content-rules'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Fire-and-forget counter bump that still logs failures instead of swallowing
@@ -53,6 +54,16 @@ export async function createPostAction(data: CreatePostSchema) {
   if (profile.status === 'suspended' || profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
   const { body, parent_post_id, quoted_post_id, media, scheduled_at, is_selling } = parsed.data
 
+  // Word rules (admin panel -> Trust & safety -> Word rules). A "block" match
+  // stops the post here - the attempt is still queued for review so repeat
+  // offenders are visible. A "flag" match lets it publish and queues it below.
+  // The message is deliberately generic so it doesn't reveal what matched.
+  const screen = await screenContent(body)
+  if (screen.blocked) {
+    void recordContentFlag({ userId: profile.id, postId: null, outcome: 'blocked', matches: screen.matches, text: body })
+    return { error: "This contains language that isn't allowed on Spup. Please edit it and try again." }
+  }
+
   // Uploads now go straight from the phone to Cloudinary, so this action no
   // longer sees the file - only the details the client reports back. Make sure
   // every item really is in *this* user's post folder on *our* Cloudinary
@@ -87,6 +98,10 @@ export async function createPostAction(data: CreatePostSchema) {
     })
     .select('id').single()
   if (error) return { error: 'Failed to post. Please try again.' }
+
+  if (screen.matches.length > 0) {
+    void recordContentFlag({ userId: profile.id, postId: post.id, outcome: 'published', matches: screen.matches, text: body })
+  }
 
   // Extract #hashtags from the body and link them via post_hashtags - this
   // is what powers interest-based feed personalisation, hashtag search, and
@@ -157,7 +172,7 @@ export async function createPostAction(data: CreatePostSchema) {
     // Mentions + new-post alerts for this post go out when it goes live
     // (cron: /api/cron/scheduled-post-notifications).
     if (!parent_post_id) void queuePostNotifications(post.id)
-    return { success: true, postId: post.id, scheduled: true, scheduledFor: scheduled_at! }
+    return { success: true, postId: post.id, scheduled: true, scheduledFor: scheduled_at!, support: screen.needsSupport }
   }
 
   // Return the fully-hydrated post (author, media, counts, created_at) so the
@@ -165,11 +180,13 @@ export async function createPostAction(data: CreatePostSchema) {
   // just the id left callers building a bare `{ id }` stub that rendered as
   // "Invalid Date" with no media until the next full page refresh.
   const hydrated = await getPostById(post.id)
-  if (!hydrated) return { success: true, postId: post.id }
+  if (!hydrated) return { success: true, postId: post.id, support: screen.needsSupport }
 
   return {
     success: true,
     postId: post.id,
+    // true when the text matched a "support" rule - the composer then shows help resources
+    support: screen.needsSupport,
     post: {
       ...hydrated,
       is_liked: false,
@@ -322,7 +339,14 @@ export async function toggleLikeAction(postId: string, desired?: boolean) {
   return { liked: true, changed: true }
 }
 
-export async function toggleRepostAction(postId: string) {
+// `desired` (true = reposted) makes this idempotent, same as toggleLikeAction: a
+// double tap or stale screen can't flip the repost back. Without it, plain toggle.
+//
+// No revalidatePath('/feed'): FeedClient keeps its posts in client state and never
+// re-reads its server props, so re-rendering /feed server-side on every repost
+// (feed query + catch-up query) produced nothing the person could see. The UI
+// updates optimistically and reposts_count is kept by trg_sync_post_engagement.
+export async function toggleRepostAction(postId: string, desired?: boolean) {
   const { supabase, profile, failed } = await getCallerProfile()
   if (!profile) return noProfileError(failed)
   // reposts_count is no longer bumped/decremented manually anywhere in this
@@ -331,14 +355,14 @@ export async function toggleRepostAction(postId: string) {
   // COUNT(*) of those rows on every insert/hard-delete, so this can't drift.
   const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).maybeSingle()
   if (existing) {
+    if (desired === true) return { reposted: true } // already reposted - nothing to do
     await supabase.from('posts').delete().match({ id: existing.id }).select('id')
-    revalidatePath('/feed')
     return { reposted: false }
   }
+  if (desired === false) return { reposted: false } // already not reposted - nothing to do
   const { data: inserted } = await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).select('id')
   if (!inserted || inserted.length === 0) return { reposted: true }
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
-  revalidatePath('/feed')
   return { reposted: true }
 }
 

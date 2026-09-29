@@ -1,43 +1,37 @@
-// src/app/(admin)/reports/report-actions.tsx
 'use client'
+
+// src/app/(admin)/flagged/flag-actions.tsx
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { adminResolveReportAction, adminDeletePostAction, adminUpdateUserAction, adminWarnUserAction } from '@/lib/actions/admin'
 import { CheckCircle, XCircle } from 'lucide-react'
+import {
+  adminResolveFlagAction, adminDeletePostAction, adminUpdateUserAction, adminWarnUserAction,
+} from '@/lib/actions/admin'
 
-interface ReportActionsProps {
-  reportId: string
-  entityType: string
-  entityId: string
-  /** The actual account to act on — for post reports this is the post's
-      author, not the post id itself. Null when we couldn't resolve one
-      (e.g. the post was already deleted, or the entity is a comment). */
-  targetUserId: string | null
+interface FlagActionsProps {
+  flagId: string
+  /** Set only when the flagged post was published and still exists. */
+  postId: string | null
+  userId: string
 }
 
-export default function ReportActions({ reportId, entityType, entityId, targetUserId }: ReportActionsProps) {
+export default function FlagActions({ flagId, postId, userId }: FlagActionsProps) {
   const [expanded, setExpanded] = useState(false)
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
 
-  function resolve(decision: 'dismiss' | 'action_taken', extraAction?: () => Promise<{ error?: string }>) {
+  function resolve(decision: 'dismiss' | 'action_taken', extra?: () => Promise<{ error?: string }>) {
     setError(null)
     startTransition(async () => {
-      if (extraAction) {
-        const extraResult = await extraAction()
-        if (extraResult?.error) {
-          setError(extraResult.error)
-          return
-        }
+      if (extra) {
+        const r = await extra()
+        if (r?.error) { setError(r.error); return }
       }
-      const result = await adminResolveReportAction(reportId, decision, notes || undefined)
-      if (result?.error) {
-        setError(result.error)
-        return
-      }
+      const result = await adminResolveFlagAction(flagId, decision, notes || undefined)
+      if (result?.error) { setError(result.error); return }
       router.refresh()
     })
   }
@@ -49,14 +43,13 @@ export default function ReportActions({ reportId, entityType, entityId, targetUs
           <button
             onClick={() => resolve('dismiss')}
             disabled={isPending}
-            title="Dismiss — no action needed"
+            title="Dismiss - fine to leave as is"
             className="flex items-center gap-1.5 rounded-lg border border-[#2A2A30] bg-[#1A1A20] px-3.5 py-2 font-display text-[13px] font-semibold text-secondary disabled:opacity-60"
           >
             <XCircle size={14} /> Dismiss
           </button>
           <button
             onClick={() => setExpanded(true)}
-            title="Take action — remove content or warn user"
             className="flex items-center gap-1.5 rounded-lg border border-error/25 bg-error/10 px-3.5 py-2 font-display text-[13px] font-semibold text-error"
           >
             <CheckCircle size={14} /> Take action
@@ -72,34 +65,26 @@ export default function ReportActions({ reportId, entityType, entityId, targetUs
       <p className="mb-2.5 text-xs font-semibold text-secondary">CHOOSE ACTION</p>
 
       <div className="mb-3 flex flex-col gap-1.5">
-        {entityType === 'post' && (
+        {postId && (
           <ActionButton
             label="Remove post + resolve"
             color="#E53935"
-            onClick={() => resolve('action_taken', () => adminDeletePostAction(entityId, 'Removed via report'))}
             disabled={isPending}
+            onClick={() => resolve('action_taken', () => adminDeletePostAction(postId, 'Removed for breaking the content rules'))}
           />
         )}
-        {targetUserId && (
-          <ActionButton
-            label="Warn user + resolve"
-            color="#D4A017"
-            onClick={() => resolve('action_taken', () => adminWarnUserAction(targetUserId, 'A report about your content was reviewed and it broke our community rules. Repeated breaches can lead to suspension.'))}
-            disabled={isPending}
-          />
-        )}
-        {targetUserId ? (
-          <ActionButton
-            label="Suspend user + resolve"
-            color="#E53935"
-            onClick={() => resolve('action_taken', () => adminUpdateUserAction({ userId: targetUserId, action: 'suspend' }))}
-            disabled={isPending}
-          />
-        ) : (
-          <p className="px-1 py-1 text-[11px] text-faint">
-            Can't resolve a target account to suspend for this {entityType}.
-          </p>
-        )}
+        <ActionButton
+          label="Warn user + resolve"
+          color="#D4A017"
+          disabled={isPending}
+          onClick={() => resolve('action_taken', () => adminWarnUserAction(userId, 'Your recent post broke our content rules. Repeated breaches can lead to suspension.'))}
+        />
+        <ActionButton
+          label="Suspend user + resolve"
+          color="#E53935"
+          disabled={isPending}
+          onClick={() => resolve('action_taken', () => adminUpdateUserAction({ userId, action: 'suspend' }))}
+        />
       </div>
 
       <textarea
@@ -112,10 +97,7 @@ export default function ReportActions({ reportId, entityType, entityId, targetUs
 
       {error && <p className="mb-2 text-[11px] text-error">{error}</p>}
 
-      <button
-        onClick={() => { setExpanded(false); setError(null) }}
-        className="w-full text-center text-xs text-faint"
-      >
+      <button onClick={() => { setExpanded(false); setError(null) }} className="w-full text-center text-xs text-faint">
         Cancel
       </button>
     </div>

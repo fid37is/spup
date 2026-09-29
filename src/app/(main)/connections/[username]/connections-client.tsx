@@ -2,10 +2,10 @@
 'use client'
 
 import VerifiedBadge from '@/components/ui/verified-badge'
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserCheck, UserMinus, UserPlus, Loader2, BadgeCheck, Star } from 'lucide-react'
-import { toggleFollowAction } from '@/lib/actions'
+import { UserCheck, UserMinus, UserPlus, BadgeCheck, Star } from 'lucide-react'
+import { useEngagement, setEngagement } from '@/lib/engagement-sync'
 
 type Tab = 'following' | 'followers' | 'mutuals'
 
@@ -69,21 +69,17 @@ function FollowBtn({
   followsMe: boolean
   isOwnProfile: boolean
 }) {
-  const [following, setFollowing] = useState(initialFollowing)
+  // Saved instantly and delivered in the background (retried on a weak
+  // connection) - see engagement-sync.
+  const { active: following } = useEngagement('follow', targetUserId, initialFollowing)
   const [hovered,   setHovered]   = useState(false)
-  const [isPending, startTransition] = useTransition()
 
   // Don't show a button for own profile entries
   if (isOwnProfile) return null
 
   function handleClick(e: React.MouseEvent) {
     e.stopPropagation()
-    const next = !following
-    setFollowing(next)
-    startTransition(async () => {
-      const result = await toggleFollowAction(targetUserId)
-      if ('error' in result) setFollowing(!next)
-    })
+    setEngagement('follow', targetUserId, !following)
   }
 
   let bg: string, border: string, color: string, label: string, icon: React.ReactNode
@@ -113,24 +109,20 @@ function FollowBtn({
       onClick={handleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      disabled={isPending}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
         padding: '0 14px', height: 34, borderRadius: 24,
         border: `1.5px solid ${border}`,
         background: bg, color,
         fontSize: 13, fontWeight: 700,
-        cursor: isPending ? 'default' : 'pointer',
+        cursor: 'pointer',
         fontFamily: "'Syne', sans-serif",
         transition: 'all 0.15s',
         whiteSpace: 'nowrap', flexShrink: 0,
-        minWidth: 96, opacity: isPending ? 0.7 : 1,
+        minWidth: 96,
       }}
     >
-      {isPending
-        ? <Loader2 size={13} style={{ animation: 'spin 0.65s linear infinite' }} />
-        : <>{icon}{label}</>
-      }
+      {icon}{label}
     </button>
   )
 }

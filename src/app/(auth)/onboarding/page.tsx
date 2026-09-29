@@ -13,7 +13,8 @@ import {
   saveInterestsAction,
   completeOnboardingAction,
 } from '@/lib/actions'
-import { getSuggestedAccountsAction, toggleFollowAction } from '@/lib/actions/follows'
+import { getSuggestedAccountsAction } from '@/lib/actions/follows'
+import { useEngagement, setEngagement } from '@/lib/engagement-sync'
 import { Alert } from '@/components/auth/form-field'
 import { NIGERIAN_INTERESTS } from '@/types'
 import {
@@ -349,6 +350,7 @@ export default function OnboardingPage() {
   // ── Finish ───────────────────────────────────────────────────────────────────
 
   function toggleFollow(userId: string, username: string) {
+    const willFollow = !followed.has(username)
     setFollowed(prev => {
       const next = new Set(prev)
 
@@ -361,8 +363,8 @@ export default function OnboardingPage() {
       return next
     })
 
-    // Fire follow action (don't await — optimistic)
-    void toggleFollowAction(userId)
+    // Saved instantly, delivered in the background and retried on a weak connection
+    setEngagement('follow', userId, willFollow)
   }
 
   function finish() {
