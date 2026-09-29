@@ -109,13 +109,22 @@ async function getPostsByInterestIds(db: Supabase, interestIds: string[], profil
   const tagIds = (tags || []).map((t: any) => t.id)
   if (!tagIds.length) return []
 
+  // Over-fetch, then keep only real top-level posts and show newest first.
+  // post_hashtags has no ordering of its own, so a bare .limit() returned an
+  // arbitrary slice - including deleted posts, replies and reposts.
   const { data: rows } = await db
     .from('post_hashtags')
-    .select(`post:posts(${POST_SELECT})`)
+    .select(`post:posts(${POST_SELECT}, deleted_at, parent_post_id)`)
     .in('hashtag_id', tagIds)
-    .limit(limit)
+    .limit(Math.max(limit * 5, 100))
 
-  const posts = (rows || []).map((r: any) => r.post).filter(Boolean)
+  const seen = new Set<string>()
+  const posts = (rows || [])
+    .map((r: any) => r.post)
+    .filter((p: any) => p && !p.deleted_at && !p.parent_post_id && p.post_type !== 'repost')
+    .filter((p: any) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
+    .sort((a: any, b: any) => +new Date(b.created_at) - +new Date(a.created_at))
+    .slice(0, limit)
   if (!posts.length) return []
   if (!profileId) return noEngagement(posts)
   return hydrateEngagement(db, profileId, posts)

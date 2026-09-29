@@ -40,7 +40,10 @@ function shortCode(name: string, tla?: string): string {
 
 export async function getMatchdayFixtures(): Promise<MatchdayFixture[]> {
   const apiKey = process.env.MATCHDAY_API_KEY
-  if (!apiKey) return []
+  if (!apiKey) {
+    console.error('[matchday] MATCHDAY_API_KEY is not set - score strip disabled')
+    return []
+  }
 
   const today = new Date()
   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
@@ -57,10 +60,15 @@ export async function getMatchdayFixtures(): Promise<MatchdayFixture[]> {
         next: { revalidate: 180 },
       }
     )
-    if (!res.ok) return []
+    if (!res.ok) {
+      // 403 = key/plan not allowed, 429 = free-tier rate limit, 401 = bad key
+      console.error(`[matchday] football-data.org responded ${res.status}`)
+      return []
+    }
 
     const json = await res.json()
     const matches = (json.matches || []) as any[]
+    if (matches.length === 0) console.warn('[matchday] API returned no matches for the date window')
 
     return matches
       .filter(m => ['LIVE', 'IN_PLAY', 'PAUSED', 'FINISHED', 'SCHEDULED', 'TIMED'].includes(m.status))
@@ -87,7 +95,8 @@ export async function getMatchdayFixtures(): Promise<MatchdayFixture[]> {
         homeScore: m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? null,
         awayScore: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? null,
       }))
-  } catch {
+  } catch (err) {
+    console.error('[matchday] request failed:', err)
     return []
   }
 }

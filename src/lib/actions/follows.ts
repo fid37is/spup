@@ -9,19 +9,9 @@
 import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
-import type { SupabaseClient } from '@supabase/supabase-js'
 
-// Fire-and-forget counter bump that still logs failures instead of swallowing
-// them silently - identical helper to the one in posts.ts. This one was
-// missing here, which is why follow counts could silently drift: an RPC
-// failure (or the function returning before an unawaited call finished)
-// left following_count/followers_count stale with no trace in the logs.
-function bumpCounter(supabase: SupabaseClient, table: string, column: string, id: string, amount: number) {
-  void supabase.rpc('increment_counter', { p_table: table, p_column: column, p_id: id, p_amount: amount })
-    .then(({ error }: { error: { message: string } | null }) => {
-      if (error) console.error(`increment_counter failed (${table}.${column}, id=${id}):`, error.message)
-    })
-}
+// followers_count / following_count are maintained by the trg_sync_follow_counts
+// trigger on `follows` (migration 042) - never write them from app code.
 
 // ─── Follow-spam limits ──────────────────────────────────────────────────────
 // Following too many accounts too quickly pauses the person's ability to follow
@@ -108,8 +98,6 @@ export async function toggleFollowAction(targetUserId: string, desired?: boolean
 
   if (isFollowing) {
     await supabase.from('follows').delete().match({ follower_id: profile.id, following_id: targetUserId })
-    bumpCounter(supabase, 'users', 'following_count', profile.id, -1)
-    bumpCounter(supabase, 'users', 'followers_count', targetUserId, -1)
     revalidatePath('/profile')
     revalidatePath(`/user/${targetUsername}`)
     return { following: false, changed: true }
@@ -120,8 +108,6 @@ export async function toggleFollowAction(targetUserId: string, desired?: boolean
   if (error?.code === '42501') return { error: 'Permission denied. Please log out and back in.' }
   if (error) return { error: `Could not follow: ${error.message}` }
 
-  bumpCounter(supabase, 'users', 'following_count', profile.id, 1)
-  bumpCounter(supabase, 'users', 'followers_count', targetUserId, 1)
   void createNotification({
     recipientId: targetUserId, actorId: profile.id,
     type: 'new_follower', entityId: profile.id, entityType: 'user',
@@ -160,18 +146,10 @@ export async function toggleBlockAction(targetUserId: string) {
     return { blocked: false }
   }
 
-  // Remove follow in both directions when blocking, and decrement counts for
-  // whichever direction(s) actually existed — previously these rows were
-  // deleted without ever touching following_count/followers_count, which
-  // left both users' counts permanently too high after any block.
-  const { data: removedFollows } = await supabase.from('follows').delete()
+  // Remove follow in both directions when blocking. Counts follow from the
+  // deleted rows via the follows trigger (migration 042).
+  await supabase.from('follows').delete()
     .or(`and(follower_id.eq.${profile.id},following_id.eq.${targetUserId}),and(follower_id.eq.${targetUserId},following_id.eq.${profile.id})`)
-    .select('follower_id, following_id')
-
-  for (const f of removedFollows || []) {
-    bumpCounter(supabase, 'users', 'following_count', f.follower_id, -1)
-    bumpCounter(supabase, 'users', 'followers_count', f.following_id, -1)
-  }
 
   await supabase.from('user_blocks').insert({ blocker_id: profile.id, blocked_id: targetUserId })
   revalidatePath('/feed')
