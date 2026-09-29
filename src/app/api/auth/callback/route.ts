@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { generateUniqueUsername } from '@/lib/username'
 import { hasRealName } from '@/lib/validations/schemas'
+import { getCookieLocale } from '@/lib/i18n/locale-cookie.server'
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
@@ -42,6 +43,7 @@ export async function GET(request: NextRequest) {
       username: await generateUniqueUsername(admin, fullName),
       role: 'user',
       status: 'active',
+      language_preference: await getCookieLocale(),
     })
 
     // Redirect to complete-profile to collect DoB (and optionally name)

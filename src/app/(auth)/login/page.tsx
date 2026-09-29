@@ -11,6 +11,8 @@ import { loginAction } from '@/lib/actions'
 import { AuthCard, Alert } from '@/components/auth/form-field'
 import OAuthButtons, { AuthDivider } from '@/components/auth/oauth-buttons'
 import { useWaitlist } from '@/components/landing/waitlist-context'
+import { useTranslation } from '@/lib/i18n/language-context'
+import { tv } from '@/lib/i18n/validation'
 
 const ENABLE_LOGIN = process.env.NEXT_PUBLIC_ENABLE_LOGIN === 'true'
 
@@ -36,6 +38,7 @@ const lbl: React.CSSProperties = {
 
 function LoginForm() {
   const router = useRouter()
+  const { t } = useTranslation()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get('redirectTo') || '/feed'
 
@@ -44,10 +47,10 @@ function LoginForm() {
   // surface that as the same Alert a failed sign-in attempt would show.
   const hostErrorParam = searchParams.get('error')
   const hostErrorMessage = useMemo(() => {
-    if (hostErrorParam === 'admin_only') return 'This sign-in is for admin accounts only.'
-    if (hostErrorParam === 'use_admin_domain') return 'Admin accounts must sign in at the admin portal.'
+    if (hostErrorParam === 'admin_only') return t('auth.admin_only_notice')
+    if (hostErrorParam === 'use_admin_domain') return t('auth.admin_only_desc')
     return ''
-  }, [hostErrorParam])
+  }, [hostErrorParam, t])
 
   const [serverError, setServerError] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -75,7 +78,7 @@ function LoginForm() {
   }
 
   return (
-    <AuthCard title="Welcome back" subtitle="Sign in to your Spup account">
+    <AuthCard title={t('auth.welcome_back')} subtitle={t('auth.signin_subtitle')}>
       {(serverError || hostErrorMessage) && <Alert type="error" message={serverError || hostErrorMessage} />}
 
       {/* Social auth */}
@@ -85,18 +88,18 @@ function LoginForm() {
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         {/* Email or username */}
         <div style={{ marginBottom: 14 }}>
-          <label style={lbl}>Email or username</label>
+          <label style={lbl}>{t('auth.email_or_username')}</label>
           <input
             {...register('identifier')}
             type="text"
-            placeholder="you@email.com or username"
+            placeholder={t('auth.email_or_username_placeholder')}
             autoComplete="username"
             autoFocus
             style={inp(errors.identifier?.message)}
           />
           {errors.identifier && (
             <p style={{ fontSize: 12, color: '#E53935', marginTop: 5 }}>
-              {errors.identifier.message}
+              {tv(t, errors.identifier.message)}
             </p>
           )}
         </div>
@@ -111,7 +114,7 @@ function LoginForm() {
               marginBottom: 6,
             }}
           >
-            <label style={{ ...lbl, marginBottom: 0 }}>Password</label>
+            <label style={{ ...lbl, marginBottom: 0 }}>{t('auth.password')}</label>
             <Link
               href="/forgot-password"
               style={{
@@ -121,14 +124,14 @@ function LoginForm() {
                 fontWeight: 500,
               }}
             >
-              Forgot password?
+              {t('auth.forgot_password_title')}
             </Link>
           </div>
           <div style={{ position: 'relative' }}>
             <input
               {...register('password')}
               type={showPw ? 'text' : 'password'}
-              placeholder="Your password"
+              placeholder={t('auth.your_password')}
               autoComplete="current-password"
               style={{ ...inp(errors.password?.message), paddingRight: 44 }}
             />
@@ -177,13 +180,13 @@ function LoginForm() {
           </div>
           {errors.password && (
             <p style={{ fontSize: 12, color: '#E53935', marginTop: 5 }}>
-              {errors.password.message}
+              {tv(t, errors.password.message)}
             </p>
           )}
         </div>
 
         <button type="submit" disabled={isPending} className="para-btn-primary">
-          {isPending ? 'Signing in…' : 'Sign in'}
+          {isPending ? t('auth.signing_in') : t('auth.sign_in')}
         </button>
       </form>
 
@@ -195,12 +198,12 @@ function LoginForm() {
           marginTop: 20,
         }}
       >
-        New to Spup?{' '}
+        {t('auth.new_to_spup')}{' '}
         <Link
           href="/signup"
           style={{ color: '#1A9E5F', fontWeight: 600, textDecoration: 'none' }}
         >
-          Create account
+          {t('auth.create_account')}
         </Link>
       </p>
     </AuthCard>
@@ -209,6 +212,7 @@ function LoginForm() {
 
 function LoginPageInner() {
   const { openModal } = useWaitlist()
+  const { t } = useTranslation()
 
   useEffect(() => {
     if (!ENABLE_LOGIN) {
@@ -229,9 +233,9 @@ function LoginPageInner() {
         }}
       >
         <div>
-          <h1 style={{ fontSize: 24, marginBottom: 12 }}>Spup is in private beta</h1>
+          <h1 style={{ fontSize: 24, marginBottom: 12 }}>{t('auth.beta_title')}</h1>
           <p style={{ fontSize: 15, color: '#8A8A85', maxWidth: 420, margin: '0 auto' }}>
-            Login is disabled for now. Join the waitlist to be notified when we launch.
+            {t('auth.beta_desc')}
           </p>
         </div>
       </div>

@@ -6,9 +6,12 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { verifyEmailOtpAction, resendEmailOtpAction } from '@/lib/actions'
 import { AuthCard, Alert } from '@/components/auth/form-field'
 import { Mail, CheckCircle } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/language-context'
+import { tRich } from '@/lib/i18n/rich'
 
 function VerifyEmailForm() {
   const router = useRouter()
+  const { t } = useTranslation()
   const searchParams = useSearchParams()
   const email = searchParams.get('email') || ''
   const isNewSignup = searchParams.get('new') !== 'false'
@@ -24,8 +27,8 @@ function VerifyEmailForm() {
 
   useEffect(() => {
     if (countdown <= 0) return
-    const t = setTimeout(() => setCountdown(c => c - 1), 1000)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setCountdown(c => c - 1), 1000)
+    return () => clearTimeout(timer)
   }, [countdown])
 
   // Auto-focus first input
@@ -78,7 +81,7 @@ function VerifyEmailForm() {
     const r = await resendEmailOtpAction(email)
     setResendPending(false)
     if (r.error) { setError(r.error) }
-    else { setResendMsg('New code sent!'); setCountdown(60); setTimeout(() => setResendMsg(''), 4000) }
+    else { setResendMsg(t('auth.new_code_sent')); setCountdown(60); setTimeout(() => setResendMsg(''), 4000) }
   }
 
   if (verified) {
@@ -87,14 +90,14 @@ function VerifyEmailForm() {
         <div style={{ width:64, height:64, borderRadius:'50%', background:'rgba(26,158,95,0.1)', border:'2px solid rgba(26,158,95,0.2)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px' }}>
           <CheckCircle size={28} color="#1A9E5F" />
         </div>
-        <h2 style={{ fontFamily:"'Syne', sans-serif", fontWeight:800, fontSize:22, color:'#F0F0EC', marginBottom:8 }}>Email verified!</h2>
-        <p style={{ fontSize:15, color:'#6A6A60' }}>Setting up your account…</p>
+        <h2 style={{ fontFamily:"'Syne', sans-serif", fontWeight:800, fontSize:22, color:'#F0F0EC', marginBottom:8 }}>{t('auth.email_verified')}</h2>
+        <p style={{ fontSize:15, color:'#6A6A60' }}>{t('auth.setting_up_account')}</p>
       </div>
     )
   }
 
   return (
-    <AuthCard title="Check your inbox" subtitle="We sent a 6-digit code to your email">
+    <AuthCard title={t('auth.check_inbox_title')} subtitle={t('auth.check_inbox_desc')}>
 
       {/* Email badge */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, background:'#131318', border:'1px solid #1E1E26', borderRadius:10, padding:'10px 16px', marginBottom:28 }}>
@@ -137,25 +140,25 @@ function VerifyEmailForm() {
         className="para-btn-primary"
         style={{ marginBottom:20 }}
       >
-        {isPending ? 'Verifying…' : 'Verify email'}
+        {isPending ? t('auth.verifying') : t('auth.verify_email')}
       </button>
 
       {/* Resend */}
       <div style={{ textAlign:'center' }}>
         {countdown > 0 ? (
           <p style={{ fontSize:14, color:'#44444A' }}>
-            Resend code in <span style={{ color:'#8A8A85', fontWeight:600 }}>{countdown}s</span>
+            {tRich(t('auth.resend_in'), { countdown: <span style={{ color:'#8A8A85', fontWeight:600 }}>{countdown}s</span> })}
           </p>
         ) : (
           <button onClick={handleResend} disabled={resendPending} style={{ background:'none', border:'none', cursor:'pointer', fontSize:14, color:'#1A9E5F', fontWeight:600, fontFamily:"'DM Sans', sans-serif" }}>
-            {resendPending ? 'Sending…' : "Didn't receive it? Resend"}
+            {resendPending ? t('auth.sending') : t('auth.resend_code')}
           </button>
         )}
       </div>
 
       <p style={{ textAlign:'center', fontSize:12, color:'#2A2A28', marginTop:20, lineHeight:1.6 }}>
-        Check your spam folder if you don&apos;t see it.{' '}
-        <a href="/signup" style={{ color:'#44444A', textDecoration:'underline' }}>Wrong email?</a>
+        {t('auth.check_spam')}{' '}
+        <a href="/signup" style={{ color:'#44444A', textDecoration:'underline' }}>{t('auth.wrong_email')}</a>
       </p>
     </AuthCard>
   )

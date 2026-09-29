@@ -18,6 +18,7 @@ import Link from 'next/link'
 import { AuthCard, Alert } from '@/components/auth/form-field'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { ArrowLeft, CheckCircle, Eye, EyeOff } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const inp: React.CSSProperties = {
   width: '100%', background: '#131318', border: '1px solid #1E1E26',
@@ -25,15 +26,16 @@ const inp: React.CSSProperties = {
   outline: 'none', fontFamily: "'DM Sans', sans-serif",
 }
 
-function validatePassword(pw: string): string | null {
-  if (pw.length < 8) return 'Password must be at least 8 characters.'
-  if (!/[A-Z]/.test(pw)) return 'Must contain at least one uppercase letter.'
-  if (!/[0-9]/.test(pw)) return 'Must contain at least one number.'
+function validatePassword(pw: string, t: (key: string) => string): string | null {
+  if (pw.length < 8) return t('auth.password_min_length_error')
+  if (!/[A-Z]/.test(pw)) return t('auth.password_uppercase_error')
+  if (!/[0-9]/.test(pw)) return t('auth.password_number_error')
   return null
 }
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams()
+  const { t } = useTranslation()
 
   const [status, setStatus] = useState<'exchanging' | 'ready' | 'invalid'>(
     () => (searchParams.get('code') ? 'exchanging' : 'invalid')
@@ -58,9 +60,9 @@ function ResetPasswordForm() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const validationError = validatePassword(password)
+    const validationError = validatePassword(password, t)
     if (validationError) { setError(validationError); return }
-    if (password !== confirm) { setError("Passwords don't match"); return }
+    if (password !== confirm) { setError(t('auth.passwords_dont_match')); return }
     setError('')
 
     startT(async () => {
@@ -76,20 +78,20 @@ function ResetPasswordForm() {
 
   if (status === 'exchanging') {
     return (
-      <AuthCard title="Reset password">
-        <p style={{ fontSize: 15, color: '#6A6A60', textAlign: 'center' }}>Verifying your link…</p>
+      <AuthCard title={t('auth.reset_password_title')}>
+        <p style={{ fontSize: 15, color: '#6A6A60', textAlign: 'center' }}>{t('auth.verifying_link')}</p>
       </AuthCard>
     )
   }
 
   if (status === 'invalid') {
     return (
-      <AuthCard title="Link expired">
+      <AuthCard title={t('auth.link_expired')}>
         <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, textAlign: 'center', marginBottom: 24 }}>
-          This password reset link is invalid or has expired. Request a new one to continue.
+          {t('auth.link_expired_body')}
         </p>
         <Link href="/forgot-password" className="para-btn-primary" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>
-          Request a new link
+          {t('auth.request_new_link')}
         </Link>
       </AuthCard>
     )
@@ -97,16 +99,16 @@ function ResetPasswordForm() {
 
   if (done) {
     return (
-      <AuthCard title="Password updated">
+      <AuthCard title={t('auth.password_updated')}>
         <div style={{ textAlign: 'center', padding: '8px 0' }}>
           <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(26,158,95,0.1)', border: '2px solid rgba(26,158,95,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
             <CheckCircle size={26} color="#1A9E5F" />
           </div>
           <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, marginBottom: 24 }}>
-            Your password has been changed. Sign in with your new password.
+            {t('auth.password_changed_body')}
           </p>
           <Link href="/login" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: '#1A9E5F', textDecoration: 'none', fontWeight: 600 }}>
-            <ArrowLeft size={14} /> Back to sign in
+            <ArrowLeft size={14} /> {t('auth.back_to_signin')}
           </Link>
         </div>
       </AuthCard>
@@ -114,17 +116,17 @@ function ResetPasswordForm() {
   }
 
   return (
-    <AuthCard title="Set a new password" subtitle="Choose a new password for your account">
+    <AuthCard title={t('auth.set_new_password_title')} subtitle={t('auth.set_new_password_desc')}>
       {error && <Alert type="error" message={error} />}
       <form onSubmit={handleSubmit} noValidate>
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>New password</label>
+          <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>{t('auth.new_password')}</label>
           <div style={{ position: 'relative' }}>
             <input
               value={password}
               onChange={e => setPassword(e.target.value)}
               type={showPw ? 'text' : 'password'}
-              placeholder="At least 8 characters"
+              placeholder={t('auth.at_least_8_chars')}
               autoComplete="new-password"
               autoFocus
               style={{ ...inp, paddingRight: 44 }}
@@ -139,18 +141,18 @@ function ResetPasswordForm() {
           </div>
         </div>
         <div style={{ marginBottom: 22 }}>
-          <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>Confirm password</label>
+          <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>{t('auth.confirm_password')}</label>
           <input
             value={confirm}
             onChange={e => setConfirm(e.target.value)}
             type={showPw ? 'text' : 'password'}
-            placeholder="Re-enter your password"
+            placeholder={t('auth.reenter_password')}
             autoComplete="new-password"
             style={inp}
           />
         </div>
         <button type="submit" disabled={isPending} className="para-btn-primary">
-          {isPending ? 'Updating…' : 'Update password'}
+          {isPending ? t('auth.updating') : t('auth.update_password')}
         </button>
       </form>
     </AuthCard>
