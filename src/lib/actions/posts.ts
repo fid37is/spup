@@ -9,9 +9,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
 import { notifyMentions, notifyPostSubscribers, queuePostNotifications } from '@/lib/post-notifications'
-import { sendNotificationEmail } from '@/lib/email/send'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
-import { extractMentionedUsernames } from '@/lib/utils'
 import { getPostById } from '@/lib/queries/posts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -24,19 +22,34 @@ function bumpCounter(supabase: SupabaseClient, table: string, column: string, id
     })
 }
 
+// `failed` is true when the profile lookup itself errored (database problem),
+// as opposed to the caller simply not being signed in - so callers can tell
+// "Not authenticated" apart from "something broke on our side".
 async function getCallerProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { supabase, profile: null }
-  const { data: profile } = await supabase.from('users').select('id, username, display_name, status').eq('auth_id', user.id).single()
-  return { supabase, profile }
+  if (!user) return { supabase, profile: null, failed: false }
+  const { data: profile, error } = await supabase
+    .from('users')
+    .select('id, username, display_name, status')
+    .eq('auth_id', user.id)
+    .maybeSingle()
+  if (error) {
+    console.error('getCallerProfile failed:', error.message)
+    return { supabase, profile: null, failed: true }
+  }
+  return { supabase, profile, failed: false }
+}
+
+function noProfileError(failed: boolean) {
+  return { error: failed ? 'Something went wrong. Please try again.' : 'Not authenticated' }
 }
 
 export async function createPostAction(data: CreatePostSchema) {
   const parsed = createPostSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return { error: 'Not authenticated' }
+  const { supabase, profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
   if (profile.status === 'suspended' || profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
   const { body, parent_post_id, quoted_post_id, media, scheduled_at, is_selling } = parsed.data
 
@@ -188,8 +201,8 @@ export async function getScheduledPostsAction() {
 }
 
 export async function cancelScheduledPostAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return { error: 'Not authenticated' }
+  const { supabase, profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
 
   const { data: post } = await supabase
     .from('posts')
@@ -215,8 +228,8 @@ export async function cancelScheduledPostAction(postId: string) {
 }
 
 export async function deletePostAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return { error: 'Not authenticated' }
+  const { supabase, profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
 
   // Fetch parent/quoted post ids before deleting - needed to decrement their
   // counts below. Without this, deleting a reply or quote left the parent's
@@ -256,25 +269,40 @@ export async function deletePostAction(postId: string) {
   return { success: true }
 }
 
-export async function toggleLikeAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return { error: 'Not authenticated' }
+// `desired` is the state the person is asking for (true = liked). When it is
+// given, the action is idempotent: liking a post that is already liked (a
+// stale screen, a double tap, a second device) does nothing instead of
+// flipping it back to unliked. Without it, this behaves as a plain toggle.
+//
+// No revalidatePath here on purpose: revalidating /feed on every like made the
+// server re-render the whole feed for the person who tapped. likes_count is
+// kept by trg_sync_like_count and the UI updates optimistically, so nothing
+// needs to be invalidated.
+//
+// `changed` tells the client whether the database actually moved, so it can
+// undo an optimistic count bump when the post was already in that state.
+export async function toggleLikeAction(postId: string, desired?: boolean) {
+  const { supabase, profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
 
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('likes').select('id')
     .match({ user_id: profile.id, post_id: postId })
     .maybeSingle()
+  if (lookupError) return { error: 'Failed to update like' }
 
-  if (existing) {
-    // Unlike. likes_count is no longer decremented here - trg_sync_like_count
+  const isLiked = !!existing
+  const target = desired ?? !isLiked
+  if (target === isLiked) return { liked: isLiked, changed: false }
+
+  if (!target) {
+    // Unlike. likes_count is not decremented here - trg_sync_like_count
     // fires on this DELETE and recomputes it as COUNT(*) FROM likes, so it
     // can't drift regardless of how many overlapping calls raced to get here.
-    await supabase
+    const { error: deleteError } = await supabase
       .from('likes').delete().match({ user_id: profile.id, post_id: postId })
-      .select('user_id')
-    revalidatePath('/feed')
-    revalidatePath(`/post/${postId}`)
-    return { liked: false }
+    if (deleteError) return { error: 'Failed to unlike post' }
+    return { liked: false, changed: true }
   }
 
   // Like - upsert prevents a duplicate row at the DB level; ignoreDuplicates
@@ -288,17 +316,15 @@ export async function toggleLikeAction(postId: string) {
     .select('user_id')
 
   if (insertError) return { error: 'Failed to like post' }
-  if (!insertedRows || insertedRows.length === 0) return { liked: true }
+  if (!insertedRows || insertedRows.length === 0) return { liked: true, changed: false }
 
   void notifyPostAuthor(supabase, postId, profile.id, 'post_like')
-  revalidatePath('/feed')
-  revalidatePath(`/post/${postId}`)
-  return { liked: true }
+  return { liked: true, changed: true }
 }
 
 export async function toggleRepostAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return { error: 'Not authenticated' }
+  const { supabase, profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
   // reposts_count is no longer bumped/decremented manually anywhere in this
   // function - a repost is just a row in posts with post_type='repost', and
   // trg_sync_post_engagement recomputes reposts_count on the quoted post from
@@ -317,8 +343,8 @@ export async function toggleRepostAction(postId: string) {
 }
 
 export async function toggleBookmarkAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return { error: 'Not authenticated' }
+  const { supabase, profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
   const { data: existing } = await supabase.from('bookmarks').select('id').match({ user_id: profile.id, post_id: postId }).maybeSingle()
   if (existing) {
     const { data: deleted } = await supabase.from('bookmarks').delete().match({ user_id: profile.id, post_id: postId }).select('id')
@@ -452,9 +478,10 @@ export async function getPostAnalyticsAction(postId: string) {
 
   return { data: { ...post, engagements_count } }
 }
+
 export async function togglePinPostAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return { error: 'Not authenticated' }
+  const { supabase, profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
 
   // Check if this post is already pinned
   const { data: post } = await supabase

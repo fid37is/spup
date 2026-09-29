@@ -25,8 +25,10 @@ async function getPlatformStats() {
   ] = await Promise.all([
     admin.from('users').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     admin.from('users').select('id', { count: 'exact', head: true }).gte('created_at', startOfDay),
-    admin.from('posts').select('id', { count: 'exact', head: true }).is('deleted_at', null),
-    admin.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', startOfDay),
+    admin.from('posts').select('id', { count: 'exact', head: true })
+      .is('deleted_at', null).is('parent_post_id', null).neq('post_type', 'repost'),
+    admin.from('posts').select('id', { count: 'exact', head: true })
+      .gte('created_at', startOfDay).is('parent_post_id', null).neq('post_type', 'repost'),
     admin.from('reports').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     admin.from('ads').select('id', { count: 'exact', head: true }).eq('status', 'active'),
     admin.from('waitlist').select('id', { count: 'exact', head: true }),

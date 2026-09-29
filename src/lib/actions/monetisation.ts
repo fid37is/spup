@@ -22,6 +22,29 @@ const REQUIRED_ACCOUNT_AGE_DAYS = 90
 const REQUIRED_FOLLOWERS = 500
 const REQUIRED_POSTS = 100
 
+// users.posts_count is bumped on every post insert - top-level posts,
+// replies, and reposts alike (see createPostAction) - because it's also the
+// public "X posts" activity stat shown on profile pages, where that's the
+// right thing to count. Monetisation is meant to reward original content
+// though, so a reply-heavy account shouldn't be able to clear "100 posts"
+// without 100 actual top-level posts. This recounts straight from the
+// `posts` table with that narrower filter instead of trusting the
+// denormalised, broader counter.
+async function countEligiblePosts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<number> {
+  const { count } = await supabase
+    .from('posts')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .is('parent_post_id', null)
+    .neq('post_type', 'repost')
+    .is('deleted_at', null)
+    .lte('created_at', new Date().toISOString())
+  return count ?? 0
+}
+
 export async function getMonetisationEligibility() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -35,6 +58,8 @@ export async function getMonetisationEligibility() {
 
   if (!profile) return { error: 'Profile not found' }
 
+  const eligiblePostsCount = await countEligiblePosts(supabase, profile.id)
+
   const accountAgeDays = Math.floor(
     (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24)
   )
@@ -42,7 +67,7 @@ export async function getMonetisationEligibility() {
   const criteria = {
     account_age: { met: accountAgeDays >= REQUIRED_ACCOUNT_AGE_DAYS, value: accountAgeDays, required: REQUIRED_ACCOUNT_AGE_DAYS },
     followers:   { met: profile.followers_count >= REQUIRED_FOLLOWERS, value: profile.followers_count, required: REQUIRED_FOLLOWERS },
-    posts:       { met: profile.posts_count >= REQUIRED_POSTS, value: profile.posts_count, required: REQUIRED_POSTS },
+    posts:       { met: eligiblePostsCount >= REQUIRED_POSTS, value: eligiblePostsCount, required: REQUIRED_POSTS },
   }
 
   const allMet = Object.values(criteria).every(c => c.met)
@@ -78,13 +103,15 @@ export async function acceptMonetisationAction({ accepted_fair_use }: { accepted
   if (profile.is_monetised) return { error: 'Monetisation is already enabled on this account.' }
   if (profile.status !== 'active') return { error: 'Your account must be in good standing to enable monetisation.' }
 
+  const eligiblePostsCount = await countEligiblePosts(supabase, profile.id)
+
   const accountAgeDays = Math.floor(
     (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24)
   )
 
   if (accountAgeDays < REQUIRED_ACCOUNT_AGE_DAYS
     || profile.followers_count < REQUIRED_FOLLOWERS
-    || profile.posts_count < REQUIRED_POSTS) {
+    || eligiblePostsCount < REQUIRED_POSTS) {
     return { error: 'You have not yet met all monetisation criteria.' }
   }
 
@@ -98,7 +125,7 @@ export async function acceptMonetisationAction({ accepted_fair_use }: { accepted
     user_id: profile.id,
     status: 'approved',
     followers_at_apply: profile.followers_count,
-    posts_at_apply: profile.posts_count,
+    posts_at_apply: eligiblePostsCount,
     reviewed_at: now,
   })
 
