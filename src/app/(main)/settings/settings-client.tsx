@@ -15,6 +15,7 @@ import { useTranslation } from '@/lib/i18n/language-context'
 import { isLocale } from '@/lib/i18n/dictionaries'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { NIGERIAN_INTERESTS } from '@/types'
+import { interestLabel } from '@/lib/i18n/interests'
 
 type Panel = null | 'language' | 'theme' | 'password' | 'autoplay' | 'username' | 'interests'
 
@@ -176,7 +177,7 @@ function Card({ children }: { children: React.ReactNode }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsClient({ profile, interests: initialInterests }: { profile: SettingsProfile; interests: string[] }) {
-  const { setLocale: setAppLocale } = useTranslation()
+  const { t, setLocale: setAppLocale } = useTranslation()
   const [panel,      setPanel]    = useState<Panel>(null)
   const [isPending,  startT]      = useTransition()
   const [flash,      setFlash]    = useState<{ text: string; ok: boolean } | null>(null)
@@ -227,7 +228,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
     startT(async () => {
       const r = await updateProfileAction({ is_private: val })
       if (r.error) { setIsPrivate(!val); showFlash(r.error, false) }
-      else showFlash(val ? 'Account set to private' : 'Account set to public')
+      else showFlash(val ? t('settings.account_private') : t('settings.account_public'))
     })
   }
 
@@ -242,7 +243,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
     setPassErr('')
     const r = await changePasswordAction(oldPass, newPass, confPass)
     if ('error' in r && r.error) { setPassErr(r.error); showFlash(r.error, false); return }
-    showFlash('Password changed successfully')
+    showFlash(t('settings.password_changed'))
     setOldPass(''); setNewPass(''); setConfPass(''); setPanel(null)
   }
 
@@ -251,7 +252,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
     startT(async () => {
       const r = await changeUsernameAction(username)
       if (r.error) { setUsernameErr(r.error); return }
-      showFlash('Username updated')
+      showFlash(t('settings.username_updated'))
       setPanel(null)
       router.refresh()
     })
@@ -271,14 +272,14 @@ export default function SettingsClient({ profile, interests: initialInterests }:
   }
 
   function handleSaveInterests() {
-    if (draftInterests.length < 3) { setInterestsErr('Select at least 3'); return }
-    if (draftInterests.length > 10) { setInterestsErr('Max 10'); return }
+    if (draftInterests.length < 3) { setInterestsErr(t('settings.select_at_least_3')); return }
+    if (draftInterests.length > 10) { setInterestsErr(t('settings.max_10')); return }
     setInterestsErr('')
     startT(async () => {
       const r = await saveInterestsAction({ interests: draftInterests })
       if ('error' in r && r.error) { setInterestsErr(r.error); return }
       setInterests(draftInterests)
-      showFlash('Preferences updated')
+      showFlash(t('settings.preferences_updated'))
       setPanel(null)
     })
   }
@@ -290,7 +291,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
     /[^A-Za-z0-9]/.test(newPass),
   ].filter(Boolean).length
   const passColor = ['var(--color-error)', 'var(--color-error)', '#F59E0B', 'var(--color-brand)'][passScore - 1] || 'var(--color-border)'
-  const passLabel = ['Weak', 'Fair', 'Good', 'Strong'][passScore - 1] || ''
+  const passLabel = [t('auth.password_strength_weak'), t('auth.password_strength_fair'), t('auth.password_strength_good'), t('auth.password_strength_strong')][passScore - 1] || ''
 
   const INP: React.CSSProperties = {
     width: '100%', background: 'var(--input-bg)',
@@ -309,7 +310,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
     if (isLocale(code)) setAppLocale(code)
     startT(async () => {
       await updateProfileAction({ language_preference: code as 'en' | 'yo' | 'ig' | 'ha' | 'pcm' })
-      showFlash(`Language set to ${label}`)
+      showFlash(t('settings.language_set_to', { label }))
       setPanel(null)
     })
   }
@@ -319,7 +320,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
     if (typeof window !== 'undefined') localStorage.setItem('spup_autoplay', value)
     startT(async () => {
       await updateProfileAction({ autoplay_preference: value as 'always' | 'wifi' | 'never' })
-      showFlash(`Autoplay set to ${label}`)
+      showFlash(t('settings.autoplay_set_to', { label }))
       setPanel(null)
     })
   }
@@ -332,10 +333,10 @@ export default function SettingsClient({ profile, interests: initialInterests }:
     // Re-authenticate before deleting
     const browser = createBrowserClient()
     const { data: { user: authUser } } = await browser.auth.getUser()
-    if (!authUser?.email) { setDeletePassErr('Session expired. Please log in again.'); setDeleting(false); return }
+    if (!authUser?.email) { setDeletePassErr(t('settings.session_expired')); setDeleting(false); return }
 
     const { error: authErr } = await browser.auth.signInWithPassword({ email: authUser.email, password: deletePass })
-    if (authErr) { setDeletePassErr('Incorrect password.'); setDeleting(false); return }
+    if (authErr) { setDeletePassErr(t('settings.incorrect_password')); setDeleting(false); return }
 
     const r = await deleteAccountAction()
     if (r.error) { showFlash(r.error, false); setDeleting(false); return }
@@ -343,15 +344,15 @@ export default function SettingsClient({ profile, interests: initialInterests }:
   }
 
   const AUTOPLAY_OPTIONS = [
-    { value: 'always', label: 'Always',        desc: 'Wi-Fi and mobile data' },
-    { value: 'wifi',   label: 'Wi-Fi only',    desc: 'Pause on mobile data'  },
-    { value: 'never',  label: 'Off',           desc: 'Never autoplay videos' },
+    { value: 'always', label: t('settings.autoplay_always'),     desc: t('settings.autoplay_wifi_mobile') },
+    { value: 'wifi',   label: t('settings.autoplay_wifi_only'),  desc: t('settings.autoplay_pause_mobile') },
+    { value: 'never',  label: t('settings.autoplay_off'),        desc: t('settings.autoplay_never') },
   ]
 
   const THEME_OPTIONS: { key: 'system' | 'dark' | 'light'; label: string; Icon: any }[] = [
-    { key: 'system', label: 'System', Icon: Monitor },
-    { key: 'dark',   label: 'Dark',   Icon: Moon },
-    { key: 'light',  label: 'Light',  Icon: Sun  },
+    { key: 'system', label: t('settings.theme_system'), Icon: Monitor },
+    { key: 'dark',   label: t('settings.theme_dark'),   Icon: Moon },
+    { key: 'light',  label: t('settings.theme_light'),  Icon: Sun  },
   ]
 
   return (
@@ -376,12 +377,12 @@ export default function SettingsClient({ profile, interests: initialInterests }:
       )}
 
       {/* ── PRIVACY ──────────────────────────────────────────────────────── */}
-      <SectionLabel label="Privacy" />
+      <SectionLabel label={t('settings.privacy')} />
       <Card>
         <Row
           icon={Eye}
-          label="Private account"
-          desc={isPrivate ? 'Private - followers must be approved' : 'Public - anyone can follow and see your posts'}
+          label={t('settings.private_account')}
+          desc={isPrivate ? t('settings.private_desc') : t('settings.public_desc')}
           accentDesc={isPrivate}
           last={!isPrivate}
           right={<Toggle checked={isPrivate} onChange={togglePrivacy} disabled={isPending} />}
@@ -393,45 +394,44 @@ export default function SettingsClient({ profile, interests: initialInterests }:
             borderTop: '1px solid var(--color-border)',
             fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.6,
           }}>
-            <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>What this means: </span>
-            New followers must send a request that you approve. Existing followers are unaffected.
-            Your posts, replies, and likes are hidden from non-followers.
+            <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>{t('settings.privacy_what_this_means')}</span>
+            {t('settings.privacy_explainer')}
           </div>
         )}
       </Card>
 
       {/* ── NOTIFICATIONS ────────────────────────────────────────────────── */}
-      <SectionLabel label="Notifications" />
+      <SectionLabel label={t('settings.notifications')} />
       <Card>
         <Row
           icon={Bell}
-          label="Push notifications"
-          desc="Likes, replies, new followers"
+          label={t('settings.push_notifications')}
+          desc={t('settings.push_notifications_desc')}
           right={<Toggle checked={notifPush} onChange={v => handleNotif('push', v)} disabled={isPending} />}
         />
         <Row
           icon={Bell}
-          label="Email notifications"
-          desc="Weekly digest and important alerts"
+          label={t('settings.email_notifications')}
+          desc={t('settings.email_notifications_desc')}
           right={<Toggle checked={notifEmail} onChange={v => handleNotif('email', v)} disabled={isPending} />}
         />
         <Row
           icon={Bell}
-          label="More notification settings"
-          desc="Filters, preferences and post notifications"
+          label={t('settings.more_notification_settings')}
+          desc={t('settings.more_notification_settings_desc')}
           onClick={() => router.push('/notifications/settings')}
           last
         />
       </Card>
 
       {/* ── APPEARANCE ───────────────────────────────────────────────────── */}
-      <SectionLabel label="Appearance" />
+      <SectionLabel label={t('settings.appearance')} />
       <Card>
         {/* Theme */}
         <Row
           icon={Moon}
-          label="Theme"
-          desc={THEME_OPTIONS.find(t => t.key === preference)?.label || 'System'}
+          label={t('settings.theme')}
+          desc={THEME_OPTIONS.find(opt => opt.key === preference)?.label || t('settings.theme_system')}
           onClick={() => togglePanel('theme')}
           last={panel !== 'theme' && panel !== 'language'}
         />
@@ -464,7 +464,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
         {/* Language */}
         <Row
           icon={Globe}
-          label="Language"
+          label={t('settings.language')}
           desc={LANGS.find(l => l.code === lang)?.label || 'English'}
           onClick={() => togglePanel('language')}
           last={panel !== 'language'}
@@ -494,12 +494,12 @@ export default function SettingsClient({ profile, interests: initialInterests }:
       </Card>
 
       {/* ── VIDEO ───────────────────────────────────────────────────────── */}
-      <SectionLabel label="Video" />
+      <SectionLabel label={t('settings.video')} />
       <Card>
         <Row
           icon={Play}
-          label="Autoplay videos"
-          desc={AUTOPLAY_OPTIONS.find(o => o.value === autoplay)?.label || 'Wi-Fi only'}
+          label={t('settings.autoplay_videos')}
+          desc={AUTOPLAY_OPTIONS.find(o => o.value === autoplay)?.label || t('settings.autoplay_wifi_only')}
           onClick={() => togglePanel('autoplay')}
           last={panel !== 'autoplay'}
         />
@@ -531,27 +531,27 @@ export default function SettingsClient({ profile, interests: initialInterests }:
       </Card>
 
       {/* ── CONTENT PREFERENCES ─────────────────────────────────────────────── */}
-      <SectionLabel label="Content preferences" />
+      <SectionLabel label={t('settings.content_preferences')} />
       <Card>
         <Row
           icon={Sparkles}
-          label="Interests"
+          label={t('settings.interests')}
           desc={interests.length > 0
-            ? `${interests.length} selected - shapes what fills your feed`
-            : 'Pick topics to personalise your feed'}
+            ? t('settings.interests_selected', { count: interests.length })
+            : t('settings.content_preferences_desc')}
           onClick={openInterestsPanel}
           last={panel !== 'interests'}
         />
         {panel === 'interests' && (
           <InlinePanel>
             <FieldLabel>
-              Pick 3–10 topics{' '}
+              {t('settings.pick_topics_range')}{' '}
               <span style={{
                 color: draftInterests.length >= 3 && draftInterests.length <= 10
                   ? 'var(--color-brand)' : 'var(--color-text-muted)',
                 textTransform: 'none', letterSpacing: 0, fontWeight: 500,
               }}>
-                ({draftInterests.length}/10 selected)
+                {t('settings.selected_of_10', { count: draftInterests.length })}
               </span>
             </FieldLabel>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
@@ -574,7 +574,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                     }}
                   >
                     <interest.icon size={15} strokeWidth={2} aria-hidden="true" />
-                    {interest.label}
+                    {interestLabel(t, interest)}
                     {sel && <Check size={11} />}
                   </button>
                 )
@@ -586,7 +586,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                 onClick={() => { setPanel(null); setDraftInterests(interests); setInterestsErr('') }}
                 style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 14, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleSaveInterests}
@@ -594,7 +594,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                 style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 14, fontWeight: 700, cursor: isPending || draftInterests.length < 3 || draftInterests.length > 10 ? 'not-allowed' : 'pointer', opacity: isPending || draftInterests.length < 3 || draftInterests.length > 10 ? 0.5 : 1, fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
-                {isPending ? 'Saving…' : 'Save'}
+                {isPending ? t('settings.saving') : t('settings.save')}
               </button>
             </div>
           </InlinePanel>
@@ -602,18 +602,18 @@ export default function SettingsClient({ profile, interests: initialInterests }:
       </Card>
 
       {/* ── ACCOUNT ──────────────────────────────────────────────────────── */}
-      <SectionLabel label="Account" />
+      <SectionLabel label={t('settings.account')} />
       <Card>
         <Row
           icon={User}
-          label="Username"
+          label={t('settings.username')}
           desc={`@${username}`}
           onClick={() => togglePanel('username')}
           last={panel !== 'username'}
         />
         {panel === 'username' && (
           <InlinePanel>
-            <FieldLabel>New username</FieldLabel>
+            <FieldLabel>{t('settings.new_username_label')}</FieldLabel>
             <div style={{ position: 'relative', marginBottom: 6 }}>
               <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', fontSize: 14, pointerEvents: 'none' }}>@</span>
               <input
@@ -624,7 +624,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
               />
             </div>
             <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 10, marginTop: 4 }}>
-              5–12 characters · Letters, numbers, underscores only
+              {t('settings.username_hint')}
             </p>
             {usernameErr && <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 12 }}>{usernameErr}</p>}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
@@ -632,7 +632,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                 onClick={() => { setPanel(null); setUsername(profile.username); setUsernameErr('') }}
                 style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 14, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleUsernameChange}
@@ -640,15 +640,15 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                 style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 14, fontWeight: 700, cursor: isPending || usernameLengthError(username) !== null || username === profile.username ? 'not-allowed' : 'pointer', opacity: isPending || usernameLengthError(username) !== null || username === profile.username ? 0.5 : 1, fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
-                {isPending ? 'Saving…' : 'Save'}
+                {isPending ? t('settings.saving') : t('settings.save')}
               </button>
             </div>
           </InlinePanel>
         )}
         <Row
           icon={Phone}
-          label="Phone & NIN"
-          desc={profile.nin_verified ? 'Verified - withdrawals enabled' : 'Tap to verify'}
+          label={t('settings.phone_nin')}
+          desc={profile.nin_verified ? t('settings.verified_withdrawals') : t('settings.tap_to_verify')}
           accentDesc={profile.nin_verified}
           onClick={() => router.push('/settings/verify-phone')}
           last
@@ -656,24 +656,24 @@ export default function SettingsClient({ profile, interests: initialInterests }:
       </Card>
 
       {/* ── SECURITY ─────────────────────────────────────────────────────── */}
-      <SectionLabel label="Security" />
+      <SectionLabel label={t('settings.security')} />
       <Card>
         <Row
           icon={Lock}
-          label="Change password"
-          desc="Update your account password"
+          label={t('settings.change_password')}
+          desc={t('settings.change_password_desc')}
           onClick={() => togglePanel('password')}
           last={panel !== 'password'}
         />
         {panel === 'password' && (
           <InlinePanel>
-            <FieldLabel>Current password</FieldLabel>
+            <FieldLabel>{t('settings.current_password_label')}</FieldLabel>
             <div style={{ position: 'relative', marginBottom: 14 }}>
               <input
                 value={oldPass}
                 onChange={e => setOldPass(e.target.value)}
                 type={showOld ? 'text' : 'password'}
-                placeholder="Your current password"
+                placeholder={t('settings.current_password')}
                 autoComplete="current-password"
                 style={INP}
               />
@@ -686,13 +686,13 @@ export default function SettingsClient({ profile, interests: initialInterests }:
               </button>
             </div>
 
-            <FieldLabel>New password</FieldLabel>
+            <FieldLabel>{t('settings.new_password_label')}</FieldLabel>
             <div style={{ position: 'relative', marginBottom: 14 }}>
               <input
                 value={newPass}
                 onChange={e => setNewPass(e.target.value)}
                 type={showNew ? 'text' : 'password'}
-                placeholder="Min 8 chars, 1 uppercase, 1 number"
+                placeholder={t('auth.password_hint')}
                 autoComplete="new-password"
                 style={INP}
               />
@@ -720,13 +720,13 @@ export default function SettingsClient({ profile, interests: initialInterests }:
               </div>
             )}
 
-            <FieldLabel>Confirm new password</FieldLabel>
+            <FieldLabel>{t('settings.confirm_new_password_label')}</FieldLabel>
             <div style={{ position: 'relative', marginBottom: 16 }}>
               <input
                 value={confPass}
                 onChange={e => setConfPass(e.target.value)}
                 type={showConf ? 'text' : 'password'}
-                placeholder="Repeat new password"
+                placeholder={t('settings.repeat_new_password')}
                 autoComplete="new-password"
                 style={INP}
               />
@@ -746,7 +746,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                 onClick={() => { setPanel(null); setOldPass(''); setNewPass(''); setConfPass(''); setPassErr('') }}
                 style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 14, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handlePasswordChange}
@@ -754,39 +754,39 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                 style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 14, fontWeight: 700, cursor: !oldPass || newPass.length < 8 || confPass.length < 8 ? 'not-allowed' : 'pointer', opacity: !oldPass || newPass.length < 8 || confPass.length < 8 ? 0.5 : 1, fontFamily: "'Syne',sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 {isPending && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
-                {isPending ? 'Saving…' : 'Update'}
+                {isPending ? t('settings.saving') : t('settings.update')}
               </button>
             </div>
           </InlinePanel>
         )}
         <Row
           icon={Shield}
-          label="Two-factor authentication"
-          desc="Add an extra layer of security to your account"
+          label={t('settings.two_factor')}
+          desc={t('settings.two_factor_desc')}
           onClick={() => router.push('/settings/two-factor')}
           last
         />
       </Card>
 
       {/* ── SESSION ──────────────────────────────────────────────────────── */}
-      <SectionLabel label="Session" />
+      <SectionLabel label={t('settings.session')} />
       <Card>
         <Row
           icon={LogOut}
-          label={isPending ? 'Signing out…' : 'Sign out'}
-          desc="Sign out of your account"
+          label={isPending ? t('settings.signing_out') : t('settings.sign_out')}
+          desc={t('settings.sign_out_desc')}
           onClick={() => startT(async () => { await signOutAction() })}
           danger last
         />
       </Card>
 
       {/* ── DANGER ZONE ──────────────────────────────────────────────────── */}
-      <SectionLabel label="Danger zone" />
+      <SectionLabel label={t('settings.danger_zone')} />
       <Card>
         <Row
           icon={AlertTriangle}
-          label="Delete account"
-          desc="Permanently delete your account and all data"
+          label={t('settings.delete_account')}
+          desc={t('settings.delete_account_desc')}
           onClick={() => setShowDelete(true)}
           danger last
         />
@@ -826,25 +826,24 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                 fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 18,
                 color: 'var(--color-text-primary)', textAlign: 'center', marginBottom: 10,
               }}>
-                Delete your account?
+                {t('settings.delete_confirm_title')}
               </h3>
 
               <p style={{
                 fontSize: 14, color: 'var(--color-text-secondary)',
                 textAlign: 'center', lineHeight: 1.65, marginBottom: 24,
               }}>
-                This permanently removes your posts, followers, following, and any unwithdrawn
-                wallet balance. This action cannot be undone.
+                {t('settings.delete_confirm_body')}
               </p>
 
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
-                Enter your password to confirm
+                {t('settings.enter_password_confirm')}
               </div>
               <input
                 type="password"
                 value={deletePass}
                 onChange={e => { setDeletePass(e.target.value); setDeletePassErr('') }}
-                placeholder="Your current password"
+                placeholder={t('settings.current_password')}
                 autoComplete="current-password"
                 style={{
                   width: '100%', background: 'var(--input-bg)',
@@ -861,11 +860,11 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                 fontSize: 11, fontWeight: 700, letterSpacing: '0.07em',
                 color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 8,
               }}>
-                Type{' '}
+                {t('settings.type_to_confirm_prefix')}{' '}
                 <span style={{ color: 'var(--color-error)', fontFamily: 'monospace', letterSpacing: 0 }}>
                   DELETE
                 </span>{' '}
-                to confirm
+                {t('settings.type_to_confirm_suffix')}
               </div>
               <input
                 value={deleteInput}
@@ -887,7 +886,7 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                   className="para-btn-ghost"
                   style={{ flex: 1, padding: '13px 0', fontSize: 15, fontFamily: "'Syne', sans-serif", fontWeight: 600 }}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleDeleteAccount}
@@ -904,8 +903,8 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                   }}
                 >
                   {deleting
-                    ? <><Loader size={14} style={{ animation: 'spin .7s linear infinite' }} /> Deleting…</>
-                    : 'Delete forever'
+                    ? <><Loader size={14} style={{ animation: 'spin .7s linear infinite' }} /> {t('settings.deleting')}</>
+                    : t('settings.delete_forever')
                   }
                 </button>
               </div>

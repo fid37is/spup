@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const GOOGLE_ICON = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -24,6 +25,7 @@ interface OAuthButtonsProps {
 }
 
 export default function OAuthButtons({ mode }: OAuthButtonsProps) {
+  const { t } = useTranslation()
   const [loading, setLoading] = useState<'google' | 'facebook' | null>(null)
   const [error, setError] = useState('')
 
@@ -69,7 +71,7 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
         {loading === 'google' ? (
           <Spinner />
         ) : GOOGLE_ICON}
-        {mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
+        {mode === 'signup' ? t('auth.signup_google') : t('auth.continue_google')}
       </button>
 
       {/* Facebook */}
@@ -82,7 +84,7 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
         {loading === 'facebook' ? (
           <Spinner />
         ) : FACEBOOK_ICON}
-        {mode === 'signup' ? 'Sign up with Facebook' : 'Continue with Facebook'}
+        {mode === 'signup' ? t('auth.signup_facebook') : t('auth.continue_facebook')}
       </button>
 
       {error && (
@@ -101,10 +103,11 @@ function Spinner() {
 }
 
 export function AuthDivider() {
+  const { t } = useTranslation()
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
       <div style={{ flex: 1, height: 1, background: '#1E1E26' }} />
-      <span style={{ fontSize: 12, color: '#3A3A40', fontWeight: 500, letterSpacing: '0.06em' }}>OR</span>
+      <span style={{ fontSize: 12, color: '#3A3A40', fontWeight: 500, letterSpacing: '0.06em' }}>{t('auth.or')}</span>
       <div style={{ flex: 1, height: 1, background: '#1E1E26' }} />
     </div>
   )

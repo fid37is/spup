@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useCallback, useMemo, useState } from 'react'
-import { type Locale, DEFAULT_LOCALE, loadDictionary } from './dictionaries'
+import { type Locale, DEFAULT_LOCALE, loadDictionary, translate } from './dictionaries'
 // Static import (not dynamic) — this is the fallback dictionary and must be
 // available synchronously on every render, regardless of the active locale.
 import enMessages from '@/locales/en.json'
@@ -28,10 +28,6 @@ export function useTranslation() {
   return useContext(LanguageContext)
 }
 
-function interpolate(str: string, vars?: Record<string, string | number>) {
-  if (!vars) return str
-  return str.replace(/\{(\w+)\}/g, (match, name) => (name in vars ? String(vars[name]) : match))
-}
 
 export function LanguageProvider({
   initialLocale,
@@ -63,8 +59,7 @@ export function LanguageProvider({
   }, [locale])
 
   const t = useCallback((key: string, vars?: Record<string, string | number>) => {
-    const raw = messages[key] ?? (enMessages as Record<string, string>)[key] ?? key
-    return interpolate(raw, vars)
+    return translate(messages, key, vars)
   }, [messages])
 
   const value = useMemo(() => ({ locale, t, setLocale }), [locale, t, setLocale])

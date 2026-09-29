@@ -17,6 +17,8 @@ import { getSuggestedAccountsAction } from '@/lib/actions/follows'
 import { useEngagement, setEngagement } from '@/lib/engagement-sync'
 import { Alert } from '@/components/auth/form-field'
 import { NIGERIAN_INTERESTS } from '@/types'
+import { useTranslation } from '@/lib/i18n/language-context'
+import { interestLabel } from '@/lib/i18n/interests'
 import {
   Check,
   CheckCircle,
@@ -26,7 +28,13 @@ import {
   ChevronLeft,
 } from 'lucide-react'
 
-const STEPS = ['Username', 'Photo', 'Bio', 'Interests', 'Follow']
+const STEP_KEYS = [
+  'onboarding.step_username',
+  'onboarding.step_photo',
+  'onboarding.step_bio',
+  'onboarding.step_interests',
+  'onboarding.step_follow',
+]
 
 const BASE: React.CSSProperties = {
   width: '100%',
@@ -76,6 +84,8 @@ const SKIP_BTN: React.CSSProperties = {
 
 export default function OnboardingPage() {
   const router = useRouter()
+  const { t } = useTranslation()
+  const STEPS = STEP_KEYS.map(k => t(k))
 
   const [step, setStep] = useState(0)
   const [maxStep, setMaxStep] = useState(0)
@@ -243,7 +253,7 @@ export default function OnboardingPage() {
 
       if (!res.ok || !data.media?.url) {
         setUploadError(
-          data.error || 'Upload failed. Please try again.'
+          data.error || t('onboarding.upload_failed')
         )
         setAvatarPreview(null)
       } else {
@@ -251,7 +261,7 @@ export default function OnboardingPage() {
       }
     } catch {
       setUploadError(
-        'Upload failed. Check your connection and try again.'
+        t('onboarding.upload_failed_connection')
       )
       setAvatarPreview(null)
     } finally {
@@ -321,7 +331,7 @@ export default function OnboardingPage() {
 
   function submitInterests() {
     if (interests.length < 3) {
-      setError('Pick at least 3 interests')
+      setError(t('onboarding.interests_min_error'))
       return
     }
 
@@ -427,7 +437,7 @@ export default function OnboardingPage() {
                 }}
                 title={
                   isReachable
-                    ? `Go back to ${s}`
+                    ? t('onboarding.go_back_to', { step: s })
                     : undefined
                 }
               >
@@ -531,7 +541,7 @@ export default function OnboardingPage() {
                 marginBottom: 6,
               }}
             >
-              Choose your username
+              {t('onboarding.username_title')}
             </h2>
 
             <p
@@ -540,12 +550,12 @@ export default function OnboardingPage() {
                 color: '#6A6A60',
               }}
             >
-              This is how people find and mention you
+              {t('onboarding.username_subtitle')}
             </p>
           </div>
 
           <div style={{ marginBottom: 20 }}>
-            <label style={LBL}>Username</label>
+            <label style={LBL}>{t('onboarding.step_username')}</label>
 
             <div style={{ position: 'relative' }}>
               <span
@@ -566,7 +576,7 @@ export default function OnboardingPage() {
                 onChange={e =>
                   handleUsernameChange(e.target.value)
                 }
-                placeholder="yourhandle"
+                placeholder={t('onboarding.username_placeholder')}
                 autoFocus
                 style={{
                   ...BASE,
@@ -624,20 +634,19 @@ export default function OnboardingPage() {
             >
               {usernameStatus === 'taken' && (
                 <span style={{ color: '#E53935' }}>
-                  That username is taken. Try another.
+                  {t('onboarding.username_taken')}
                 </span>
               )}
 
               {usernameStatus === 'ok' && (
                 <span style={{ color: '#1A9E5F' }}>
-                  ✓ Available
+                  {t('onboarding.username_available')}
                 </span>
               )}
 
               {usernameStatus === 'idle' && (
                 <span style={{ color: '#44444A' }}>
-                  5–12 characters. Letters, numbers,
-                  underscores only.
+                  {t('onboarding.username_rules')}
                 </span>
               )}
             </div>
@@ -693,7 +702,7 @@ export default function OnboardingPage() {
                   : 1,
             }}
           >
-            {pendingUsername ? 'Saving…' : 'Continue'}
+            {pendingUsername ? t('common.saving') : t('onboarding.continue')}
           </button>
         </div>
       )}
@@ -716,7 +725,7 @@ export default function OnboardingPage() {
             }}
           >
             <ChevronLeft size={15} />
-            Back
+            {t('common.back')}
           </button>
 
           <div
@@ -735,7 +744,7 @@ export default function OnboardingPage() {
                 marginBottom: 6,
               }}
             >
-              Add a profile photo
+              {t('onboarding.avatar_title')}
             </h2>
 
             <p
@@ -744,7 +753,7 @@ export default function OnboardingPage() {
                 color: '#6A6A60',
               }}
             >
-              Help people recognise you (optional)
+              {t('onboarding.avatar_subtitle')}
             </p>
           </div>
 
@@ -780,7 +789,7 @@ export default function OnboardingPage() {
               {avatarPreview ? (
                 <img
                   src={avatarPreview}
-                  alt="Avatar preview"
+                  alt={t('onboarding.avatar_preview')}
                   style={{
                     width: '100%',
                     height: '100%',
@@ -807,7 +816,7 @@ export default function OnboardingPage() {
                       marginTop: 4,
                     }}
                   >
-                    Upload
+                    {t('onboarding.upload')}
                   </div>
                 </div>
               )}
@@ -866,7 +875,7 @@ export default function OnboardingPage() {
                 marginBottom: 12,
               }}
             >
-              ✓ Photo uploaded
+              {t('onboarding.photo_uploaded')}
             </p>
           )}
 
@@ -881,10 +890,10 @@ export default function OnboardingPage() {
             }}
           >
             {uploading
-              ? 'Uploading…'
+              ? t('onboarding.uploading')
               : pendingAvatar
-                ? 'Saving…'
-                : 'Continue'}
+                ? t('common.saving')
+                : t('onboarding.continue')}
           </button>
 
           {!avatarUrl && (
@@ -896,7 +905,7 @@ export default function OnboardingPage() {
                 opacity: uploading ? 0.4 : 1,
               }}
             >
-              Skip for now
+              {t('common.skip_for_now')}
             </button>
           )}
         </div>
@@ -920,7 +929,7 @@ export default function OnboardingPage() {
             }}
           >
             <ChevronLeft size={15} />
-            Back
+            {t('common.back')}
           </button>
 
           <div
@@ -939,7 +948,7 @@ export default function OnboardingPage() {
                 marginBottom: 6,
               }}
             >
-              Tell your story
+              {t('onboarding.bio_title')}
             </h2>
 
             <p
@@ -948,8 +957,7 @@ export default function OnboardingPage() {
                 color: '#6A6A60',
               }}
             >
-              A short bio helps people know what
-              you&apos;re about (optional)
+              {t('onboarding.bio_subtitle')}
             </p>
           </div>
 
@@ -961,7 +969,7 @@ export default function OnboardingPage() {
                 marginBottom: 6,
               }}
             >
-              <label style={LBL}>Bio</label>
+              <label style={LBL}>{t('onboarding.step_bio')}</label>
 
               <span
                 style={{
@@ -981,7 +989,7 @@ export default function OnboardingPage() {
               onChange={e =>
                 setBio(e.target.value.slice(0, 160))
               }
-              placeholder="Nigerian creator, football lover, tech enthusiast…"
+              placeholder={t('onboarding.bio_placeholder')}
               rows={4}
               style={{
                 ...BASE,
@@ -999,7 +1007,7 @@ export default function OnboardingPage() {
               marginBottom: 12,
             }}
           >
-            {pendingBio ? 'Saving…' : 'Continue'}
+            {pendingBio ? t('common.saving') : t('onboarding.continue')}
           </button>
 
           <button
@@ -1010,7 +1018,7 @@ export default function OnboardingPage() {
               opacity: pendingBio ? 0.5 : 1,
             }}
           >
-            Skip for now
+            {t('common.skip_for_now')}
           </button>
         </div>
       )}
@@ -1033,7 +1041,7 @@ export default function OnboardingPage() {
             }}
           >
             <ChevronLeft size={15} />
-            Back
+            {t('common.back')}
           </button>
 
           <div
@@ -1052,7 +1060,7 @@ export default function OnboardingPage() {
                 marginBottom: 6,
               }}
             >
-              What are you into?
+              {t('onboarding.interests_title')}
             </h2>
 
             <p
@@ -1061,8 +1069,7 @@ export default function OnboardingPage() {
                 color: '#6A6A60',
               }}
             >
-              Pick at least 3 — we&apos;ll personalise
-              your feed
+              {t('onboarding.interests_subtitle')}
               <br />
               <span
                 style={{
@@ -1072,7 +1079,7 @@ export default function OnboardingPage() {
                       : '#44444A',
                 }}
               >
-                {interests.length}/10 selected
+                {t('onboarding.interests_selected', { count: interests.length })}
               </span>
             </p>
           </div>
@@ -1122,7 +1129,7 @@ export default function OnboardingPage() {
                     aria-hidden="true"
                   />
 
-                  {interest.label}
+                  {interestLabel(t, interest)}
 
                   {sel && <Check size={11} />}
                 </button>
@@ -1146,10 +1153,8 @@ export default function OnboardingPage() {
             }}
           >
             {pendingInterests
-              ? 'Saving…'
-              : `Continue with ${interests.length} interest${
-                  interests.length !== 1 ? 's' : ''
-                }`}
+              ? t('common.saving')
+              : interests.length === 1 ? t('onboarding.continue_with_one') : t('onboarding.continue_with_many', { count: interests.length })}
           </button>
         </div>
       )}
@@ -1172,7 +1177,7 @@ export default function OnboardingPage() {
             }}
           >
             <ChevronLeft size={15} />
-            Back
+            {t('common.back')}
           </button>
 
           <div
@@ -1191,7 +1196,7 @@ export default function OnboardingPage() {
                 marginBottom: 6,
               }}
             >
-              Follow some accounts
+              {t('onboarding.follow_title')}
             </h2>
 
             <p
@@ -1200,8 +1205,7 @@ export default function OnboardingPage() {
                 color: '#6A6A60',
               }}
             >
-              Based on your interests, here are accounts
-              you might like
+              {t('onboarding.follow_subtitle')}
             </p>
           </div>
 
@@ -1225,7 +1229,7 @@ export default function OnboardingPage() {
                 />
 
                 <p style={{ margin: 0 }}>
-                  Finding accounts based on your interests…
+                  {t('onboarding.finding_accounts')}
                 </p>
               </div>
             ) : suggested.length === 0 ? (
@@ -1237,8 +1241,7 @@ export default function OnboardingPage() {
                   padding: '24px 0',
                 }}
               >
-                No suggestions available yet. You can
-                follow people from the Explore page.
+                {t('onboarding.no_suggestions')}
               </p>
             ) : (
               suggested.map(acc => {
@@ -1353,8 +1356,7 @@ export default function OnboardingPage() {
                         }}
                       >
                         @{acc.username} ·{' '}
-                        {acc.followers_count.toLocaleString()}{' '}
-                        followers
+                        {acc.followers_count === 1 ? t('onboarding.follower_singular', { count: 1 }) : t('onboarding.follower_plural', { count: acc.followers_count.toLocaleString() })}
                       </div>
 
                       {acc.bio && (
@@ -1404,8 +1406,8 @@ export default function OnboardingPage() {
                       }}
                     >
                       {isFollowed
-                        ? 'Following'
-                        : 'Follow'}
+                        ? t('onboarding.following')
+                        : t('onboarding.follow')}
                     </button>
                   </div>
                 )
@@ -1423,8 +1425,8 @@ export default function OnboardingPage() {
             }}
           >
             {pendingFinish
-              ? 'Setting up your feed…'
-              : 'Go to Spup →'}
+              ? t('onboarding.finishing')
+              : t('onboarding.go_to_spup')}
           </button>
 
           <button
@@ -1435,7 +1437,7 @@ export default function OnboardingPage() {
               opacity: pendingFinish ? 0.5 : 1,
             }}
           >
-            Skip for now
+            {t('common.skip_for_now')}
           </button>
         </div>
       )}

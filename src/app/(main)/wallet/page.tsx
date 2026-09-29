@@ -11,17 +11,19 @@ import SendButton from './send-button'
 import TopUpButton from './topup-button'
 import AcceptMonetisationButton from './accept-monetisation-button'
 import Link from 'next/link'
+import { isLocale, DEFAULT_LOCALE, loadDictionary, translate } from '@/lib/i18n/dictionaries'
 
 /* ── Monetisation checklist ─────────────────────────────────────────────── */
 /* Growth criteria only (90 days / 500 followers / 100 posts) - deliberately
    independent of phone/NIN verification, which stays gated at withdrawal
    only. See lib/actions/monetisation.ts. */
 function MonetisationChecklist({
-  criteria, is_monetised, eligibleToAccept,
+  criteria, is_monetised, eligibleToAccept, t,
 }: {
   criteria: NonNullable<Awaited<ReturnType<typeof getMonetisationEligibility>>>['criteria']
   is_monetised: boolean
   eligibleToAccept: boolean
+  t: (key: string, vars?: Record<string, string | number>) => string
 }) {
   const safeCriteria = criteria ?? {
     followers: { met: false, value: 0 },
@@ -30,9 +32,9 @@ function MonetisationChecklist({
   }
 
   const items = [
-    { label: '500+ followers',    ...safeCriteria.followers,    display: `${formatNumber(Math.min(safeCriteria.followers.value as number, 500))} / 500` },
-    { label: '90-day account',    ...safeCriteria.account_age,  display: `${Math.min(safeCriteria.account_age.value as number, 90)} / 90 days` },
-    { label: '100+ posts',        ...safeCriteria.posts,        display: `${formatNumber(Math.min(safeCriteria.posts.value as number, 100))} / 100` },
+    { label: t('wallet.followers_criterion'),   ...safeCriteria.followers,    display: `${formatNumber(safeCriteria.followers.value as number)} / 500` },
+    { label: t('wallet.account_age_criterion'), ...safeCriteria.account_age,  display: t('wallet.account_age_display', { value: Math.min(safeCriteria.account_age.value as number, 90) }) },
+    { label: t('wallet.posts_criterion'),       ...safeCriteria.posts,        display: `${formatNumber(safeCriteria.posts.value as number)} / 100` },
   ]
   const metCount = items.filter(i => i.met).length
   const pct = Math.round((metCount / items.length) * 100)
@@ -42,14 +44,14 @@ function MonetisationChecklist({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div>
           <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', marginBottom: 2 }}>
-            {is_monetised ? 'Monetisation active' : 'Monetisation eligibility'}
+            {is_monetised ? t('wallet.monetisation_active') : t('wallet.monetisation_eligibility')}
           </h2>
           <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
             {is_monetised
-              ? 'You are earning ad revenue'
+              ? t('wallet.earning_ad_revenue')
               : eligibleToAccept
-                ? 'All criteria met - enable below'
-                : `${metCount} of ${items.length} criteria met`}
+                ? t('wallet.all_criteria_met')
+                : t('wallet.criteria_met_count', { met: metCount, total: items.length })}
           </p>
         </div>
         <span style={{
@@ -87,26 +89,32 @@ function MonetisationChecklist({
 }
 
 /* ── Transaction row ─────────────────────────────────────────────────────── */
-function TransactionRow({ tx }: { tx: any }) {
+function TransactionRow({ tx, t }: { tx: any; t: (key: string, vars?: Record<string, string | number>) => string }) {
   const isCredit = ['earning_ad', 'earning_tip', 'earning_subscription', 'wallet_topup', 'escrow_release', 'refund', 'transfer_received'].includes(tx.type)
   const typeLabel: Record<string, string> = {
-    earning_ad: 'Ad revenue',
-    earning_tip: 'Tip received',
-    earning_subscription: 'Subscription',
-    withdrawal: 'Withdrawal',
-    refund: 'Refund',
-    wallet_topup: 'Wallet top-up',
-    escrow_hold: 'Payment to vendor (held)',
-    escrow_release: 'Escrow payment received',
-    promotion_spend: 'Post promotion',
-    transfer_sent: tx.description || 'Sent',
-    transfer_received: tx.description || 'Received',
+    earning_ad: t('wallet.ad_revenue'),
+    earning_tip: t('wallet.tip_received'),
+    earning_subscription: t('wallet.subscription'),
+    withdrawal: t('wallet.withdrawal'),
+    refund: t('wallet.refund'),
+    wallet_topup: t('wallet.topup'),
+    escrow_hold: t('wallet.escrow_hold'),
+    escrow_release: t('wallet.escrow_received'),
+    promotion_spend: t('wallet.post_promotion'),
+    transfer_sent: tx.description || t('wallet.sent'),
+    transfer_received: tx.description || t('wallet.received'),
   }
   const statusColor: Record<string, string> = {
     pending: 'var(--color-gold)',
     completed: 'var(--color-brand)',
     failed: 'var(--color-error)',
     reversed: 'var(--color-text-muted)',
+  }
+  const statusLabel: Record<string, string> = {
+    pending: t('wallet.status_pending'),
+    completed: t('wallet.status_completed'),
+    failed: t('wallet.status_failed'),
+    reversed: t('wallet.status_reversed'),
   }
 
   return (
@@ -131,8 +139,8 @@ function TransactionRow({ tx }: { tx: any }) {
             {typeLabel[tx.type] || tx.type}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: statusColor[tx.status] || 'var(--color-text-muted)', textTransform: 'capitalize' }}>
-              {tx.status}
+            <span style={{ fontSize: 11, fontWeight: 600, color: statusColor[tx.status] || 'var(--color-text-muted)' }}>
+              {statusLabel[tx.status] || tx.status}
             </span>
             <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
               · {new Date(tx.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -171,6 +179,10 @@ export default async function WalletPage() {
   const profile = await getProfileByAuthId(user.id)
   if (!profile) redirect('/login')
 
+  const locale = isLocale(profile.language_preference) ? profile.language_preference : DEFAULT_LOCALE
+  const dict = await loadDictionary(locale)
+  const t = (key: string, vars?: Record<string, string | number>) => translate(dict, key, vars)
+
   const [wallet, eligibility, nextPayout] = await Promise.all([
     getWallet(profile.id),
     getMonetisationEligibility(),
@@ -203,7 +215,7 @@ export default async function WalletPage() {
         padding: '16px 20px',
       }}>
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)' }}>
-          Wallet
+          {t('wallet.title')}
         </h1>
       </div>
 
@@ -217,7 +229,7 @@ export default async function WalletPage() {
           marginBottom: 12,
         }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: '0.06em', marginBottom: 10, textTransform: 'uppercase' }}>
-            Available balance
+            {t('wallet.available_balance')}
           </div>
           <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 36, color: 'var(--color-text-primary)', letterSpacing: '-0.02em', marginBottom: 6 }}>
             {formatNaira(balance)}
@@ -225,14 +237,14 @@ export default async function WalletPage() {
           {monthlyEarnings.total_kobo > 0 && (
             <div style={{ fontSize: 13, color: 'var(--color-brand)', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 5 }}>
               <TrendingUp size={13} />
-              +{formatNaira(monthlyEarnings.total_kobo)} this month
+              {t('wallet.this_month_earning', { amount: formatNaira(monthlyEarnings.total_kobo) })}
             </div>
           )}
 
           {/* Stat row */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-            <StatCard label="Total earned" value={formatNaira(totalEarned)} />
-            <StatCard label="Withdrawn" value={formatNaira(totalWithdrawn)} />
+            <StatCard label={t('wallet.total_earned')} value={formatNaira(totalEarned)} />
+            <StatCard label={t('wallet.withdrawn')} value={formatNaira(totalWithdrawn)} />
           </div>
 
           <WithdrawButton canWithdraw={canWithdraw} balance={balance} ninVerified={profile.nin_verified} bvnVerified={profile.bvn_verified} savedBank={savedBank} nextEligibleAt={nextPayout.next_eligible_at} />
@@ -240,7 +252,7 @@ export default async function WalletPage() {
             <TopUpButton />
             <SendButton balance={balance} />
             <Link href="/wallet/orders" style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
-              Orders
+              {t('wallet.orders')}
             </Link>
           </div>
         </div>
@@ -260,13 +272,13 @@ export default async function WalletPage() {
             <Shield size={18} color="var(--color-gold)" style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
-                Phone verification required
+                {t('wallet.phone_verification_required')}
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
-                Verify your phone number first - this unlocks NIN verification, needed before you can withdraw.
+                {t('wallet.phone_verification_desc')}
               </div>
               <Link href="/settings/verify-phone" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
-                Verify phone <ArrowUpRight size={13} />
+                {t('wallet.verify_phone_cta')} <ArrowUpRight size={13} />
               </Link>
             </div>
           </div>
@@ -283,13 +295,13 @@ export default async function WalletPage() {
             <Shield size={18} color="var(--color-gold)" style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
-                NIN verification required
+                {t('wallet.nin_verification_required')}
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
-                Only needed before you withdraw - you can keep posting and earning without it until then.
+                {t('wallet.nin_verification_desc')}
               </div>
               <Link href="/settings/verify-nin" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
-                Verify NIN <ArrowUpRight size={13} />
+                {t('wallet.verify_nin_cta')} <ArrowUpRight size={13} />
               </Link>
             </div>
           </div>
@@ -308,13 +320,13 @@ export default async function WalletPage() {
             <Shield size={18} color="var(--color-gold)" style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
-                BVN verification required for this amount
+                {t('wallet.bvn_verification_required')}
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
-                Withdrawals of {formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO)} or more need an extra check, as required by the CBN.
+                {t('wallet.bvn_verification_desc', { amount: formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO) })}
               </div>
               <Link href="/settings/verify-bvn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', background: 'var(--color-surface-2)', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontFamily: "'Syne', sans-serif" }}>
-                Verify BVN <ArrowUpRight size={13} />
+                {t('wallet.verify_bvn_cta')} <ArrowUpRight size={13} />
               </Link>
             </div>
           </div>
@@ -326,16 +338,16 @@ export default async function WalletPage() {
           <AcceptMonetisationButton />
         )}
         {eligibility && eligibility.criteria && !eligibility.is_monetised && (
-          <MonetisationChecklist criteria={eligibility.criteria} is_monetised={eligibility.is_monetised} eligibleToAccept={eligibility.eligible_to_accept} />
+          <MonetisationChecklist criteria={eligibility.criteria} is_monetised={eligibility.is_monetised} eligibleToAccept={eligibility.eligible_to_accept} t={t} />
         )}
 
         {/* Transactions */}
         <div style={{ marginTop: 24 }}>
           <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--color-text-primary)', marginBottom: 4 }}>
-            Transactions
+            {t('wallet.transactions')}
           </h2>
           <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
-            Last 20 transactions
+            {t('wallet.last_20_transactions')}
           </p>
 
           {transactions.length === 0 ? (
@@ -343,12 +355,12 @@ export default async function WalletPage() {
               <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--color-surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <TrendingUp size={22} color="var(--color-text-muted)" />
               </div>
-              <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6 }}>No transactions yet</p>
-              <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Start posting to earn ad revenue.</p>
+              <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6 }}>{t('wallet.no_transactions_yet')}</p>
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{t('wallet.start_posting_to_earn')}</p>
             </div>
           ) : (
             <div>
-              {transactions.map((tx: any) => <TransactionRow key={tx.id} tx={tx} />)}
+              {transactions.map((tx: any) => <TransactionRow key={tx.id} tx={tx} t={t} />)}
             </div>
           )}
         </div>

@@ -8,6 +8,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { generateUniqueUsername, suggestUsernames } from '@/lib/username'
 import { usernameLengthError } from '@/lib/validations/username-length'
+import { getCookieLocale } from '@/lib/i18n/locale-cookie.server'
 import {
   signupSchema, loginSchema, emailOtpSchema,
   profileSetupSchema, interestsSchema, completeSocialProfileSchema,
@@ -111,6 +112,7 @@ export async function signUpAction(data: SignupSchema) {
       username: tempUsername,
       role: 'user',
       status: 'pending_verification',
+      language_preference: await getCookieLocale(),
     })
     .select('id')
     .single()
@@ -176,6 +178,7 @@ export async function verifyEmailOtpAction(email: string, data: EmailOtpSchema) 
         username: await generateUniqueUsername(admin, fullName),
         role: 'user',
         status: 'active',
+        language_preference: await getCookieLocale(),
       })
       .select('id')
       .single()
@@ -361,6 +364,7 @@ export async function handleOAuthCallbackAction() {
       username: await generateUniqueUsername(admin, fullName),
       role: 'user',
       status: 'active', // OAuth = already verified by provider
+      language_preference: await getCookieLocale(),
     })
     .select('id')
     .single()

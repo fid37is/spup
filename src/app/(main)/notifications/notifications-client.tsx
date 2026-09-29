@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useCallback, useTransition, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useTranslation } from '@/lib/i18n/language-context'
 import {
   Bell, Heart, MessageCircle, Repeat2, User, AtSign, DollarSign, Star,
   CheckCheck, Loader, Quote, ShieldCheck, PackageCheck, Scale, Gavel, ShieldAlert,
@@ -53,16 +54,16 @@ interface Props {
   initialPane: PaneState
 }
 
-const TABS: { key: NotificationTab; label: string }[] = [
-  { key: 'all',      label: 'All'      },
-  { key: 'priority', label: 'Priority' },
-  { key: 'mentions', label: 'Mentions' },
+const TABS: { key: NotificationTab; labelKey: string }[] = [
+  { key: 'all',      labelKey: 'notif.tab_all'      },
+  { key: 'priority', labelKey: 'notif.tab_priority' },
+  { key: 'mentions', labelKey: 'notif.tab_mentions' },
 ]
 
-const EMPTY: Record<NotificationTab, { title: string; body: string }> = {
-  all:      { title: 'No notifications yet',       body: 'When someone likes, replies to, or follows you, it will show up here.' },
-  priority: { title: 'Nothing in Priority yet',    body: 'Turn on the bell on someone\u2019s profile and their posts and activity will show up here first.' },
-  mentions: { title: 'Nobody has mentioned you',   body: 'When someone replies to you or @mentions you, it will show up here.' },
+const EMPTY: Record<NotificationTab, { titleKey: string; bodyKey: string }> = {
+  all:      { titleKey: 'notif.empty_all',      bodyKey: 'notif.empty_all_body' },
+  priority: { titleKey: 'notif.empty_priority', bodyKey: 'notif.empty_priority_body' },
+  mentions: { titleKey: 'notif.empty_mentions', bodyKey: 'notif.empty_mentions_body' },
 }
 
 // X palette for the big left-hand icons
@@ -113,35 +114,35 @@ function uniqueActors(g: Group) {
   return out
 }
 
-function verbFor(n: NotificationItem): string {
-  const target = n.post?.is_reply ? 'reply' : 'post'
+function verbFor(n: NotificationItem, t: (key: string, vars?: Record<string, string | number>) => string): string {
+  const target = n.post?.is_reply ? t('notif.noun_reply') : t('notif.noun_post')
   switch (n.type) {
-    case 'new_follower':          return 'followed you'
-    case 'post_like':             return `liked your ${target}`
-    case 'comment_like':          return 'liked your reply'
-    case 'post_repost':           return `reposted your ${target}`
-    case 'post_comment':          return `replied to your ${target}`
-    case 'post_quote':            return 'quoted your post'
-    case 'mention':               return 'mentioned you'
-    case 'tip_received':          return 'sent you a tip'
-    case 'subscription_new':      return 'subscribed to you'
-    case 'wallet_transfer_received': return 'sent you money'
-    case 'escrow_hold_received':  return 'paid for your item - funds are held in escrow'
-    case 'escrow_delivered':      return 'marked your order as delivered'
-    case 'escrow_disputed':       return 'opened a dispute on your order'
-    case 'escrow_proposal':       return 'proposed a resolution'
-    default:                      return 'sent you a notification'
+    case 'new_follower':          return t('notif.verb_followed_you')
+    case 'post_like':             return t('notif.verb_liked', { target })
+    case 'comment_like':          return t('notif.verb_liked_reply')
+    case 'post_repost':           return t('notif.verb_reposted', { target })
+    case 'post_comment':          return t('notif.verb_replied', { target })
+    case 'post_quote':            return t('notif.verb_quoted')
+    case 'mention':               return t('notif.verb_mentioned')
+    case 'tip_received':          return t('notif.verb_tip')
+    case 'subscription_new':      return t('notif.verb_subscribed')
+    case 'wallet_transfer_received': return t('notif.verb_money_sent')
+    case 'escrow_hold_received':  return t('notif.verb_escrow_hold')
+    case 'escrow_delivered':      return t('notif.verb_escrow_delivered')
+    case 'escrow_disputed':       return t('notif.verb_escrow_disputed')
+    case 'escrow_proposal':       return t('notif.verb_escrow_proposal')
+    default:                      return t('notif.verb_default')
   }
 }
 
 // Notifications with no actor / a fixed sentence.
-function standaloneText(n: NotificationItem): string | null {
+function standaloneText(n: NotificationItem, t: (key: string, vars?: Record<string, string | number>) => string): string | null {
   switch (n.type) {
-    case 'earning_milestone':     return n.metadata?.message ?? 'You hit an earnings milestone'
-    case 'monetisation_approved': return 'Your account has been approved for monetisation \uD83C\uDF89'
-    case 'escrow_released':       return 'Escrow funds have been released to you'
-    case 'escrow_escalated':      return 'Your dispute was escalated to Spup support'
-    case 'system':                return n.metadata?.message ?? 'Update from Spup'
+    case 'earning_milestone':     return n.metadata?.message ?? t('notif.earnings_milestone_body')
+    case 'monetisation_approved': return t('notif.monetisation_approved_body')
+    case 'escrow_released':       return t('notif.escrow_released_body')
+    case 'escrow_escalated':      return t('notif.dispute_escalated_body')
+    case 'system':                return n.metadata?.message ?? t('notif.update_from_spup')
     default:                      return null
   }
 }
@@ -214,10 +215,11 @@ function ActorName({ actor }: { actor: NonNullable<NotificationItem['actor']> })
 }
 
 function NameList({ actors }: { actors: NonNullable<NotificationItem['actor']>[] }) {
-  if (actors.length === 0) return <>Someone</>
+  const { t } = useTranslation()
+  if (actors.length === 0) return <>{t('notif.someone')}</>
   if (actors.length === 1) return <ActorName actor={actors[0]} />
-  if (actors.length === 2) return <><ActorName actor={actors[0]} /> and <ActorName actor={actors[1]} /></>
-  return <><ActorName actor={actors[0]} /> and {actors.length - 1} others</>
+  if (actors.length === 2) return <><ActorName actor={actors[0]} /> {t('notif.and')} <ActorName actor={actors[1]} /></>
+  return <><ActorName actor={actors[0]} /> {t('notif.and_n_others', { count: actors.length - 1 })}</>
 }
 
 /** Big avatar (or icon tile when there's no person) with a small coloured type badge. */
@@ -264,6 +266,10 @@ function PreviewCard({
   const hasThumb = !!post.media_thumb
   if (!body && !hasThumb) return null
 
+  function t(arg0: string): ReactNode {
+    throw new Error('Function not implemented.')
+  }
+
   return (
     <div style={{
       marginTop: 10, display: 'flex', alignItems: 'stretch', overflow: 'hidden',
@@ -292,37 +298,39 @@ function PreviewCard({
           color: primary ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
           display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical', overflow: 'hidden',
         }}>
-          {body || (post.media_type === 'video' ? 'Video' : 'Photo')}
+          {body || (post.media_type === 'video' ? t('notif.video') : t('notif.photo'))}
         </p>
       </div>
     </div>
   )
 }
 
-const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
+const plural = (translate: (key: string, vars?: Record<string, string | number>) => string, n: number, singularKey: string, pluralKey: string) =>
+  translate('notif.count_and_noun', { count: n, noun: n === 1 ? translate(singularKey) : translate(pluralKey) })
 
 /** "2 likes" under a like/repost row; "3 likes · 1 reply" under a reply/mention. */
-function countsText(g: Group, shown: NotificationPostPreview | null): string {
-  const t = g.items[0].type
+function countsText(g: Group, shown: NotificationPostPreview | null, translate: (key: string, vars?: Record<string, string | number>) => string): string {
+  const type = g.items[0].type
   if (!shown) return ''
-  if (t === 'post_like' || t === 'comment_like') return shown.likes_count > 0 ? plural(shown.likes_count, 'like') : ''
-  if (t === 'post_repost') return shown.reposts_count > 0 ? plural(shown.reposts_count, 'repost') : ''
-  if (t === 'post_comment' || t === 'mention' || t === 'post_quote') {
+  if (type === 'post_like' || type === 'comment_like') return shown.likes_count > 0 ? plural(translate, shown.likes_count, 'notif.noun_like_singular', 'notif.noun_like_plural') : ''
+  if (type === 'post_repost') return shown.reposts_count > 0 ? plural(translate, shown.reposts_count, 'notif.noun_repost_singular', 'notif.noun_repost_plural') : ''
+  if (type === 'post_comment' || type === 'mention' || type === 'post_quote') {
     const parts: string[] = []
-    if (shown.likes_count > 0)    parts.push(plural(shown.likes_count, 'like'))
-    if (shown.comments_count > 0) parts.push(plural(shown.comments_count, 'reply', 'replies'))
-    if (shown.reposts_count > 0)  parts.push(plural(shown.reposts_count, 'repost'))
+    if (shown.likes_count > 0)    parts.push(plural(translate, shown.likes_count, 'notif.noun_like_singular', 'notif.noun_like_plural'))
+    if (shown.comments_count > 0) parts.push(plural(translate, shown.comments_count, 'notif.noun_reply_singular', 'notif.noun_reply_plural'))
+    if (shown.reposts_count > 0)  parts.push(plural(translate, shown.reposts_count, 'notif.noun_repost_singular', 'notif.noun_repost_plural'))
     return parts.join(' \u00B7 ')
   }
   return ''
 }
 
 function RowMenu({ items }: { items: { label: string; icon: ReactNode; danger?: boolean; onClick: () => void }[] }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   return (
     <div style={{ position: 'relative', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
       <button
-        aria-label="More"
+        aria-label={t('notif.more')}
         onClick={() => setOpen(o => !o)}
         className="notif-icon-btn"
         style={{
@@ -386,10 +394,11 @@ function NotificationRow({
   onDelete: (g: Group) => void
   onTurnOffPosts: (actorId: string, actorUsername: string) => void
 }) {
+  const { t } = useTranslation()
   const first = group.items[0]
   const actors = uniqueActors(group)
   const href = hrefFor(group, username)
-  const fixed = actors.length === 0 ? standaloneText(first) : null
+  const fixed = actors.length === 0 ? standaloneText(first, t) : null
 
   // What goes in the preview card. Replies / quotes show what was written back
   // to you; mentions and new posts show the post itself; likes / reposts show
@@ -397,17 +406,17 @@ function NotificationRow({
   const shown: NotificationPostPreview | null =
     first.type === 'post_comment' || first.type === 'post_quote' ? (first.reply ?? first.post) : first.post
   const authored = ['post_comment', 'mention', 'post_quote', 'new_post'].includes(first.type)
-  const counts = countsText(group, shown)
+  const counts = countsText(group, shown, t)
 
   const menuItems = [
     ...(first.type === 'new_post' && first.actor
       ? [{
-          label: `Turn off notifications for @${first.actor.username}`,
+          label: t('notif.turn_off_notifications_for', { username: first.actor.username }),
           icon: <BellOff size={17} />,
           onClick: () => onTurnOffPosts(first.actor!.id, first.actor!.username),
         }]
       : []),
-    { label: 'Delete notification', icon: <Trash2 size={17} />, danger: true, onClick: () => onDelete(group) },
+    { label: t('notif.delete_notification'), icon: <Trash2 size={17} />, danger: true, onClick: () => onDelete(group) },
   ]
 
   return (
@@ -433,10 +442,10 @@ function NotificationRow({
           color: 'var(--color-text-primary)', fontFamily: "'DM Sans', sans-serif",
         }}>
           {first.type === 'new_post'
-            ? <>Recent post from <NameList actors={actors} /></>
+            ? <>{t('notif.recent_post_from')} <NameList actors={actors} /></>
             : fixed
               ? fixed
-              : <><NameList actors={actors} />{' '}<span style={{ fontWeight: 400 }}>{verbFor(first)}</span></>}
+              : <><NameList actors={actors} />{' '}<span style={{ fontWeight: 400 }}>{verbFor(first, t)}</span></>}
         </p>
 
         {shown && <PreviewCard post={shown} primary={authored} lines={authored ? 3 : 2} />}
@@ -454,6 +463,7 @@ function NotificationRow({
 /* ── "New posts" pane (first section) ────────────────────────────────────── */
 
 function NewPostsPane({ pane, onOpen }: { pane: PaneState; onOpen: () => void }) {
+  const { t } = useTranslation()
   if (pane.users.length === 0) return null
   const users = pane.users
   const lead = users[0]
@@ -477,7 +487,7 @@ function NewPostsPane({ pane, onOpen }: { pane: PaneState; onOpen: () => void })
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{ margin: 0, fontSize: 15, lineHeight: 1.4, color: 'var(--color-text-primary)' }}>
-          New post notifications for{' '}
+          {t('notif.new_post_notifs_for')}{' '}
           <strong style={{ fontWeight: 700 }}>
             {lead.display_name}
             {lead.verification_tier && lead.verification_tier !== 'none' && (
@@ -486,8 +496,8 @@ function NewPostsPane({ pane, onOpen }: { pane: PaneState; onOpen: () => void })
               </span>
             )}
           </strong>
-          {users.length === 2 && <> and <strong style={{ fontWeight: 700 }}>{users[1].display_name}</strong></>}
-          {users.length > 2 && <> and {users.length - 1} others</>}
+          {users.length === 2 && <> {t('notif.and')} <strong style={{ fontWeight: 700 }}>{users[1].display_name}</strong></>}
+          {users.length > 2 && <> {t('notif.and_n_others', { count: users.length - 1 })}</>}
         </p>
 
         {/* Everyone who just posted, overlapped like a LinkedIn "reactions" strip */}
@@ -508,8 +518,8 @@ function NewPostsPane({ pane, onOpen }: { pane: PaneState; onOpen: () => void })
         </div>
 
         <p style={{ margin: '8px 0 0', fontSize: 14, color: 'var(--color-text-muted)' }}>
-          {plural(pane.totalPosts, 'new post')}
-          {pane.unread > 0 ? ` \u00B7 ${pane.unread} unread` : ''}
+          {plural(t, pane.totalPosts, 'notif.noun_new_post_singular', 'notif.noun_new_post_plural')}
+          {pane.unread > 0 ? ` \u00B7 ${t('notif.n_unread', { count: pane.unread })}` : ''}
         </p>
       </div>
 
@@ -525,6 +535,7 @@ function NewPostsPane({ pane, onOpen }: { pane: PaneState; onOpen: () => void })
 /* ── Page ────────────────────────────────────────────────────────────────── */
 
 export default function NotificationsClient({ userId, username, initialItems, initialCursor, initialPane }: Props) {
+  const { t } = useTranslation()
   const router = useRouter()
   const [tab, setTab] = useState<NotificationTab>('all')
   const [tabs, setTabs] = useState<Record<NotificationTab, TabState>>({
@@ -666,7 +677,7 @@ export default function NotificationsClient({ userId, username, initialItems, in
   function turnOffPosts(actorId: string, actorUsername: string) {
     startMutate(async () => {
       const r = await disablePostNotificationsAction(actorId)
-      flash('error' in r ? 'Could not update. Try again.' : `Post notifications off for @${actorUsername}`)
+      flash('error' in r ? t('notif.update_failed') : t('notif.post_notifs_off_for', { username: actorUsername }))
     })
   }
 
@@ -710,14 +721,14 @@ export default function NotificationsClient({ userId, username, initialItems, in
             fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20,
             color: 'var(--color-text-primary)', margin: 0,
           }}>
-            Notifications
+            {t('notif.title')}
           </h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, position: 'absolute', right: 8 }}>
             {unreadCount > 0 && (
               <button
                 onClick={markAllRead}
-                aria-label="Mark all as read"
-                title="Mark all as read"
+                aria-label={t('notif.mark_all_read')}
+                title={t('notif.mark_all_read')}
                 className="notif-icon-btn"
                 style={{
                   width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'transparent',
@@ -730,8 +741,8 @@ export default function NotificationsClient({ userId, username, initialItems, in
             )}
             <Link
               href="/notifications/settings"
-              aria-label="Notification settings"
-              title="Notification settings"
+              aria-label={t('notif.settings')}
+              title={t('notif.settings')}
               className="notif-icon-btn"
               style={{
                 width: 40, height: 40, borderRadius: '50%',
@@ -745,7 +756,7 @@ export default function NotificationsClient({ userId, username, initialItems, in
         </div>
 
         <div role="tablist" style={{ display: 'flex' }}>
-          {TABS.map(({ key, label }) => {
+          {TABS.map(({ key, labelKey }) => {
             const active = tab === key
             return (
               <button
@@ -763,7 +774,7 @@ export default function NotificationsClient({ userId, username, initialItems, in
                 }}
               >
                 <span style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
-                  {label}
+                  {t(labelKey)}
                   {active && (
                     <span style={{
                       position: 'absolute', left: 0, right: 0, bottom: 0, height: 4,
@@ -809,10 +820,10 @@ export default function NotificationsClient({ userId, username, initialItems, in
             fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24,
             color: 'var(--color-text-primary)', margin: '0 0 8px',
           }}>
-            {EMPTY[tab].title}
+            {t(EMPTY[tab].titleKey)}
           </h3>
           <p style={{ margin: '0 auto', maxWidth: 340, fontSize: 15, lineHeight: 1.5, color: 'var(--color-text-muted)' }}>
-            {EMPTY[tab].body}
+            {t(EMPTY[tab].bodyKey)}
           </p>
         </div>
       )}
@@ -827,7 +838,7 @@ export default function NotificationsClient({ userId, username, initialItems, in
 
       {!current.hasMore && groups.length > 0 && !loading && (
         <div style={{ padding: '28px 20px', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-faint)' }}>You&apos;re all caught up</p>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-faint)' }}>{t('feed.caught_up')}</p>
         </div>
       )}
 
