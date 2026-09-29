@@ -1,7 +1,7 @@
 // src/components/feed/post-card.tsx
 'use client'
 
-import { useState, useTransition, useEffect, useRef } from 'react'
+import { useState, useTransition, useEffect, useRef, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
@@ -10,6 +10,7 @@ import {
   Play, Volume2, VolumeX,
 } from 'lucide-react'
 import PromoteModal from './promote-modal'
+import ReportDialog from './report-dialog'
 import {
   toggleLikeAction,
   toggleRepostAction,
@@ -18,8 +19,6 @@ import {
   createPostAction,
   recordImpressionAction,
   recordLinkClickAction,
-  recordVideoViewAction,
-  recordVideoCompletionAction,
   recordDetailExpandAction,
   recordProfileVisitFromPostAction,
   togglePinPostAction,
@@ -27,8 +26,15 @@ import {
   recordPromotionImpressionAction,
   recordPromotionClickAction,
 } from '@/lib/actions'
+import { showSupportResources } from '@/lib/support-resources'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import { shouldAutoplay } from '@/lib/autoplay'
+import { trackVideoProgress } from '@/lib/video-analytics'
+import { useEngagementOverride, beginEngagement, endEngagement, settleEngagement } from '@/lib/engagement-state'
+import {
+  isInlineVideoSuspended, useInlineVideoSuspended,
+  claimInlineAudio, releaseInlineAudio, useInlineAudioOwner,
+} from '@/lib/video-focus'
 import type { FeedPost } from '@/lib/actions/feed'
 import { useToast } from '@/components/layout/toast'
 import MediaViewer from '@/components/feed/media-viewer'
@@ -86,14 +92,53 @@ function Avatar({
 }
 
 // ── MediaRow ──────────────────────────────────────────────────────────────────
-function TrackedVideo({ src, postId, width, height }: { src: string; postId: string; width?: number | null; height?: number | null }) {
+// `registry` + `index` let the parent MediaRow find this element, so that opening
+// the full-screen viewer can hand over the current playback position (and take it
+// back on close) instead of restarting the video from 0.
+function TrackedVideo({ src, postId, width, height, registry, index }: {
+  src: string; postId: string; width?: number | null; height?: number | null
+  registry?: Map<number, HTMLVideoElement>; index?: number
+}) {
   const { t } = useTranslation()
-  const viewFired = useRef(false)
-  const completionFired = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [muted, setMuted] = useState(true)
   const [playing, setPlaying] = useState(false)
+
+  const audioId = useId()
+  const audioOwner = useInlineAudioOwner()
+  // Full-screen viewer open somewhere => this inline copy must stay quiet.
+  const suspended = useInlineVideoSuspended()
+  const inViewRef = useRef(false)        // >= 50% on screen right now
+  const resumeRef = useRef(false)        // should be playing once the viewer closes
+
+  // Register with the parent row (for playback-position handoff).
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !registry || index === undefined) return
+    registry.set(index, video)
+    return () => { if (registry.get(index) === video) registry.delete(index) }
+  }, [registry, index])
+
+  // Only one inline video gets sound: if another one took audio focus, mute this.
+  useEffect(() => {
+    if (audioOwner !== audioId) setMuted(true)
+  }, [audioOwner, audioId])
+  useEffect(() => () => releaseInlineAudio(audioId), [audioId])
+
+  // Full-screen viewer opened -> pause (remembering whether we were playing);
+  // closed -> pick back up if we were and are still on screen.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (suspended) {
+      if (!video.paused) resumeRef.current = true
+      video.pause()
+    } else if (resumeRef.current) {
+      resumeRef.current = false
+      if (inViewRef.current) video.play().catch(() => {})
+    }
+  }, [suspended])
 
   useEffect(() => {
     const video = videoRef.current
@@ -102,15 +147,26 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
 
     const observer = new IntersectionObserver(
       ([entry]) => {
+        const inView = entry.isIntersecting && entry.intersectionRatio >= 0.5
+        inViewRef.current = inView
+
+        // A full-screen viewer is open: never start playback underneath it.
+        // (If it's scrolled out of view meanwhile, don't resume it on close.)
+        if (isInlineVideoSuspended()) {
+          if (!inView) resumeRef.current = false
+          return
+        }
+
+        if (!inView) {
+          // Always pause once scrolled away, even if the person started it
+          // manually (autoplay off) - otherwise it keeps playing off-screen.
+          video.pause()
+          return
+        }
         // Read the setting each time (not once at mount) so a change in
         // Settings and a switch from Wi-Fi to mobile data both take effect.
         // When it says no, leave the video alone - the play button is there.
-        if (!shouldAutoplay()) return
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-          video.play().catch(() => {})
-        } else {
-          video.pause()
-        }
+        if (shouldAutoplay()) video.play().catch(() => {})
       },
       { threshold: [0, 0.5, 1] }
     )
@@ -128,14 +184,7 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
 
   function handleTimeUpdate(e: React.SyntheticEvent<HTMLVideoElement>) {
     const v = e.currentTarget
-    if (!viewFired.current && v.currentTime >= 3) {
-      viewFired.current = true
-      void recordVideoViewAction(postId)
-    }
-    if (!completionFired.current && v.duration > 0 && v.currentTime / v.duration >= 0.95) {
-      completionFired.current = true
-      void recordVideoCompletionAction(postId)
-    }
+    trackVideoProgress(postId, src, v.currentTime, v.duration)
   }
 
   return (
@@ -170,7 +219,11 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
       )}
 
       <button
-        onClick={e => { e.stopPropagation(); setMuted(m => !m) }}
+        onClick={e => {
+          e.stopPropagation()
+          if (muted) { setMuted(false); claimInlineAudio(audioId) }
+          else       { setMuted(true);  releaseInlineAudio(audioId) }
+        }}
         aria-label={muted ? t('post.unmute') : t('post.mute')}
         style={{
           position: 'absolute', bottom: 10, right: 10,
@@ -187,6 +240,10 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
 
 function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['media']; postId: string; post: FeedPost; compact?: boolean }) {
   const [viewerIdx, setViewerIdx] = useState<number | null>(null)
+  // Where the inline copy of the video was when the viewer opened, so the
+  // full-screen player continues from there rather than restarting.
+  const [viewerStartTime, setViewerStartTime] = useState(0)
+  const inlineVideos = useRef(new Map<number, HTMLVideoElement>())
   const scrollerRef = useRef<HTMLDivElement>(null)
   const cap = compact ? 260 : 520
   const radius = compact ? 8 : 14
@@ -196,7 +253,17 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
 
   function openViewer(i: number, e: React.MouseEvent) {
     e.stopPropagation()
+    setViewerStartTime(inlineVideos.current.get(i)?.currentTime ?? 0)
     setViewerIdx(i)
+  }
+
+  // The viewer's video just went away (closed, or swiped to another item):
+  // move the inline copy to where the person stopped watching.
+  function syncInlineVideoTime(i: number, time: number) {
+    const el = inlineVideos.current.get(i)
+    if (!el || !Number.isFinite(time)) return
+    const finished = el.duration > 0 && time >= el.duration - 0.25
+    el.currentTime = finished ? 0 : time
   }
 
   // Single item - width is derived from the media's real aspect ratio against
@@ -238,11 +305,15 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
                   }
                 />
               )} />
-            : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} />} />
+            : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} registry={inlineVideos.current} index={0} />} />
           }
         </div>
         {!compact && viewerIdx !== null && (
-          <MediaViewer media={sorted} initialIndex={viewerIdx} post={post} onClose={() => setViewerIdx(null)} />
+          <MediaViewer
+            media={sorted} initialIndex={viewerIdx} post={post}
+            initialVideoTime={viewerStartTime} onVideoTime={syncInlineVideoTime}
+            onClose={() => setViewerIdx(null)}
+          />
         )}
       </>
     )
@@ -284,7 +355,7 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
           >
             {m.media_type === 'image'
               ? <GatedMedia render={() => <img src={cloudinaryImage(m.url, 480)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(m.url)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
-              : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} />} />
+              : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} registry={inlineVideos.current} index={i} />} />
             }
           </div>
         ))}
@@ -296,6 +367,8 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
           media={sorted}
           initialIndex={viewerIdx}
           post={post}
+          initialVideoTime={viewerStartTime}
+          onVideoTime={syncInlineVideoTime}
           onClose={() => setViewerIdx(null)}
         />
       )}
@@ -319,6 +392,7 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
     startTransition(async () => {
       const result = await createPostAction({ body: body.trim(), quoted_post_id: post.id })
       if ('error' in result && result.error) { setError(result.error); toastError(result.error); return }
+      if ('support' in result && result.support) showSupportResources()
       success(t('post.quote_posted'))
       onClose()
     })
@@ -520,10 +594,20 @@ export function PostActions({
   const { t } = useTranslation()
   const [, startTransition] = useTransition()
   const isOwnPost = !!currentUserId && post.author?.id === currentUserId
-  const [liked, setLiked] = useState(post.is_liked)
-  const [likeCount, setLikeCount] = useState(post.likes_count)
-  const [reposted, setReposted] = useState(post.is_reposted)
-  const [repostCount, setRepostCount] = useState(post.reposts_count)
+  // Like / repost state is shared per post (lib/engagement-state), so the feed
+  // card and e.g. the full-screen viewer's sidebar always agree, instantly. The
+  // heart/count reflect the tap in the same render; the count is derived from
+  // the server's last count +/- the person's own not-yet-confirmed change, so it
+  // stays right whether or not a fresh snapshot has arrived, and live counts from
+  // other people (the feed's periodic refresh) flow through without disturbing it.
+  const likeOv = useEngagementOverride('like', post.id)
+  const repostOv = useEngagementOverride('repost', post.id)
+  const liked = likeOv ? likeOv.active : post.is_liked
+  const reposted = repostOv ? repostOv.active : post.is_reposted
+  const likeCount = Math.max(0, post.likes_count + (liked === post.is_liked ? 0 : liked ? 1 : -1))
+  const repostCount = Math.max(0, post.reposts_count + (reposted === post.is_reposted ? 0 : reposted ? 1 : -1))
+  useEffect(() => { settleEngagement('like', post.id, post.is_liked) }, [post.id, post.is_liked, likeOv])
+  useEffect(() => { settleEngagement('repost', post.id, post.is_reposted) }, [post.id, post.is_reposted, repostOv])
   const [showRepostMenu, setShowRepostMenu] = useState(false)
   const [showQuoteModal, setShowQuoteModal] = useState(false)
   const repostRef = useRef<HTMLDivElement>(null)
@@ -542,15 +626,20 @@ export function PostActions({
   function handleLike(e: React.MouseEvent) {
     e.stopPropagation()
     const nextLiked = !liked
-    setLiked(nextLiked)
-    setLikeCount(c => nextLiked ? c + 1 : Math.max(0, c - 1))
+    // Instant: heart and count both derive from this, on every copy of the post.
+    const seq = beginEngagement('like', post.id, nextLiked, post.is_liked)
     startTransition(async () => {
-      const r = await toggleLikeAction(post.id)
-      if ('error' in r) {
-        setLiked(!nextLiked)
-        setLikeCount(c => nextLiked ? Math.max(0, c - 1) : c + 1)
-        toastError(t('post.update_failed'))
+      let undoTo: boolean | undefined
+      try {
+        // Ask for the state the person wants, not a blind flip: a double tap, a
+        // stale screen or a second device can no longer bounce the like back.
+        const r = await toggleLikeAction(post.id, nextLiked)
+        if ('error' in r) undoTo = !nextLiked
+      } catch {
+        undoTo = !nextLiked // network/server failure: never leave a phantom like
       }
+      endEngagement('like', post.id, seq, undoTo)
+      if (undoTo !== undefined) toastError(t('post.update_failed'))
     })
   }
 
@@ -558,17 +647,18 @@ export function PostActions({
     e.stopPropagation()
     const nextReposted = !reposted
     setShowRepostMenu(false)
-    setReposted(nextReposted)
-    setRepostCount(c => nextReposted ? c + 1 : Math.max(0, c - 1))
+    const seq = beginEngagement('repost', post.id, nextReposted, post.is_reposted)
     startTransition(async () => {
-      const r = await toggleRepostAction(post.id)
-      if ('error' in r) {
-        setReposted(!nextReposted)
-        setRepostCount(c => nextReposted ? Math.max(0, c - 1) : c + 1)
-        toastError(t('post.repost_failed'))
-      } else {
-        success(nextReposted ? t('post.reposted') : t('post.repost_removed'))
+      let undoTo: boolean | undefined
+      try {
+        const r = await toggleRepostAction(post.id, nextReposted)
+        if ('error' in r) undoTo = !nextReposted
+      } catch {
+        undoTo = !nextReposted
       }
+      endEngagement('repost', post.id, seq, undoTo)
+      if (undoTo !== undefined) toastError(t('post.repost_failed'))
+      else success(nextReposted ? t('post.reposted') : t('post.repost_removed'))
     })
   }
 
@@ -838,12 +928,12 @@ export default function PostCard({
   const [showMenu,       setShowMenu]       = useState(false)
   const [isMobile, setIsMobile] = useState(true)
   const [showPromoteModal, setShowPromoteModal] = useState(false)
+  const [showReport, setShowReport] = useState(false)
   const [deleted,        setDeleted]        = useState(false)
   const [isPinned,       setIsPinned]       = useState(post.is_pinned ?? false)
   const [showPinConfirm, setShowPinConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   // Portaled to document.body below — see the note on ConfirmModal for why
   // (the mobile "more" action sheet would otherwise render trapped under
   // the mobile bottom nav, no matter its own z-index).
@@ -1087,7 +1177,7 @@ export default function PostCard({
                       onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
                       onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
                       onDelete={handleDelete}
-                      onReport={() => { setShowMenu(false); info(t('post.report_submitted')) }}
+                      onReport={() => { setShowMenu(false); setShowReport(true) }}
                       size={18} fontSize={15} gap={12} padding="14px 16px" />
                   </div>
                   <style>{`@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
@@ -1109,7 +1199,7 @@ export default function PostCard({
                       onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
                       onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
                       onDelete={handleDelete}
-                      onReport={() => { setShowMenu(false); info(t('post.report_submitted')) }}
+                      onReport={() => { setShowMenu(false); setShowReport(true) }}
                       size={15} fontSize={14} gap={8} padding="9px 12px" />
                   </div>
                 </>
@@ -1159,17 +1249,12 @@ export default function PostCard({
           {showPromoteModal && (
             <PromoteModal postId={post.id} onClose={() => setShowPromoteModal(false)} />
           )}
+
+          {showReport && (
+            <ReportDialog entityType="post" entityId={post.id} subject="post" onClose={() => setShowReport(false)} />
+          )}
         </div>
       </article>
-
-      {viewerIndex !== null && post.media && post.media.length > 0 && (
-        <MediaViewer
-          media={[...post.media].sort((a, b) => a.position - b.position)}
-          initialIndex={viewerIndex}
-          post={post}
-          onClose={() => setViewerIndex(null)}
-        />
-      )}
 
       {/* Pin replacement confirmation */}
       <ConfirmModal

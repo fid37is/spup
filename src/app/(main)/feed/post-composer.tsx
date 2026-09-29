@@ -3,6 +3,7 @@
 import { useState, useRef, useTransition, useCallback, useImperativeHandle, forwardRef, useEffect } from 'react'
 import { ImageIcon, X, Loader2, Globe, BarChart2, MapPin, Camera, Mic, Tag, ArrowUp } from 'lucide-react'
 import { createPostAction } from '@/lib/actions'
+import { showSupportResources } from '@/lib/support-resources'
 import { useToast } from '@/components/layout/toast'
 import { useNetworkStatus } from '@/lib/network-status'
 import { queueOfflinePost, registerBackgroundSync } from '@/lib/offline-post-queue'
@@ -12,7 +13,6 @@ import { MAX_MEDIA_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, selectFil
 import { compressImageForUpload, createUploadQueue } from '@/lib/media-client'
 import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
-import { useTranslation } from '@/lib/i18n/language-context'
 
 const MAX_CHARS = 500
 const MAX_MEDIA = MAX_MEDIA_PER_POST
@@ -78,7 +78,6 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   { onPosted, authorName = 'P', authorAvatarUrl, userId, variant = 'modal', onStateChange, replyTo = null, replyChain = [] },
   ref
 ) {
-  const { t } = useTranslation()
   const [body, setBody] = useState('')
   const [media, setMedia] = useState<MediaItem[]>([])
   const [isSelling, setIsSelling] = useState(false)
@@ -276,7 +275,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       // Removed mid-upload - the item is already gone, nothing to report.
       if (err instanceof UploadCancelledError) return
       setMedia(prev => prev.map(m =>
-        m.tempId === tempId ? { ...m, uploading: false, error: err instanceof Error && err.message ? err.message : t('composer.upload_failed') } : m
+        m.tempId === tempId ? { ...m, uploading: false, error: err instanceof Error && err.message ? err.message : 'Upload failed. Try again.' } : m
       ))
     }
   }, [])
@@ -311,7 +310,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     const needsQueueing = networkStatusRef.current !== 'online' || media.some(m => m.offlineQueued)
 
     if (needsQueueing && replyTo) {
-      setError(t('composer.offline_reply_error'))
+      setError("You're offline - replies can't be queued. Please try again once you're back online.")
       return
     }
 
@@ -341,7 +340,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
         setIsSelling(false)
         setError('')
         if (textareaRef.current) textareaRef.current.style.height = 'auto'
-        toastSuccess(t('composer.queued_offline'))
+        toastSuccess("Post queued - it'll go out once you're back online")
         // No real post to prepend to the feed yet - onPosted(null) just
         // tells the parent to close the composer.
         onPosted?.(null)
@@ -368,6 +367,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
         })) : undefined,
       })
       if ('error' in result && result.error) { setError(result.error); return }
+      if ('support' in result && result.support) showSupportResources()
       // Cleanup object URLs
       media.forEach(m => { if (m.localPreview) URL.revokeObjectURL(m.localPreview) })
       fileMapRef.current.clear()
@@ -382,7 +382,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       setScheduledAt(null)
       setError('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      toastSuccess(wasScheduled && scheduledFor ? t('composer.scheduled_for', { time: formatScheduled(scheduledFor) }) : t('composer.post_live'))
+      toastSuccess(wasScheduled && scheduledFor ? `Scheduled for ${formatScheduled(scheduledFor)}` : 'Your post is live')
       // A scheduled post isn't visible anywhere yet (see createPostAction) -
       // nothing to prepend to the feed, just close the composer.
       if (wasScheduled) { onPosted?.(null); return }
@@ -508,7 +508,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           value={body}
           onChange={handleTextChange}
           onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost() }}
-          placeholder={replyTo ? t('composer.reply_to_placeholder', { username: replyTo.authorUsername }) : t('composer.main_placeholder')}
+          placeholder={replyTo ? `Reply to @${replyTo.authorUsername}...` : 'Wetin dey happen? Share your take…'}
           rows={2}
           style={{
             width: '100%', background: 'none', border: 'none', resize: 'none',
@@ -691,10 +691,10 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             />
             <ToolbarBtn
               icon={<ImageIcon size={18} />}
-              label={t('composer.add_photo_video')}
+              label="Add photo or video"
               disabled={!canAddMore}
               onClick={() => mediaInputRef.current?.click()}
-              title={canAddMore ? t('composer.add_photos_videos') : t('composer.max_images', { max: MAX_MEDIA })}
+              title={canAddMore ? 'Add photos or videos' : `Max ${MAX_MEDIA} images per post`}
             />
             <input
               ref={cameraInputRef}
@@ -706,15 +706,15 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             />
             <ToolbarBtn
               icon={<Camera size={18} />}
-              label={t('composer.take_photo_video')}
+              label="Take photo or video"
               disabled={!canAddMore}
               onClick={() => cameraInputRef.current?.click()}
-              title={canAddMore ? t('composer.take_a_photo_video') : t('composer.max_images', { max: MAX_MEDIA })}
+              title={canAddMore ? 'Take a photo or video' : `Max ${MAX_MEDIA} images per post`}
             />
-            <ToolbarBtn icon={<Mic size={18} />} label={t('composer.voice')} disabled title={t('composer.coming_soon')} onClick={() => {}} />
+            <ToolbarBtn icon={<Mic size={18} />} label="Voice" disabled title="Coming soon" onClick={() => {}} />
             <ToolbarBtn icon={<span style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid currentColor', borderRadius: 4, padding: '1px 3px', lineHeight: 1 }}>GIF</span>} label="Add GIF" disabled title="Coming soon" onClick={() => {}} />
-            <ToolbarBtn icon={<BarChart2 size={18} />} label={t('composer.add_poll')} disabled title={t('composer.coming_soon')} onClick={() => {}} />
-            <ToolbarBtn icon={<MapPin size={18} />} label={t('composer.add_location')} disabled title={t('composer.coming_soon')} onClick={() => {}} />
+            <ToolbarBtn icon={<BarChart2 size={18} />} label="Add poll" disabled title="Coming soon" onClick={() => {}} />
+            <ToolbarBtn icon={<MapPin size={18} />} label="Add location" disabled title="Coming soon" onClick={() => {}} />
             {/* Scheduling needs a live createPostAction round-trip (see
                 handlePost) so it's not available offline, and isn't offered
                 on a reply at all - only original posts can be scheduled. */}
@@ -774,7 +774,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
                     overlay above) - the button just stays disabled and
                     keeps its normal label instead of also claiming to be
                     "loading", which read as the post itself being stuck. */}
-                {isPending ? (scheduledAt ? t('composer.scheduling') : t('composer.posting')) : (scheduledAt ? t('composer.schedule') : t('composer.post'))}
+                {isPending ? (scheduledAt ? 'Scheduling…' : 'Posting…') : (scheduledAt ? 'Schedule' : 'Post')}
               </button>
             </div>
           ) : (
@@ -791,7 +791,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
                 <button
                   onClick={handlePost}
                   disabled={isPending}
-                  aria-label={t('composer.send_reply')}
+                  aria-label="Send reply"
                   style={{
                     width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
                     background: 'var(--color-brand)', color: 'white',

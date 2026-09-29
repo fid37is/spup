@@ -12,10 +12,12 @@ import {
 import type { FeedPost } from '@/lib/actions/feed'
 import { getPostRepliesAction } from '@/lib/actions/feed'
 import { createPostAction } from '@/lib/actions'
+import { showSupportResources } from '@/lib/support-resources'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import { useToast } from '@/components/layout/toast'
 import { PostActions } from '@/components/feed/post-card'
 import { linkifyPostText } from '@/components/shared/linkify'
+import { acquireFullscreenVideoFocus } from '@/lib/video-focus'
 
 interface MediaItem {
   id: string
@@ -32,6 +34,10 @@ interface MediaViewerProps {
   initialIndex?: number
   post: FeedPost
   onClose: () => void
+  /** Playback position (s) of the inline copy of the opened video, to continue from. */
+  initialVideoTime?: number
+  /** Called when a video in the viewer goes away, with where the person stopped. */
+  onVideoTime?: (index: number, time: number) => void
 }
 
 const AVATAR_COLORS = ['#1A7A4A','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A','#1A6A6A']
@@ -52,6 +58,35 @@ function SmallAvatar({ name, url, size = 36 }: { name: string; url?: string | nu
         : name.slice(0, 2).toUpperCase()
       }
     </div>
+  )
+}
+
+// The full-screen player. Continues from where the inline copy was, and reports
+// where the person stopped when it unmounts (closed, or swiped to another item)
+// so the inline copy can pick up from there.
+function ViewerVideo({ src, index, startTime, isMobile, onTime }: {
+  src: string; index: number; startTime: number; isMobile: boolean
+  onTime?: (index: number, time: number) => void
+}) {
+  const lastTime = useRef(startTime)
+  const onTimeRef = useRef(onTime)
+  onTimeRef.current = onTime
+
+  useEffect(() => () => {
+    if (lastTime.current > 0) onTimeRef.current?.(index, lastTime.current)
+  }, [index])
+
+  return (
+    <video
+      src={src} controls autoPlay
+      onLoadedMetadata={e => {
+        const v = e.currentTarget
+        // Ignore a start point at/near the end (it had finished) - play from 0.
+        if (startTime > 0 && startTime < v.duration - 0.5) v.currentTime = startTime
+      }}
+      onTimeUpdate={e => { lastTime.current = e.currentTarget.currentTime }}
+      style={{ maxWidth: '100%', maxHeight: '100vh', objectFit: 'contain', borderRadius: isMobile ? 0 : 10 }}
+    />
   )
 }
 
@@ -132,6 +167,7 @@ function SidebarPanel({ post, replies, loading, onClose, onReplyPosted }: {
     const res = await createPostAction({ body: replyText.trim(), parent_post_id: post.id })
     setSubmitting(false)
     if ('error' in res && (res as any).error) { toastError((res as any).error); return }
+    if ((res as any).support) showSupportResources()
     setReplyText('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     success('Reply posted')
@@ -255,7 +291,7 @@ function SidebarPanel({ post, replies, loading, onClose, onReplyPosted }: {
   )
 }
 
-export default function MediaViewer({ media, initialIndex = 0, post, onClose }: MediaViewerProps) {
+export default function MediaViewer({ media, initialIndex = 0, post, onClose, initialVideoTime = 0, onVideoTime }: MediaViewerProps) {
   const [idx,      setIdx]     = useState(initialIndex)
   const [replies,  setReplies] = useState<FeedPost[]>([])
   const [loading,  setLoading] = useState(true)
@@ -263,6 +299,18 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose }: 
   // Portaled to document.body below — see the note on ConfirmModal for why.
   const [mounted,  setMounted]  = useState(false)
   useEffect(() => setMounted(true), [])
+
+  // While this is open, every inline feed video is paused and stays paused (see
+  // lib/video-focus). Registered for the viewer's whole lifetime, independent of
+  // whether the current item is a video - inline videos shouldn't run under an
+  // image either.
+  useEffect(() => acquireFullscreenVideoFocus(), [])
+
+  // The inline start position belongs to the item that was clicked, and only the
+  // first time it's shown - not if the person swipes away and back.
+  const leftInitialItem = useRef(false)
+  useEffect(() => { if (idx !== initialIndex) leftInitialItem.current = true }, [idx, initialIndex])
+  const startTime = idx === initialIndex && !leftInitialItem.current ? initialVideoTime : 0
 
   const current = media[idx]
   const hasPrev = idx > 0
@@ -325,7 +373,14 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose }: 
       `}</style>
 
       <div
-        onClick={e => { if (e.target === e.currentTarget) onClose() }}
+        onClick={e => {
+          // React events bubble through portals, and this viewer is rendered inside
+          // the post card's clickable <article>. Without this, clicking the
+          // backdrop (or anywhere non-interactive in the viewer) would also
+          // trigger the card's "open post" navigation.
+          e.stopPropagation()
+          if (e.target === e.currentTarget) onClose()
+        }}
         style={{
           position: 'fixed', inset: 0, zIndex: 300,
           background: 'rgba(0,0,0,0.95)',
@@ -365,8 +420,9 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose }: 
             animation: 'mvFadeIn 0.15s ease',
           }}>
             {current.media_type === 'video' ? (
-              <video src={current.url} controls autoPlay
-                style={{ maxWidth: '100%', maxHeight: '100vh', objectFit: 'contain', borderRadius: isMobile ? 0 : 10 }}
+              <ViewerVideo
+                src={current.url} index={idx} startTime={startTime}
+                isMobile={isMobile} onTime={onVideoTime}
               />
             ) : (
               <img src={current.url} alt=""

@@ -1,9 +1,9 @@
 // src/components/layout/sidebar-follow-btn.tsx
 'use client'
 
-import { useState, useTransition } from 'react'
-import { UserPlus, UserCheck, UserMinus, Loader2 } from 'lucide-react'
-import { toggleFollowAction } from '@/lib/actions'
+import { useState } from 'react'
+import { UserPlus, UserCheck, UserMinus } from 'lucide-react'
+import { useEngagement, setEngagement } from '@/lib/engagement-sync'
 
 export default function SidebarFollowBtn({
   targetUserId,
@@ -14,17 +14,13 @@ export default function SidebarFollowBtn({
   initialFollowing?: boolean
   followsMe?: boolean
 }) {
-  const [following, setFollowing] = useState(initialFollowing)
+  // Saved instantly and delivered in the background (retried on a weak
+  // connection) - see engagement-sync.
+  const { active: following } = useEngagement('follow', targetUserId, initialFollowing)
   const [hovered,   setHovered]   = useState(false)
-  const [isPending, startTransition] = useTransition()
 
   function handleClick() {
-    const next = !following
-    setFollowing(next)
-    startTransition(async () => {
-      const result = await toggleFollowAction(targetUserId)
-      if ('error' in result) setFollowing(!next)
-    })
+    setEngagement('follow', targetUserId, !following)
   }
 
   // States:
@@ -61,25 +57,20 @@ export default function SidebarFollowBtn({
       onClick={handleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      disabled={isPending}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
         padding: '0 14px', height: 34, borderRadius: 24,
         border: `1.5px solid ${border}`,
         background: bg, color,
         fontSize: 13, fontWeight: 700,
-        cursor: isPending ? 'default' : 'pointer',
+        cursor: 'pointer',
         fontFamily: "'Syne', sans-serif",
         transition: 'all 0.15s',
         whiteSpace: 'nowrap', flexShrink: 0,
-        minWidth: 96, opacity: isPending ? 0.7 : 1,
+        minWidth: 96,
       }}
     >
-      {isPending
-        ? <Loader2 size={13} style={{ animation: 'spin 0.65s linear infinite' }} />
-        : <>{icon}{label}</>
-      }
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      {icon}{label}
     </button>
   )
 }
