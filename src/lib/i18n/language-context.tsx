@@ -14,7 +14,13 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue>({
   locale: DEFAULT_LOCALE,
-  t: key => key,
+  // Fallback used only if a component calls useTranslation() outside the
+  // provider (e.g. a shared component that's also rendered on a route not
+  // wrapped in LanguageProvider yet, like (auth) pages). Falls back to the
+  // real English string, not the raw key — so a missing Provider degrades
+  // to "shows English" instead of "shows literal key names like
+  // post.delete_confirm" on screen.
+  t: key => (enMessages as Record<string, string>)[key] ?? key,
   setLocale: () => {},
 })
 

@@ -38,6 +38,7 @@ import { GatedMedia } from '@/components/media/media-gate'
 import { linkifyPostText } from '@/components/shared/linkify'
 import ConfirmModal from '@/components/ui/confirm-modal'
 import VerifiedBadge from '@/components/ui/verified-badge'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -86,6 +87,7 @@ function Avatar({
 
 // ── MediaRow ──────────────────────────────────────────────────────────────────
 function TrackedVideo({ src, postId, width, height }: { src: string; postId: string; width?: number | null; height?: number | null }) {
+  const { t } = useTranslation()
   const viewFired = useRef(false)
   const completionFired = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -155,7 +157,7 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
       {!playing && (
         <button
           onClick={togglePlay}
-          aria-label="Play"
+          aria-label={t('post.play')}
           style={{
             position: 'absolute', inset: 0, margin: 'auto', width: 52, height: 52,
             borderRadius: '50%', background: 'rgba(0,0,0,0.55)', border: 'none',
@@ -169,7 +171,7 @@ function TrackedVideo({ src, postId, width, height }: { src: string; postId: str
 
       <button
         onClick={e => { e.stopPropagation(); setMuted(m => !m) }}
-        aria-label={muted ? 'Unmute' : 'Mute'}
+        aria-label={muted ? t('post.unmute') : t('post.mute')}
         style={{
           position: 'absolute', bottom: 10, right: 10,
           width: 32, height: 32, borderRadius: '50%',
@@ -303,6 +305,7 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
 
 // ── QuoteModal ────────────────────────────────────────────────────────────────
 function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) {
+  const { t } = useTranslation()
   const [body, setBody] = useState('')
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
@@ -312,11 +315,11 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
   useEffect(() => setMounted(true), [])
 
   function handleQuote() {
-    if (!body.trim()) { setError('Add something to your quote.'); return }
+    if (!body.trim()) { setError(t('post.quote_needs_content')); return }
     startTransition(async () => {
       const result = await createPostAction({ body: body.trim(), quoted_post_id: post.id })
       if ('error' in result && result.error) { setError(result.error); toastError(result.error); return }
-      success('Quote posted')
+      success(t('post.quote_posted'))
       onClose()
     })
   }
@@ -333,7 +336,7 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
         borderRadius: 20, padding: 20, zIndex: 201, animation: 'modalIn 0.18s ease',
       }}>
         <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)', marginBottom: 16 }}>
-          Quote post
+          {t('post.quote_post_title')}
         </h3>
         <div style={{ border: '1px solid var(--color-border)', borderRadius: 14, padding: '12px 14px', marginBottom: 14, background: 'var(--color-surface-2)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -346,16 +349,16 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
         <textarea
           autoFocus value={body}
           onChange={e => { setBody(e.target.value); setError('') }}
-          placeholder="Add your comment…" maxLength={500} rows={3}
+          placeholder={t('post.add_comment_placeholder')} maxLength={500} rows={3}
           style={{ width: '100%', background: 'var(--color-input-bg)', border: '1px solid var(--color-border)', borderRadius: 12, padding: '12px 14px', fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'DM Sans',sans-serif", resize: 'none', outline: 'none', boxSizing: 'border-box' }}
         />
         {error && <p style={{ fontSize: 13, color: 'var(--color-error)', marginTop: 6 }}>{error}</p>}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{500 - body.length} chars left</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('post.chars_left', { count: 500 - body.length })}</span>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
+            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 14 }}>{t('common.cancel')}</button>
             <button onClick={handleQuote} disabled={isPending || !body.trim()} style={{ padding: '9px 18px', borderRadius: 20, border: 'none', background: body.trim() ? 'var(--color-brand)' : 'var(--color-surface-2)', color: body.trim() ? 'white' : 'var(--color-text-muted)', cursor: body.trim() ? 'pointer' : 'not-allowed', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14 }}>
-              {isPending ? 'Quoting…' : 'Quote'}
+              {isPending ? t('post.quoting') : t('post.quote')}
             </button>
           </div>
         </div>
@@ -382,6 +385,7 @@ function MenuItems({
   onDelete: (e: React.MouseEvent) => void; onReport: (e: React.MouseEvent) => void
   size: number; fontSize: number; gap: number; padding: string
 }) {
+  const { t } = useTranslation()
   const itemStyle = (color: string): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', gap, width: '100%', padding,
     background: 'none', border: 'none', borderRadius: size >= 18 ? 12 : 8,
@@ -394,31 +398,31 @@ function MenuItems({
       {isOwnPost && (
         <>
           <button onClick={e => { e.stopPropagation(); onPromote() }} style={itemStyle('#1A9E5F')}>
-            <Megaphone size={size} /> Promote post
+            <Megaphone size={size} /> {t('post.promote_post')}
           </button>
           <button onClick={onPin} style={itemStyle('var(--color-text-primary)')}>
             {isPinned ? <PinOff size={size} /> : <Pin size={size} />}
-            {isPinned ? 'Unpin from profile' : 'Pin to your profile'}
+            {isPinned ? t('post.unpin_from_profile') : t('post.pin_to_profile')}
           </button>
         </>
       )}
       <button onClick={onBookmark} style={itemStyle('var(--color-text-primary)')}>
         <Bookmark size={size} fill={bookmarked ? 'var(--color-gold)' : 'none'} color={bookmarked ? 'var(--color-gold)' : 'currentColor'} />
-        {bookmarked ? 'Saved' : 'Save'}
+        {bookmarked ? t('post.saved') : t('post.save')}
       </button>
       <button onClick={onCopyLink} style={itemStyle('var(--color-text-primary)')}>
-        <Link2 size={size} /> Copy link
+        <Link2 size={size} /> {t('post.copy_link')}
       </button>
       <button onClick={onShare} style={itemStyle('var(--color-text-primary)')}>
-        <Send size={size} /> Share
+        <Send size={size} /> {t('post.share')}
       </button>
       {isOwnPost && (
         <button onClick={onDelete} style={itemStyle('var(--color-error)')}>
-          <Trash2 size={size} /> Delete post
+          <Trash2 size={size} /> {t('post.delete_post_menu')}
         </button>
       )}
       <button onClick={onReport} style={itemStyle('var(--color-text-secondary)')}>
-        <Flag size={size} /> Report post
+        <Flag size={size} /> {t('post.report_post')}
       </button>
     </>
   )
@@ -513,6 +517,7 @@ export function PostActions({
   onReplyClick?: () => void
   isReply?: boolean
 }) {
+  const { t } = useTranslation()
   const [, startTransition] = useTransition()
   const isOwnPost = !!currentUserId && post.author?.id === currentUserId
   const [liked, setLiked] = useState(post.is_liked)
@@ -544,7 +549,7 @@ export function PostActions({
       if ('error' in r) {
         setLiked(!nextLiked)
         setLikeCount(c => nextLiked ? Math.max(0, c - 1) : c + 1)
-        toastError('Could not update. Try again.')
+        toastError(t('post.update_failed'))
       }
     })
   }
@@ -560,9 +565,9 @@ export function PostActions({
       if ('error' in r) {
         setReposted(!nextReposted)
         setRepostCount(c => nextReposted ? Math.max(0, c - 1) : c + 1)
-        toastError('Could not repost. Try again.')
+        toastError(t('post.repost_failed'))
       } else {
-        success(nextReposted ? 'Reposted' : 'Repost removed')
+        success(nextReposted ? t('post.reposted') : t('post.repost_removed'))
       }
     })
   }
@@ -582,7 +587,7 @@ export function PostActions({
               if (onReplyClick) onReplyClick()
               else router.push(`/post/${post.id}`)
             }}
-            label="Reply"
+            label={t('post.reply')}
           />
         </div>
 
@@ -591,7 +596,7 @@ export function PostActions({
             icon={<Repeat2 size={18} />} count={repostCount}
             active={reposted} activeColor="var(--color-brand)"
             onClick={e => { e.stopPropagation(); setShowRepostMenu(v => !v) }}
-            label="Repost"
+            label={t('post.repost')}
           />
           {showRepostMenu && (
             <div
@@ -599,10 +604,10 @@ export function PostActions({
               style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, zIndex: 30, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 6, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
             >
               <button onClick={handleRepost} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: reposted ? 'var(--color-brand)' : 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
-                <Repeat2 size={16} /> {reposted ? 'Undo repost' : 'Repost'}
+                <Repeat2 size={16} /> {reposted ? t('post.undo_repost') : t('post.repost')}
               </button>
               <button onClick={e => { e.stopPropagation(); setShowRepostMenu(false); setShowQuoteModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
-                <Quote size={16} /> Quote post
+                <Quote size={16} /> {t('post.quote_post_title')}
               </button>
             </div>
           )}
@@ -612,7 +617,7 @@ export function PostActions({
           <ActionBtn
             icon={<Heart size={18} fill={liked ? 'var(--color-brand)' : 'none'} />}
             count={likeCount} active={liked} activeColor="var(--color-brand)"
-            onClick={handleLike} label="Like" burst
+            onClick={handleLike} label={t('post.like')} burst
           />
         </div>
 
@@ -625,7 +630,7 @@ export function PostActions({
               count={post.impressions_count > 0 ? post.impressions_count : null}
               active={false} activeColor="var(--color-brand)"
               onClick={e => { e.stopPropagation(); router.push(`/post/${post.id}/activity`) }}
-              label="Impressions"
+              label={t('post.impressions')}
             />
           </div>
         )}
@@ -700,6 +705,7 @@ function TruncatedBody({ text, limit = 240, postId }: { text: string; limit?: nu
 }
 
 function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; currentUserId?: string; onReplyClick?: () => void }) {
+  const { t } = useTranslation()
   const router = useRouter()
   const original = post.quoted_post
   if (!original) return null
@@ -752,7 +758,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
           >
             {post.author.display_name}
           </span>
-          {' '}reposted
+          {' '}{t('post.reposted_by_label')}
         </span>
       </div>
 
@@ -776,7 +782,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
             <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
             <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(original.created_at)}</span>
             {original.is_selling && (
-              <Tag size={13} color="var(--color-brand)" aria-label="Selling" style={{ marginLeft: 2 }} />
+              <Tag size={13} color="var(--color-brand)" aria-label={t('post.selling')} style={{ marginLeft: 2 }} />
             )}
           </div>
           {original.body && (
@@ -824,6 +830,7 @@ export default function PostCard({
   // its own replies).
   hideBorder?: boolean
 }) {
+  const { t } = useTranslation()
   const [, startTransition] = useTransition()
   const [bookmarked, setBookmarked] = useState(post.is_bookmarked)
   const [bookmarkCount, setBookmarkCount] = useState(post.bookmarks_count || 0)
@@ -907,9 +914,9 @@ export default function PostCard({
       if ('error' in r) {
         setBookmarked(!next)
         setBookmarkCount(c => next ? Math.max(0, c - 1) : c + 1)
-        toastError('Could not save post. Try again.')
+        toastError(t('post.save_failed'))
       } else {
-        success(next ? 'Post saved' : 'Removed from saved')
+        success(next ? t('post.saved_toast') : t('post.removed_from_saved'))
       }
     })
   }
@@ -919,8 +926,8 @@ export default function PostCard({
     setShowMenu(false)
     const url = `${window.location.origin}/post/${post.id}`
     navigator.clipboard.writeText(url)
-      .then(() => success('Link copied'))
-      .catch(() => toastError('Could not copy link.'))
+      .then(() => success(t('post.link_copied')))
+      .catch(() => toastError(t('post.link_copy_failed')))
   }
 
   async function handleShare(e: React.MouseEvent) {
@@ -929,7 +936,7 @@ export default function PostCard({
     const url = `${window.location.origin}/post/${post.id}`
     try {
       if (navigator.share) await navigator.share({ title: post.author?.display_name, text: post.body || '', url })
-      else { await navigator.clipboard.writeText(url); success('Link copied to clipboard') }
+      else { await navigator.clipboard.writeText(url); success(t('post.link_copied_clipboard')) }
     } catch { /* user dismissed share sheet */ }
   }
 
@@ -946,11 +953,11 @@ export default function PostCard({
       setDeleting(false)
       if ('error' in r) {
         setShowDeleteConfirm(false)
-        toastError(r.error || 'Could not delete post. Try again.')
+        toastError(r.error || t('post.delete_failed'))
       } else {
         setShowDeleteConfirm(false)
         setDeleted(true)
-        success('Post deleted')
+        success(t('post.deleted'))
       }
     })
   }
@@ -962,9 +969,9 @@ export default function PostCard({
     if (isPinned) {
       void (async () => {
         const r = await togglePinPostAction(post.id)
-        if ('error' in r) { toastError((r as any).error || 'Could not unpin.'); return }
+        if ('error' in r) { toastError((r as any).error || t('post.unpin_failed')); return }
         setIsPinned(false)
-        success('Post unpinned')
+        success(t('post.unpinned'))
       })()
       return
     }
@@ -973,9 +980,9 @@ export default function PostCard({
       const { hasPinnedPost } = await checkHasPinnedPostAction()
       if (hasPinnedPost) { setShowPinConfirm(true); return }
       const r = await togglePinPostAction(post.id)
-      if ('error' in r) { toastError((r as any).error || 'Could not pin post.'); return }
+      if ('error' in r) { toastError((r as any).error || t('post.pin_failed')); return }
       setIsPinned(true)
-      success('Post pinned to your profile')
+      success(t('post.pinned'))
     })()
   }
 
@@ -983,9 +990,9 @@ export default function PostCard({
     setShowPinConfirm(false)
     void (async () => {
       const r = await togglePinPostAction(post.id)
-      if ('error' in r) { toastError((r as any).error || 'Could not pin post.'); return }
+      if ('error' in r) { toastError((r as any).error || t('post.pin_failed')); return }
       setIsPinned(true)
-      success('Post pinned to your profile')
+      success(t('post.pinned'))
     })()
   }
 
@@ -1018,7 +1025,7 @@ export default function PostCard({
           {post.is_promoted ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, paddingLeft: 2 }}>
               <Megaphone size={12} color="#1A9E5F" />
-              <span style={{ fontSize: 12, color: '#1A9E5F', fontWeight: 500 }}>Promoted</span>
+              <span style={{ fontSize: 12, color: '#1A9E5F', fontWeight: 500 }}>{t('post.promoted_badge')}</span>
             </div>
           ) : isPinned && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, paddingLeft: 2 }}>
@@ -1043,13 +1050,13 @@ export default function PostCard({
               <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{author?.username}</span>
               <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
               <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(post.created_at)}</span>
-              {post.edited_at && <span style={{ fontSize: 11, color: 'var(--color-text-faint)' }}>· edited</span>}
+              {post.edited_at && <span style={{ fontSize: 11, color: 'var(--color-text-faint)' }}>· {t('post.edited_label')}</span>}
             </div>
 
             {/* More menu (+ small selling indicator, right next to it) */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               {post.is_selling && (
-                <Tag size={14} color="var(--color-brand)" aria-label="Selling" />
+                <Tag size={14} color="var(--color-brand)" aria-label={t('post.selling')} />
               )}
               <div style={{ position: 'relative' }}>
               <button
@@ -1080,7 +1087,7 @@ export default function PostCard({
                       onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
                       onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
                       onDelete={handleDelete}
-                      onReport={() => { setShowMenu(false); info('Report submitted. Thank you.') }}
+                      onReport={() => { setShowMenu(false); info(t('post.report_submitted')) }}
                       size={18} fontSize={15} gap={12} padding="14px 16px" />
                   </div>
                   <style>{`@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
@@ -1102,7 +1109,7 @@ export default function PostCard({
                       onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
                       onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
                       onDelete={handleDelete}
-                      onReport={() => { setShowMenu(false); info('Report submitted. Thank you.') }}
+                      onReport={() => { setShowMenu(false); info(t('post.report_submitted')) }}
                       size={15} fontSize={14} gap={8} padding="9px 12px" />
                   </div>
                 </>
@@ -1167,9 +1174,9 @@ export default function PostCard({
       {/* Pin replacement confirmation */}
       <ConfirmModal
         open={showPinConfirm}
-        title="Replace pinned post?"
-        description="You already have a pinned post. Pinning this will unpin the existing one."
-        confirmLabel="Pin this post"
+        title={t('post.replace_pinned_confirm')}
+        description={t('post.replace_pinned_desc')}
+        confirmLabel={t('post.pin_this_post')}
         onConfirm={confirmReplace}
         onCancel={() => setShowPinConfirm(false)}
       />
@@ -1177,10 +1184,10 @@ export default function PostCard({
       {/* Delete confirmation */}
       <ConfirmModal
         open={showDeleteConfirm}
-        title="Delete post?"
-        description="This can't be undone. This post will be removed from your profile and from anyone who has replied to or quoted it."
-        confirmLabel="Delete"
-        confirmingLabel="Deleting…"
+        title={t('post.delete_confirm')}
+        description={t('post.delete_post_desc')}
+        confirmLabel={t('post.delete')}
+        confirmingLabel={t('post.deleting')}
         destructive
         pending={deleting}
         onConfirm={confirmDelete}

@@ -18,6 +18,7 @@ import MediaGrid from '@/components/feed/media-grid'
 import { useToast } from '@/components/layout/toast'
 import { useMentionAutocomplete } from '@/hooks/use-mention-autocomplete'
 import MentionSuggestions from '@/components/shared/mention-suggestions'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const MAX_CHARS = 500
 
@@ -36,6 +37,7 @@ export default function ReplyComposer({
   viewerAvatar,
   onPosted,
 }: ReplyComposerProps) {
+  const { t } = useTranslation()
   const router = useRouter()
   const { success, error: toastError } = useToast()
 
@@ -163,7 +165,7 @@ export default function ReplyComposer({
       setFocused(false)
       clear()
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      success('Reply posted')
+      success(t('post.reply_posted'))
       if (onPosted && 'post' in result && result.post) onPosted(result.post)
       else router.refresh()
     })
@@ -229,7 +231,7 @@ export default function ReplyComposer({
               if (mention.handleKeyDown(e)) return
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleReply()
             }}
-            placeholder="Reply..."
+            placeholder={t('composer.reply_input_placeholder')}
             rows={1}
             style={{
               width: '100%',
@@ -293,7 +295,7 @@ export default function ReplyComposer({
               <div style={{ display: 'flex', gap: 2 }}>
                 <ToolbarBtn
                   icon={<ImageIcon size={17} />}
-                  label="Add image"
+                  label={t('composer.add_image')}
                   onClick={() => {
                     setShowMedia(true)
                     ;(document.getElementById('reply-img-input') as HTMLInputElement | null)?.click()
@@ -301,7 +303,7 @@ export default function ReplyComposer({
                 />
                 <ToolbarBtn
                   icon={<VideoIcon size={17} />}
-                  label="Add video"
+                  label={t('composer.add_video')}
                   onClick={() => {
                     setShowMedia(true)
                     ;(document.getElementById('reply-vid-input') as HTMLInputElement | null)?.click()
@@ -311,7 +313,7 @@ export default function ReplyComposer({
                 <ToolbarBtn icon={<MapPin size={17} />} label="Location (coming soon)" onClick={() => {}} disabled />
                 <ToolbarBtn
                   icon={<Maximize2 size={16} />}
-                  label="Expand to fullscreen"
+                  label={t('composer.expand_fullscreen')}
                   onClick={() => router.push(`/compose?replyTo=${parentPostId}`)}
                 />
               </div>
@@ -350,15 +352,10 @@ export default function ReplyComposer({
                     transition: 'background 0.15s, color 0.15s',
                     display: 'flex', alignItems: 'center', gap: 5,
                     whiteSpace: 'nowrap', minHeight: 34,
-                    // Fixed width + centred so swapping the label for the
-                    // spinner doesn't make the button jump in size.
-                    minWidth: 70, justifyContent: 'center',
                   }}
                 >
-                  {/* Spinner only while sending - no "Replying…" text. */}
-                  {isPending
-                    ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
-                    : 'Reply'}
+                  {isPending && <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} />}
+                  {isPending ? t('composer.replying') : t('composer.reply')}
                 </button>
               </div>
             </div>
