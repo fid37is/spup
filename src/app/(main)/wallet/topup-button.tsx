@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
 
-export default function TopUpButton() {
+export default function TopUpButton({ t }: { t: (key: string, vars?: Record<string, string | number>) => string }) {
   return (
     <Link
       href="/wallet/topup"
@@ -15,7 +15,7 @@ export default function TopUpButton() {
       }}
     >
       <Plus size={16} />
-      Top up
+      {t('wallet.topup_button')}
     </Link>
   )
 }

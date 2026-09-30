@@ -249,7 +249,7 @@ export default async function WalletPage() {
 
           <WithdrawButton canWithdraw={canWithdraw} balance={balance} ninVerified={profile.nin_verified} bvnVerified={profile.bvn_verified} savedBank={savedBank} nextEligibleAt={nextPayout.next_eligible_at} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            <TopUpButton />
+            <TopUpButton t={t} />
             <SendButton balance={balance} />
             <Link href="/wallet/orders" style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
               {t('wallet.orders')}

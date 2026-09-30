@@ -3,18 +3,21 @@
 // src/app/(main)/wallet/topup/page.tsx
 import { useState, useTransition } from 'react'
 import BackButton from '@/components/ui/back-button'
+
 import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const QUICK_AMOUNTS_KOBO = [50_000, 100_000, 500_000, 1_000_000] // ₦500, ₦1k, ₦5k, ₦10k
 
 export default function TopUpPage() {
+  const { t } = useTranslation()
   const [amountKobo, setAmountKobo] = useState(0)
   const [error, setError] = useState('')
   const [isPending, startTransition] = useTransition()
 
   function handleTopUp() {
-    if (amountKobo < 50_000) { setError('Minimum top-up is ₦500'); return }
+    if (amountKobo < 50_000) { setError(t('wallet.min_topup_error')); return }
     setError('')
     startTransition(async () => {
       try {
@@ -24,11 +27,11 @@ export default function TopUpPage() {
           body: JSON.stringify({ amount_kobo: amountKobo }),
         })
         const data = await res.json()
-        if (!res.ok || data.error) { setError(data.error || 'Could not start top-up.'); return }
+        if (!res.ok || data.error) { setError(data.error || t('wallet.topup_start_failed')); return }
         // Hand off to Paystack — same redirect pattern as post promotion checkout.
         window.location.href = data.authorization_url
       } catch {
-        setError('Network error. Please try again.')
+        setError(t('wallet.network_error_retry'))
       }
     })
   }
@@ -47,13 +50,13 @@ export default function TopUpPage() {
       }}>
         <BackButton fallbackHref="/wallet" />
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
-          Top up wallet
+          {t('wallet.topup_title')}
         </h1>
       </div>
 
       <div style={{ padding: '20px 16px', maxWidth: 600, margin: '0 auto' }}>
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: 24 }}>
-          Add money to your wallet with your card or by bank transfer — you'll choose on the next screen. You can use this balance to pay vendors on Spup securely — funds stay in escrow until you confirm you've received what you paid for.
+          {t('wallet.topup_explainer')}
         </p>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -75,7 +78,7 @@ export default function TopUpPage() {
         </div>
 
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 8 }}>
-          Or enter a custom amount
+          {t('wallet.custom_amount_label')}
         </label>
         <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--color-border)', borderRadius: 12, padding: '12px 14px', marginBottom: 20 }}>
           <span style={{ fontSize: 16, color: 'var(--color-text-muted)', marginRight: 6 }}>₦</span>
@@ -109,10 +112,10 @@ export default function TopUpPage() {
           }}
         >
           {isPending && <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />}
-          {isPending ? 'Redirecting…' : 'Continue to payment'}
+          {isPending ? t('wallet.redirecting') : t('wallet.continue_to_payment')}
         </button>
         <p style={{ fontSize: 12, color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 12 }}>
-          You'll be taken to Paystack's secure checkout to complete the payment.
+          {t('wallet.paystack_redirect_notice')}
         </p>
       </div>
     </div>

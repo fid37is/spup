@@ -1,16 +1,20 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getMyEscrowOrders } from '@/lib/queries/escrow'
+import { getProfileByAuthId } from '@/lib/queries/users'
 import { formatNaira } from '@/lib/utils'
 import Link from 'next/link'
 import { ShieldCheck, Package } from 'lucide-react'
+import { isLocale, DEFAULT_LOCALE, loadDictionary, translate } from '@/lib/i18n/dictionaries'
 
-const STATUS_LABEL: Record<string, string> = {
-  held: 'Awaiting delivery',
-  delivered_by_seller: 'Awaiting your confirmation',
-  released: 'Completed',
-  disputed: 'Disputed',
-  refunded: 'Refunded',
+function statusLabel(t: (key: string, vars?: Record<string, string | number>) => string): Record<string, string> {
+  return {
+    held: t('wallet.status_awaiting_delivery'),
+    delivered_by_seller: t('wallet.status_awaiting_confirmation'),
+    released: t('wallet.status_completed'),
+    disputed: t('wallet.status_disputed'),
+    refunded: t('wallet.status_refunded'),
+  }
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -26,6 +30,12 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const profile = await getProfileByAuthId(user.id)
+  const locale = isLocale(profile?.language_preference) ? profile!.language_preference : DEFAULT_LOCALE
+  const dict = await loadDictionary(locale)
+  const t = (key: string, vars?: Record<string, string | number>) => translate(dict, key, vars)
+  const STATUS_LABEL = statusLabel(t)
+
   const params = await searchParams
   const role = params.role === 'selling' ? 'seller' : 'buyer'
 
@@ -38,10 +48,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         background: 'var(--nav-bg)', borderBottom: '1px solid var(--color-border)', padding: '16px 20px',
       }}>
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)' }}>
-          Orders
+          {t('wallet.orders')}
         </h1>
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>
-          Pay through Spup — funds stay locked until delivery is confirmed.
+          {t('wallet.orders_subtitle')}
         </p>
       </div>
 
@@ -53,7 +63,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
             color: role === 'buyer' ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
             borderBottom: role === 'buyer' ? '2px solid var(--color-brand)' : '2px solid transparent',
           }}>
-            Buying
+            {t('wallet.buying')}
           </Link>
           <Link href="/wallet/orders?role=selling" style={{
             padding: '10px 16px', textDecoration: 'none', fontSize: 14,
@@ -61,7 +71,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
             color: role === 'seller' ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
             borderBottom: role === 'seller' ? '2px solid var(--color-brand)' : '2px solid transparent',
           }}>
-            Selling
+            {t('wallet.selling_tab')}
           </Link>
         </div>
 
@@ -75,10 +85,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               <Package size={22} color="var(--color-text-muted)" />
             </div>
             <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6 }}>
-              {role === 'buyer' ? 'No purchases yet' : 'No sales yet'}
+              {role === 'buyer' ? t('wallet.no_purchases_yet') : t('wallet.no_sales_yet')}
             </p>
             <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
-              {role === 'buyer' ? 'Pay a vendor on a post to see it here.' : 'Escrow payments you receive will show up here.'}
+              {role === 'buyer' ? t('wallet.pay_vendor_hint') : t('wallet.escrow_received_hint')}
             </p>
           </div>
         )}
@@ -101,7 +111,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 3 }}>
-                      @{counterparty?.username || 'unknown'}
+                      @{counterparty?.username || t('wallet.unknown_user')}
                     </div>
                     <span style={{ fontSize: 12, fontWeight: 600, color: STATUS_COLOR[order.status] }}>
                       {STATUS_LABEL[order.status] || order.status}

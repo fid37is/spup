@@ -128,7 +128,8 @@ const SELECT_FIELDS = 'id, username, display_name, avatar_url, verification_tier
 
 export async function getSuggestedUsers(excludeIds: string[], limit = 5) {
   const supabase = await createClient()
-  const notInFilter = excludeIds.length ? `(${excludeIds.join(',')})` : null
+  const exclude = new Set(excludeIds.filter(Boolean))
+  const notInFilter = exclude.size ? `(${[...exclude].join(',')})` : null
   const newSlots = Math.ceil(limit / 2)
   const popularSlots = limit - newSlots
 
@@ -138,6 +139,8 @@ export async function getSuggestedUsers(excludeIds: string[], limit = 5) {
       .select(SELECT_FIELDS)
       .eq('status', 'active')
       .is('deleted_at', null)
+      .neq('role', 'admin')
+      .not('username', 'is', null)
     if (notInFilter) q = q.not('id', 'in', notInFilter)
     return q
   }
@@ -152,22 +155,23 @@ export async function getSuggestedUsers(excludeIds: string[], limit = 5) {
 
   // Interleave: new, popular, new, popular... so new accounts aren't
   // pushed to the bottom of a short list nobody scrolls to.
-  const newRows = (newest || []).filter(r => !seen.has(r.id))
-  const popularRows = (popular || []).filter(r => !seen.has(r.id))
+  // Also drop excludeIds in JS — PostgREST not.in can miss rows.
+  const newRows = (newest || []).filter(r => !seen.has(r.id) && !exclude.has(r.id))
+  const popularRows = (popular || []).filter(r => !seen.has(r.id) && !exclude.has(r.id))
   let ni = 0, pi = 0
   while (picked.length < limit && (ni < newRows.length || pi < popularRows.length)) {
     if (ni < newRows.length) {
       const row = newRows[ni++]
-      if (!seen.has(row.id)) { seen.add(row.id); picked.push(row) }
+      if (!seen.has(row.id) && !exclude.has(row.id)) { seen.add(row.id); picked.push(row) }
     }
     if (picked.length >= limit) break
     if (pi < popularRows.length) {
       const row = popularRows[pi++]
-      if (!seen.has(row.id)) { seen.add(row.id); picked.push(row) }
+      if (!seen.has(row.id) && !exclude.has(row.id)) { seen.add(row.id); picked.push(row) }
     }
   }
 
-  return picked.slice(0, limit)
+  return picked.filter(u => !exclude.has(u.id)).slice(0, limit)
 }
 
 // ─── Suggested accounts by category ──────────────────────────────────────────
@@ -214,14 +218,19 @@ export async function getSuggestedUsersByCategory(
   if (!counts.size) return []
 
   const authorIds = [...counts.keys()].slice(0, 200)
+  const exclude = new Set(excludeIds.filter(Boolean))
+
   const { data: users } = await supabase
     .from('users')
     .select(SELECT_FIELDS)
     .in('id', authorIds)
     .eq('status', 'active')
     .is('deleted_at', null)
+    .neq('role', 'admin')
+    .not('username', 'is', null)
 
   return (users || [])
+    .filter((u: any) => !exclude.has(u.id) && u.username)
     .sort((a: any, b: any) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
     .slice(0, limit)
 }

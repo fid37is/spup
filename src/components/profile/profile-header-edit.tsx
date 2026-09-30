@@ -9,6 +9,7 @@ import {
   type UpdateProfileData,
 } from '@/lib/actions/profiles'
 import { buildProfileChanges, normaliseWebsite, type ProfileFormValues } from '@/lib/profile-diff'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 interface EditProps {
   profile: {
@@ -47,6 +48,7 @@ const SECTION_TITLE: React.CSSProperties = {
 }
 
 export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditProps) {
+  const { t } = useTranslation()
   const router = useRouter()
   const [isPending, startT] = useTransition()
 
@@ -66,7 +68,7 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
   const [saveError, setSaveError] = useState('')
 
   function handleSave() {
-    if (!displayName.trim()) { setSaveError('Display name is required'); return }
+    if (!displayName.trim()) { setSaveError(t('profile.display_name_required')); return }
     setSaveError('')
 
     // Compare against what the form opened with and send ONLY what changed.
@@ -122,29 +124,29 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
 
         {/* Display name */}
         <div>
-          <label style={LABEL}>Display name <span style={{ color: 'var(--color-error)' }}>*</span></label>
-          <input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={50} placeholder="Your name" style={INP} />
-          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>{50 - displayName.length} left</p>
+          <label style={LABEL}>{t('profile.display_name_label')} <span style={{ color: 'var(--color-error)' }}>*</span></label>
+          <input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={50} placeholder={t('profile.display_name_placeholder')} style={INP} />
+          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>{t('profile.chars_left', { count: 50 - displayName.length })}</p>
         </div>
 
         {/* Bio */}
         <div>
-          <label style={LABEL}>Bio</label>
+          <label style={LABEL}>{t('profile.bio_label')}</label>
           <textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={160} rows={3}
-            placeholder="Tell people about yourself"
+            placeholder={t('profile.bio_placeholder')}
             style={{ ...INP, resize: 'none', lineHeight: 1.55 }} />
-          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>{160 - bio.length} left</p>
+          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>{t('profile.chars_left', { count: 160 - bio.length })}</p>
         </div>
 
         {/* Account type - dropdown like X/Twitter */}
         <div>
-          <label style={LABEL}>Account type</label>
+          <label style={LABEL}>{t('profile.account_type_label')}</label>
           <select
             value={occupation}
             onChange={e => setOccupation(e.target.value)}
             style={{ ...INP, cursor: 'pointer' }}
           >
-            <option value="">Select account type…</option>
+            <option value="">{t('profile.select_account_type')}</option>
             <optgroup label="Creator">
               <option value="Content Creator">Content Creator</option>
               <option value="Blogger">Blogger</option>
@@ -192,14 +194,14 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
 
         {/* Location */}
         <div>
-          <label style={LABEL}>Location</label>
+          <label style={LABEL}>{t('profile.location_label')}</label>
           <input value={location} onChange={e => setLocation(e.target.value)}
-            maxLength={60} placeholder="Lagos, Nigeria" style={INP} />
+            maxLength={60} placeholder={t('profile.location_placeholder')} style={INP} />
         </div>
 
         {/* Birthday */}
         <div>
-          <label style={LABEL}>Date of birth</label>
+          <label style={LABEL}>{t('profile.date_of_birth_label')}</label>
           <input value={dob} onChange={e => setDob(e.target.value)}
             type="date" max={maxDob} style={INP} />
           {dob && (
@@ -211,7 +213,7 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
                   background: birthdayVis === opt ? 'var(--color-brand)' : 'none',
                   color: birthdayVis === opt ? 'white' : 'var(--color-text-secondary)',
                 }}>
-                  {opt === 'everyone' ? 'Everyone' : opt === 'followers' ? 'Followers' : 'Only me'}
+                  {opt === 'everyone' ? t('profile.visibility_everyone') : opt === 'followers' ? t('profile.visibility_followers') : t('profile.visibility_only_me')}
                 </button>
               ))}
             </div>
@@ -220,10 +222,10 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
 
         {/* Website */}
         <div>
-          <label style={LABEL}>Website / Link</label>
+          <label style={LABEL}>{t('profile.website_label')}</label>
           <input value={website} onChange={e => setWebsite(e.target.value)}
             maxLength={100} type="url" inputMode="url"
-            placeholder="https://yoursite.com" style={INP} />
+            placeholder={t('profile.website_placeholder')} style={INP} />
         </div>
 
       </div>
@@ -233,11 +235,11 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
           keeping this profile-edit form focused on display-facing fields. */}
       {profile.email && (
         <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16, marginBottom: 16 }}>
-          <p style={SECTION_TITLE}>Account</p>
+          <p style={SECTION_TITLE}>{t('profile.account_section_title')}</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Shield size={15} color="var(--color-text-muted)" />
             <div>
-              <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0 }}>Email</p>
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0 }}>{t('profile.email_label')}</p>
               <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', margin: '2px 0 0' }}>{profile.email}</p>
             </div>
           </div>
@@ -253,7 +255,7 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
           fontFamily: "'Syne', sans-serif", fontWeight: 600, cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 4,
         }}>
-          <X size={12} /> Cancel
+          <X size={12} /> {t('common.cancel')}
         </button>
         <button onClick={handleSave} disabled={isPending || !displayName.trim()} style={{
           padding: '7px 18px', borderRadius: 20,
@@ -268,7 +270,7 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
             ? <Loader size={12} style={{ animation: 'spin .7s linear infinite' }} />
             : <Check size={12} />
           }
-          Save
+          {t('settings.save')}
         </button>
       </div>
 

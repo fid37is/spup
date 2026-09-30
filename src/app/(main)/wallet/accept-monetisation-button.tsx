@@ -5,15 +5,17 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { acceptMonetisationAction } from '@/lib/actions/monetisation'
 import { CheckCircle2, Loader2 } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 export default function AcceptMonetisationButton() {
+  const { t } = useTranslation()
   const [accepted, setAccepted] = useState(false)
   const [error, setError]       = useState('')
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
 
   function handleAccept() {
-    if (!accepted) { setError('Please accept the fair use policy to continue.'); return }
+    if (!accepted) { setError(t('wallet.accept_fair_use_error')); return }
     setError('')
     startTransition(async () => {
       const r = await acceptMonetisationAction({ accepted_fair_use: true })
@@ -33,11 +35,11 @@ export default function AcceptMonetisationButton() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <CheckCircle2 size={18} color="var(--color-brand)" />
         <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)' }}>
-          You&apos;re eligible for monetisation
+          {t('wallet.eligible_for_monetisation')}
         </span>
       </div>
       <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
-        Once enabled, you&apos;ll earn 70% of ad revenue shown against your posts. This does not require NIN — that&apos;s only needed later, when you withdraw.
+        {t('wallet.monetisation_explainer')}
       </p>
 
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12, cursor: 'pointer' }}>
@@ -48,9 +50,9 @@ export default function AcceptMonetisationButton() {
           style={{ marginTop: 3, flexShrink: 0 }}
         />
         <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-          I have read and accept the{' '}
+          {t('wallet.fair_use_read_accept')}{' '}
           <a href="/fair-use-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-brand)' }}>
-            Creator Earnings Fair Use Policy
+            {t('wallet.fair_use_policy_link')}
           </a>
         </span>
       </label>
@@ -71,7 +73,7 @@ export default function AcceptMonetisationButton() {
         }}
       >
         {isPending && <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} />}
-        {isPending ? 'Enabling…' : 'Enable monetisation'}
+        {isPending ? t('wallet.enabling') : t('wallet.enable_monetisation')}
       </button>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { formatNaira } from '@/lib/utils'
 import { BIG_TRANSACTION_THRESHOLD_KOBO } from '@/lib/constants'
 import { useRouter } from 'next/navigation'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const BANKS = [
   { name: 'Access Bank', code: '044' },
@@ -48,6 +49,7 @@ interface WithdrawButtonProps {
 }
 
 export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnVerified, savedBank, nextEligibleAt }: WithdrawButtonProps) {
+  const { t } = useTranslation()
   const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
@@ -119,11 +121,11 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
           body: JSON.stringify({ amount_kobo: amountKobo, bank_code: bankCode, account_number: accountNumber, account_name: accountName }),
         })
         const data = await res.json()
-        if (!res.ok || data.error) { setError(data.error || 'Withdrawal failed.'); setStep('error'); return }
+        if (!res.ok || data.error) { setError(data.error || t('wallet.withdrawal_failed_generic')); setStep('error'); return }
         setStep('success')
         router.refresh()
       } catch {
-        setError('Network error. Please try again.')
+        setError(t('wallet.network_error_retry'))
         setStep('error')
       }
     })
@@ -155,7 +157,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px 16px' }}>
           <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
-            {step === 'confirm' ? 'Confirm withdrawal' : step === 'success' ? 'Withdrawal initiated' : step === 'error' ? 'Withdrawal failed' : 'Withdraw funds'}
+            {step === 'confirm' ? t('wallet.confirm_withdrawal_title') : step === 'success' ? t('wallet.withdrawal_initiated') : step === 'error' ? t('wallet.withdrawal_failed_title') : t('wallet.withdraw_funds_title')}
           </h2>
           <button onClick={handleClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}>
             <X size={20} />
@@ -171,13 +173,13 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                 <CheckCircle size={32} color="var(--color-brand)" />
               </div>
               <p style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--color-text-primary)', marginBottom: 8 }}>
-                {formatNaira(amountKobo)} on its way
+                {t('wallet.amount_on_its_way', { amount: formatNaira(amountKobo) })}
               </p>
               <p style={{ fontSize: 14, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
-                Funds will arrive in your {bankName} account within 3–5 business days.
+                {t('wallet.funds_arrive_days', { bank: bankName })}
               </p>
               <button onClick={handleClose} style={{ marginTop: 28, width: '100%', padding: '14px', background: 'var(--color-brand)', color: 'white', border: 'none', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
-                Done
+                {t('wallet.done')}
               </button>
             </div>
           )}
@@ -188,10 +190,10 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
               <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--color-surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
                 <AlertCircle size={32} color="var(--color-error)" />
               </div>
-              <p style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)', marginBottom: 8 }}>Something went wrong</p>
+              <p style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)', marginBottom: 8 }}>{t('wallet.something_went_wrong')}</p>
               <p style={{ fontSize: 14, color: 'var(--color-text-muted)', marginBottom: 28 }}>{error}</p>
               <button onClick={() => setStep('form')} style={{ width: '100%', padding: '14px', background: 'var(--color-surface-2)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
-                Try again
+                {t('wallet.try_again')}
               </button>
             </div>
           )}
@@ -200,21 +202,21 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
           {step === 'confirm' && (
             <div>
               <div style={{ background: 'var(--color-surface-2)', borderRadius: 14, overflow: 'hidden', marginBottom: 20 }}>
-                <Row label="Amount" value={formatNaira(amountKobo)} strong />
-                <Row label="Bank" value={bankName} />
-                <Row label="Account number" value={accountNumber} />
-                <Row label="Account name" value={accountName} last />
+                <Row label={t('wallet.row_amount')} value={formatNaira(amountKobo)} strong />
+                <Row label={t('wallet.row_bank')} value={bankName} />
+                <Row label={t('wallet.row_account_number')} value={accountNumber} />
+                <Row label={t('wallet.row_account_name')} value={accountName} last />
               </div>
               <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20, lineHeight: 1.6 }}>
-                By confirming, you authorise Spup to transfer {formatNaira(amountKobo)} to the account above. This cannot be reversed once initiated.
+                {t('wallet.authorise_transfer_desc', { amount: formatNaira(amountKobo) })}
               </p>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => setStep('form')} style={{ flex: 1, padding: '14px', background: 'none', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>
-                  Back
+                  {t('wallet.back')}
                 </button>
                 <button onClick={handleWithdraw} disabled={isPending} style={{ flex: 2, padding: '14px', background: 'var(--color-brand)', color: 'white', border: 'none', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: isPending ? 'not-allowed' : 'pointer', opacity: isPending ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                   {isPending && <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />}
-                  {isPending ? 'Processing…' : 'Confirm withdrawal'}
+                  {isPending ? t('wallet.processing') : t('wallet.confirm_withdrawal_btn')}
                 </button>
               </div>
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -226,7 +228,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
             <div>
               {/* Amount */}
               <div style={{ marginBottom: 20 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>Amount</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>{t('wallet.row_amount')}</label>
                 <div style={{ position: 'relative' }}>
                   <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--color-text-muted)', fontFamily: "'Syne', sans-serif", fontWeight: 700 }}>₦</span>
                   <input
@@ -240,26 +242,26 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                   />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Min ₦1,000</span>
-                  <button onClick={() => setAmountKobo(balance)} style={{ fontSize: 12, color: 'var(--color-brand)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>Withdraw all</button>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('wallet.min_amount', { amount: '₦1,000' })}</span>
+                  <button onClick={() => setAmountKobo(balance)} style={{ fontSize: 12, color: 'var(--color-brand)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>{t('wallet.withdraw_all')}</button>
                 </div>
                 {needsBvnForAmount && (
                   <p style={{ fontSize: 12, color: 'var(--color-gold)', marginTop: 8, lineHeight: 1.5 }}>
-                    Withdrawals of {formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO)} or more need BVN verification first.{' '}
-                    <Link href="/settings/verify-bvn" style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>Verify BVN</Link>
+                    {t('wallet.needs_bvn_for_amount', { amount: formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO) })}{' '}
+                    <Link href="/settings/verify-bvn" style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>{t('wallet.verify_bvn_cta')}</Link>
                   </p>
                 )}
               </div>
 
               {/* Bank selector */}
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>Bank</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>{t('wallet.row_bank')}</label>
                 <div style={{ position: 'relative' }}>
                   <button
                     onClick={() => setShowBankList(v => !v)}
                     style={{ width: '100%', padding: '13px 14px', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', color: bankName ? 'var(--color-text-primary)' : 'var(--color-text-muted)', fontSize: 15, fontFamily: "'DM Sans', sans-serif" }}
                   >
-                    {bankName || 'Select bank'}
+                    {bankName || t('wallet.select_bank')}
                     <ChevronDown size={16} style={{ transform: showBankList ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                   </button>
 
@@ -267,7 +269,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, marginTop: 4, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
                       <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Search size={14} color="var(--color-text-muted)" />
-                        <input autoFocus value={bankSearch} onChange={e => setBankSearch(e.target.value)} placeholder="Search banks…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 14, color: 'var(--color-text-primary)', fontFamily: "'DM Sans', sans-serif" }} />
+                        <input autoFocus value={bankSearch} onChange={e => setBankSearch(e.target.value)} placeholder={t('wallet.search_banks_placeholder')} style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 14, color: 'var(--color-text-primary)', fontFamily: "'DM Sans', sans-serif" }} />
                       </div>
                       <div style={{ maxHeight: 220, overflowY: 'auto' }}>
                         {filteredBanks.map(b => (
@@ -284,14 +286,14 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
 
               {/* Account number */}
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>Account number</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>{t('wallet.row_account_number')}</label>
                 <input
                   type="tel"
                   inputMode="numeric"
                   maxLength={10}
                   value={accountNumber}
                   onChange={e => setAccountNumber(e.target.value.replace(/\D/g, ''))}
-                  placeholder="10-digit NUBAN"
+                  placeholder={t('wallet.account_number_placeholder')}
                   style={{ width: '100%', padding: '13px 14px', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', borderRadius: 12, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'DM Sans', sans-serif", outline: 'none', boxSizing: 'border-box', letterSpacing: '0.05em' }}
                 />
               </div>
@@ -301,7 +303,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                 {resolving && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'var(--color-surface-2)', borderRadius: 12, border: '1px solid var(--color-border)' }}>
                     <Loader2 size={14} color="var(--color-text-muted)" style={{ animation: 'spin 0.8s linear infinite' }} />
-                    <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>Verifying account…</span>
+                    <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>{t('wallet.verifying_account')}</span>
                     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                   </div>
                 )}
@@ -314,7 +316,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                 {!resolving && accountNumber.length === 10 && bankCode && !accountName && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'var(--color-surface-2)', borderRadius: 12, border: '1px solid var(--color-border)' }}>
                     <AlertCircle size={15} color="var(--color-error)" />
-                    <span style={{ fontSize: 14, color: 'var(--color-error)' }}>Account not found. Check details.</span>
+                    <span style={{ fontSize: 14, color: 'var(--color-error)' }}>{t('wallet.account_not_found')}</span>
                   </div>
                 )}
               </div>
@@ -324,7 +326,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                 disabled={!canProceed}
                 style={{ width: '100%', padding: '14px', background: canProceed ? 'var(--color-brand)' : 'var(--color-surface-2)', color: canProceed ? 'white' : 'var(--color-text-muted)', border: 'none', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: canProceed ? 'pointer' : 'not-allowed', transition: 'background 0.15s' }}
               >
-                Continue
+                {t('wallet.continue')}
               </button>
             </div>
           )}
@@ -344,15 +346,15 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: effectiveCanWithdraw ? 'var(--color-brand)' : 'var(--color-surface-2)', color: effectiveCanWithdraw ? 'white' : 'var(--color-text-muted)', border: 'none', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, cursor: effectiveCanWithdraw ? 'pointer' : 'not-allowed', transition: 'background 0.15s', width: '100%' }}
       >
         <ArrowDownToLine size={16} />
-        Withdraw
+        {t('wallet.withdraw_btn')}
       </button>
       {cycleActive && (
         <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>
-          Next withdrawal available {new Date(nextEligibleAt!).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}
+          {t('wallet.next_withdrawal_available', { date: new Date(nextEligibleAt!).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' }) })}
         </p>
       )}
       {!cycleActive && !canWithdraw && ninVerified && balance < 100_000 && (
-        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>Minimum withdrawal is ₦1,000</p>
+        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>{t('wallet.minimum_withdrawal', { amount: '₦1,000' })}</p>
       )}
       {mounted && open && createPortal(modal, document.body)}
     </div>

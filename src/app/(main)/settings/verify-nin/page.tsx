@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { verifyNinAction } from '@/lib/actions/nin-kyc'
 import { ArrowLeft, ShieldCheck, CheckCircle, Lock } from 'lucide-react'
 import Link from 'next/link'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const INP: React.CSSProperties = {
   width: '100%', background: '#131318', border: '1px solid #1E1E26',
@@ -17,6 +18,7 @@ const INP: React.CSSProperties = {
 type Stage = 'enter-nin' | 'success'
 
 export default function VerifyNinPage() {
+  const { t } = useTranslation()
   const router = useRouter()
   const [stage, setStage] = useState<Stage>('enter-nin')
   const [nin, setNin]         = useState('')
@@ -29,7 +31,7 @@ export default function VerifyNinPage() {
   }
 
   function handleSubmit() {
-    if (nin.length !== 11) { setError('NIN must be exactly 11 digits.'); return }
+    if (nin.length !== 11) { setError(t('wallet.nin_must_be_11')); return }
     setError('')
     setPending(true)
     verifyNinAction(nin).then(r => {
@@ -43,7 +45,7 @@ export default function VerifyNinPage() {
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '28px 20px', fontFamily: "'DM Sans', sans-serif" }}>
 
       <Link href="/wallet" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#6A6A60', textDecoration: 'none', marginBottom: 28 }}>
-        <ArrowLeft size={16} /> Back to wallet
+        <ArrowLeft size={16} /> {t('wallet.back_to_wallet')}
       </Link>
 
       {stage === 'success' ? (
@@ -52,16 +54,16 @@ export default function VerifyNinPage() {
             <CheckCircle size={36} color="#1A9E5F" />
           </div>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 10 }}>
-            NIN verified!
+            {t('wallet.nin_verified_title')}
           </h1>
           <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, marginBottom: 32 }}>
-            You can now withdraw your earnings, and your verified badge will appear on your profile.
+            {t('wallet.nin_verified_desc')}
           </p>
           <button
             onClick={() => router.push('/wallet')}
             style={{ background: '#1A9E5F', color: 'white', border: 'none', borderRadius: 10, padding: '13px 32px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
           >
-            Back to wallet
+            {t('wallet.back_to_wallet')}
           </button>
         </div>
       ) : (
@@ -72,10 +74,10 @@ export default function VerifyNinPage() {
             </div>
             <div>
               <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 4 }}>
-                Verify your NIN
+                {t('wallet.verify_your_nin_title')}
               </h1>
               <p style={{ fontSize: 14, color: '#6A6A60', lineHeight: 1.5 }}>
-                Required once, before your first withdrawal. You can keep using Spup and earning without this until then.
+                {t('wallet.nin_required_once_desc')}
               </p>
             </div>
           </div>
@@ -88,7 +90,7 @@ export default function VerifyNinPage() {
 
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>
-              National Identification Number (NIN)
+              {t('wallet.nin_label')}
             </label>
             <div style={{ position: 'relative' }}>
               <Lock size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#44444A', pointerEvents: 'none' }} />
@@ -104,7 +106,7 @@ export default function VerifyNinPage() {
               />
             </div>
             <p style={{ fontSize: 12, color: '#44444A', marginTop: 6 }}>
-              Dial *346# on your registered line to retrieve your NIN if you don&apos;t have it saved. We never store your raw NIN — only a verification reference.
+              {t('wallet.nin_dial_hint')}
             </p>
           </div>
 
@@ -119,7 +121,7 @@ export default function VerifyNinPage() {
               transition: 'opacity 0.15s',
             }}
           >
-            {pending ? 'Verifying…' : 'Verify NIN'}
+            {pending ? t('wallet.verifying') : t('wallet.verify_nin_cta')}
           </button>
         </div>
       )}

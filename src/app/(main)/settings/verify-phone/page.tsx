@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { sendPhoneOtpAction, verifyPhoneOtpAction, resendPhoneOtpAction } from '@/lib/actions/phone-kyc'
 import { ArrowLeft, Phone, CheckCircle, Shield } from 'lucide-react'
 import Link from 'next/link'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const INP: React.CSSProperties = {
   width: '100%', background: '#131318', border: '1px solid #1E1E26',
@@ -21,6 +22,7 @@ function toDisplay(e164: string) {
 type Stage = 'enter-phone' | 'enter-otp' | 'success'
 
 export default function VerifyPhonePage() {
+  const { t } = useTranslation()
   const router = useRouter()
   const [stage, setStage] = useState<Stage>('enter-phone')
   const [phone, setPhone]     = useState('')
@@ -103,7 +105,7 @@ export default function VerifyPhonePage() {
     const r = await resendPhoneOtpAction(e164Phone)
     setResendPending(false)
     if (r.error) { setError(r.error); return }
-    setResendMsg('New code sent!')
+    setResendMsg(t('auth.new_code_sent'))
     setCountdown(60)
     setTimeout(() => setResendMsg(''), 4000)
   }
@@ -113,7 +115,7 @@ export default function VerifyPhonePage() {
 
       {/* Back */}
       <Link href="/profile" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#6A6A60', textDecoration: 'none', marginBottom: 28 }}>
-        <ArrowLeft size={16} /> Back to Settings
+        <ArrowLeft size={16} /> {t('wallet.back_to_settings')}
       </Link>
 
       {/* ── Success ───────────────────────────────────────────────────────── */}
@@ -123,17 +125,17 @@ export default function VerifyPhonePage() {
             <CheckCircle size={36} color="#1A9E5F" />
           </div>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 10 }}>
-            Phone verified!
+            {t('wallet.phone_verified_title')}
           </h1>
           <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, marginBottom: 32 }}>
-            {toDisplay(e164Phone)} is now linked to your account.<br />
-            You can now withdraw earnings and use 2FA.
+            {t('wallet.phone_verified_desc', { phone: toDisplay(e164Phone) })}<br />
+            {t('wallet.phone_can_withdraw_2fa')}
           </p>
           <button
             onClick={() => router.push('/profile')}
             style={{ background: '#1A9E5F', color: 'white', border: 'none', borderRadius: 10, padding: '13px 32px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
           >
-            Back to profile
+            {t('settings.back_to_profile')}
           </button>
         </div>
       )}
@@ -147,10 +149,10 @@ export default function VerifyPhonePage() {
             </div>
             <div>
               <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 4 }}>
-                Verify phone number
+                {t('wallet.verify_phone_number_title')}
               </h1>
               <p style={{ fontSize: 14, color: '#6A6A60', lineHeight: 1.5 }}>
-                Required for withdrawals and 2FA. We&apos;ll send a one-time code via SMS.
+                {t('wallet.phone_otp_desc')}
               </p>
             </div>
           </div>
@@ -163,7 +165,7 @@ export default function VerifyPhonePage() {
 
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>
-              Nigerian phone number
+              {t('wallet.nigerian_phone_label')}
             </label>
             <div style={{ position: 'relative' }}>
               <Phone size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#44444A', pointerEvents: 'none' }} />
@@ -179,7 +181,7 @@ export default function VerifyPhonePage() {
               />
             </div>
             <p style={{ fontSize: 12, color: '#44444A', marginTop: 6 }}>
-              MTN, Airtel, Glo, 9Mobile - Nigerian numbers only
+              {t('wallet.phone_network_hint')}
             </p>
           </div>
 
@@ -194,7 +196,7 @@ export default function VerifyPhonePage() {
               transition: 'opacity 0.15s',
             }}
           >
-            {isPending ? 'Sending code…' : 'Send verification code'}
+            {isPending ? t('wallet.sending_code') : t('wallet.send_verification_code')}
           </button>
         </div>
       )}
@@ -204,10 +206,10 @@ export default function VerifyPhonePage() {
         <div>
           <div style={{ marginBottom: 28 }}>
             <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 6 }}>
-              Enter the code
+              {t('wallet.enter_code_title')}
             </h1>
             <p style={{ fontSize: 14, color: '#6A6A60' }}>
-              We sent a 6-digit SMS to
+              {t('wallet.sent_sms_to')}
             </p>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#131318', border: '1px solid #1E1E26', borderRadius: 8, padding: '6px 14px', marginTop: 8 }}>
               <Phone size={13} color="#1A9E5F" />
@@ -264,14 +266,14 @@ export default function VerifyPhonePage() {
               marginBottom: 20, transition: 'opacity 0.15s',
             }}
           >
-            {isPending ? 'Verifying…' : 'Verify phone number'}
+            {isPending ? t('wallet.verifying') : t('wallet.verify_phone_number_title')}
           </button>
 
           {/* Resend / change number */}
           <div style={{ textAlign: 'center' }}>
             {countdown > 0 ? (
               <p style={{ fontSize: 14, color: '#44444A' }}>
-                Resend in <span style={{ color: '#8A8A85', fontWeight: 600 }}>{countdown}s</span>
+                {t('wallet.resend_in', { seconds: countdown })}
               </p>
             ) : (
               <button
@@ -279,7 +281,7 @@ export default function VerifyPhonePage() {
                 disabled={resendPending}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#1A9E5F', fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}
               >
-                {resendPending ? 'Sending…' : 'Resend code'}
+                {resendPending ? t('wallet.sending') : t('wallet.resend_code')}
               </button>
             )}
             <br />
@@ -287,7 +289,7 @@ export default function VerifyPhonePage() {
               onClick={() => { setStage('enter-phone'); setDigits(['','','','','','']); setError('') }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#44444A', marginTop: 8, fontFamily: "'DM Sans', sans-serif" }}
             >
-              Wrong number? Change it
+              {t('wallet.wrong_number_change')}
             </button>
           </div>
         </div>

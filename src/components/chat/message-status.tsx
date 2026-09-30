@@ -1,3 +1,5 @@
+'use client'
+
 // src/components/chat/message-status.tsx
 //
 // The little indicator next to a message I sent, as in modern chat apps:
@@ -11,16 +13,21 @@
 // precise amount, and it keeps the chat independent of icon-library renames.
 
 import type { MessageStatus } from '@/lib/chat-message-state'
+import { useTranslation } from '@/lib/i18n/language-context'
 
-const LABEL: Record<MessageStatus, string> = {
-  sending: 'Sending',
-  failed: 'Not sent',
-  sent: 'Sent',
-  delivered: 'Delivered',
-  read: 'Read',
+function statusLabel(t: (key: string) => string): Record<MessageStatus, string> {
+  return {
+    sending: t('chat.status_sending'),
+    failed: t('chat.status_not_sent'),
+    sent: t('chat.status_sent'),
+    delivered: t('chat.status_delivered'),
+    read: t('chat.status_read'),
+  }
 }
 
 export default function MessageStatusIcon({ status, size = 15 }: { status: MessageStatus; size?: number }) {
+  const { t } = useTranslation()
+  const LABEL = statusLabel(t)
   const muted = 'var(--color-text-secondary)'
   const common = {
     width: size, height: size, viewBox: '0 0 16 16', fill: 'none',

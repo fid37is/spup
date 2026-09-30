@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { UserPlus, UserCheck, UserMinus } from 'lucide-react'
 import { useEngagement, setEngagement } from '@/lib/engagement-sync'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 export default function SidebarFollowBtn({
   targetUserId,
@@ -14,6 +15,7 @@ export default function SidebarFollowBtn({
   initialFollowing?: boolean
   followsMe?: boolean
 }) {
+  const { t } = useTranslation()
   // Saved instantly and delivered in the background (retried on a weak
   // connection) - see engagement-sync.
   const { active: following } = useEngagement('follow', targetUserId, initialFollowing)
@@ -36,19 +38,19 @@ export default function SidebarFollowBtn({
     bg     = 'var(--color-brand)'
     border = 'transparent'
     color  = 'white'
-    label  = isFollowBack ? 'Follow back' : 'Follow'
+    label  = isFollowBack ? t('profile.follow_back') : t('profile.follow')
     icon   = <UserPlus size={13} />
   } else if (hovered) {
     bg     = 'var(--color-error-muted, #2a0a0a)'
     border = 'var(--color-error)'
     color  = 'var(--color-error)'
-    label  = 'Unfollow'
+    label  = t('profile.unfollow')
     icon   = <UserMinus size={13} />
   } else {
     bg     = 'transparent'
     border = 'var(--color-border)'
     color  = 'var(--color-text-secondary)'
-    label  = 'Following'
+    label  = t('feed.following')
     icon   = <UserCheck size={13} />
   }
 
