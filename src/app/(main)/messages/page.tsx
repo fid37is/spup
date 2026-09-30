@@ -7,6 +7,8 @@ import PinGate from '@/components/chat/pin-gate'
 import MessagesListClient from './messages-list-client'
 import { MessageSquarePlus, MessageSquare } from 'lucide-react'
 import Link from 'next/link'
+import { getProfileByAuthId } from '@/lib/queries/users'
+import { isLocale, DEFAULT_LOCALE, loadDictionary, translate } from '@/lib/i18n/dictionaries'
 
 export default async function MessagesPage() {
   const supabase = await createClient()
@@ -17,6 +19,11 @@ export default async function MessagesPage() {
   const { data: profile } = await admin
     .from('users').select('id').eq('auth_id', user.id).single()
   if (!profile) redirect('/login')
+
+  const fullProfile = await getProfileByAuthId(user.id)
+  const locale = isLocale(fullProfile?.language_preference) ? fullProfile!.language_preference : DEFAULT_LOCALE
+  const dict = await loadDictionary(locale)
+  const t = (key: string, vars?: Record<string, string | number>) => translate(dict, key, vars)
 
   const conversations = await getConversationsAction()
 
@@ -32,7 +39,7 @@ export default async function MessagesPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)', margin: 0 }}>
-            Chat
+            {t('chat.title')}
           </h1>
           <Link href="/messages/new" style={{
             display: 'flex', alignItems: 'center', gap: 6,
@@ -42,7 +49,7 @@ export default async function MessagesPage() {
             fontFamily: "'Syne', sans-serif", fontWeight: 700,
           }}>
             <MessageSquarePlus size={14} />
-            New chat
+            {t('chat.new_chat')}
           </Link>
         </div>
 
@@ -52,10 +59,10 @@ export default async function MessagesPage() {
               <MessageSquare size={28} color="var(--color-text-secondary)" />
             </div>
             <h3 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--color-text-primary)', marginBottom: 8 }}>
-              No chats yet
+              {t('chat.no_chats_yet')}
             </h3>
             <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 24 }}>
-              Start a conversation with someone you follow
+              {t('chat.start_conversation_hint')}
             </p>
             <Link href="/messages/new" style={{
               background: 'var(--color-brand)', color: 'white',
@@ -63,7 +70,7 @@ export default async function MessagesPage() {
               textDecoration: 'none', fontSize: 14,
               fontFamily: "'Syne', sans-serif", fontWeight: 700,
             }}>
-              Start a chat
+              {t('chat.start_a_chat')}
             </Link>
           </div>
         ) : (
