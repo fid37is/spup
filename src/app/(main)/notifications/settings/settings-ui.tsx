@@ -3,6 +3,7 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
+import BackButton from '@/components/ui/back-button'
 import { ArrowLeft, BellOff, Loader } from 'lucide-react'
 import { updateNotificationSettingsAction, disablePostNotificationsAction, type PostNotificationTarget } from '@/lib/actions/notification-settings'
 import { updateProfileAction } from '@/lib/actions/profiles'
@@ -19,33 +20,24 @@ export function SettingsHeader({
 }: { title: string; subtitle?: string; backHref?: string }) {
   return (
     <>
-    <HideMobileHeader />
-    <div style={{
-      position: 'sticky', top: 0, zIndex: 20,
-      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-      background: 'var(--nav-bg)', borderBottom: '1px solid var(--color-border)',
-      display: 'flex', alignItems: 'center', gap: 20, padding: '0 12px', height: 56,
-    }}>
-      <Link
-        href={backHref}
-        aria-label="Back"
-        style={{
-          width: 38, height: 38, borderRadius: '50%', color: 'var(--color-text-primary)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
-      >
-        <ArrowLeft size={22} />
-      </Link>
-      <div style={{ minWidth: 0 }}>
-        <h1 style={{
-          fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 19, lineHeight: 1.15,
-          color: 'var(--color-text-primary)', margin: 0,
-        }}>
-          {title}
-        </h1>
-        {subtitle && <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{subtitle}</div>}
+      <HideMobileHeader />
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 20,
+        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        background: 'var(--nav-bg)', borderBottom: '1px solid var(--color-border)',
+        display: 'flex', alignItems: 'center', gap: 20, padding: '0 12px', height: 56,
+      }}>
+        <BackButton fallbackHref="/notifications" iconSize={22} />
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{
+            fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 19, lineHeight: 1.15,
+            color: 'var(--color-text-primary)', margin: 0,
+          }}>
+            {title}
+          </h1>
+          {subtitle && <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{subtitle}</div>}
+        </div>
       </div>
-    </div>
     </>
   )
 }

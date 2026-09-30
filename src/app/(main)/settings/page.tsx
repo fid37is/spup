@@ -2,8 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect }     from 'next/navigation'
-import { ArrowLeft }    from 'lucide-react'
-import Link             from 'next/link'
+import BackButton from '@/components/ui/back-button'
 import SettingsClient   from './settings-client'
 
 export const metadata = {
@@ -50,18 +49,7 @@ export default async function SettingsPage() {
         display: 'flex', alignItems: 'center', gap: 12,
         height: 56,
       }}>
-        <Link
-          href="/profile"
-          aria-label="Back to profile"
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 34, height: 34, borderRadius: '50%',
-            color: 'var(--color-text-primary)',
-            textDecoration: 'none',
-          }}
-        >
-          <ArrowLeft size={20} />
-        </Link>
+        <BackButton fallbackHref="/profile" label="Back to profile" />
         <h1 style={{
           fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 18,
           color: 'var(--color-text-primary)', margin: 0,

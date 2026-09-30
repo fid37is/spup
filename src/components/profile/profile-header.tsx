@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Settings, Camera, Loader, ArrowLeft } from 'lucide-react'
 import { updateAvatarAction, updateBannerAction } from '@/lib/actions/profiles'
+import BackButton from '@/components/ui/back-button'
 import CropModal from './crop-modal'
 import ProfileHeaderView from './profile-header-view'
 import ProfileHeaderEdit from './profile-header-edit'
@@ -53,12 +54,12 @@ export default function ProfileHeader({
   profile, stats, isOwner, actionSlot, showBirthday = false, mode = 'view',
 }: ProfileHeaderProps) {
   const editing = mode === 'edit'
-  const [avatarSrc,  setAvatarSrc]  = useState<string | null>(profile.avatar_url)
-  const [bannerSrc,  setBannerSrc]  = useState<string | null>(profile.banner_url)
-  const [uploading,  setUploading]  = useState<UploadTarget | null>(null)
-  const [cropFile,   setCropFile]   = useState<File | null>(null)
+  const [avatarSrc, setAvatarSrc] = useState<string | null>(profile.avatar_url)
+  const [bannerSrc, setBannerSrc] = useState<string | null>(profile.banner_url)
+  const [uploading, setUploading] = useState<UploadTarget | null>(null)
+  const [cropFile, setCropFile] = useState<File | null>(null)
   const [cropTarget, setCropTarget] = useState<UploadTarget | null>(null)
-  const [uploadErr,  setUploadErr]  = useState('')
+  const [uploadErr, setUploadErr] = useState('')
   const [showAvatarLightbox, setShowAvatarLightbox] = useState(false)
   // Portaled to document.body below — see the note on ConfirmModal for why.
   const [mounted, setMounted] = useState(false)
@@ -98,7 +99,7 @@ export default function ProfileHeader({
       form.append('file', file)
       form.append('type', target)
 
-      const res  = await fetch('/api/upload', { method: 'POST', body: form })
+      const res = await fetch('/api/upload', { method: 'POST', body: form })
       const data = await res.json()
 
       if (!res.ok || !data.media?.url) {
@@ -184,23 +185,12 @@ export default function ProfileHeader({
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         )}
 
-        {/* Back button — floats on the banner like LinkedIn's, so the page
-            doesn't need a separate nav bar just to hold it. Stops propagation
-            so it doesn't trigger the banner's own onClick (opens file picker
-            in edit mode). */}
-        <button
-          onClick={e => { e.stopPropagation(); router.back() }}
-          aria-label="Go back"
-          style={{
-            position: 'absolute', top: 12, left: 12, zIndex: 2,
-            width: 36, height: 36, borderRadius: '50%',
-            background: 'rgba(0,0,0,0.45)', border: 'none',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
-          }}
-        >
-          <ArrowLeft size={18} color="white" strokeWidth={2.2} />
-        </button>
+        <BackButton
+          variant="banner"
+          fallbackHref="/feed"
+          iconSize={18}
+          onClick={e => e.stopPropagation()}
+        />
 
         {/* Portal target for ProfileActionBar's "···" more-options button —
             mirrors the back button on the opposite side of the banner. Only
@@ -217,11 +207,11 @@ export default function ProfileHeader({
             {uploading === 'banner'
               ? <Loader size={22} color="white" style={{ animation: 'spin .8s linear infinite' }} />
               : <>
-                  <Camera size={18} color="white" strokeWidth={2} />
-                  <span style={{ fontSize: 13, color: 'white', fontWeight: 600, fontFamily: "'Syne', sans-serif" }}>
-                    {bannerSrc ? 'Change cover photo' : 'Add cover photo'}
-                  </span>
-                </>
+                <Camera size={18} color="white" strokeWidth={2} />
+                <span style={{ fontSize: 13, color: 'white', fontWeight: 600, fontFamily: "'Syne', sans-serif" }}>
+                  {bannerSrc ? 'Change cover photo' : 'Add cover photo'}
+                </span>
+              </>
             }
           </div>
         )}

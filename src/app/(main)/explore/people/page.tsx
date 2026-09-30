@@ -4,12 +4,13 @@
 // Lets people browse suggested accounts filtered by category, instead of
 // the 5-account teaser embedded in the sidebar / Explore tab.
 
-import { createAdminClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Users } from 'lucide-react'
 import { getSuggestedUsers, getSuggestedUsersByCategory, ACCOUNT_CATEGORIES } from '@/lib/queries/users'
 import { UserCard, type UserResult } from '@/components/explore/user-card'
+import BackButton from '@/components/ui/back-button'
 
 interface SP { category?: string }
 
@@ -49,16 +50,22 @@ export default async function WhoToFollowPage({ searchParams }: { searchParams: 
   const params   = await searchParams
   const category = params.category && ACCOUNT_CATEGORIES.includes(params.category) ? params.category : 'All'
 
-  const admin = createAdminClient()
-  const { data: { user: authUser } } = await admin.auth.getUser()
+  // Must use the cookie-backed client — service role has no session, so
+  // admin.auth.getUser() always returns null and bounced "See all" to /login.
+  const supabase = await createClient()
+  const { data: { user: authUser } } = await supabase.auth.getUser()
   if (!authUser) redirect('/login')
 
-  const { data: viewer } = await admin.from('users').select('id').eq('auth_id', authUser.id).single()
+  const { data: viewer } = await supabase
+    .from('users')
+    .select('id')
+    .eq('auth_id', authUser.id)
+    .single()
   if (!viewer) redirect('/login')
 
   const [{ data: followingRows }, { data: followerRows }] = await Promise.all([
-    admin.from('follows').select('following_id').eq('follower_id', viewer.id),
-    admin.from('follows').select('follower_id').eq('following_id', viewer.id),
+    supabase.from('follows').select('following_id').eq('follower_id', viewer.id),
+    supabase.from('follows').select('follower_id').eq('following_id', viewer.id),
   ])
   const followingIds = (followingRows || []).map((r: any) => r.following_id as string)
   const followerIdSet = new Set((followerRows || []).map((r: any) => r.follower_id as string))
@@ -77,17 +84,7 @@ export default async function WhoToFollowPage({ searchParams }: { searchParams: 
         borderBottom: '1px solid var(--color-border)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px', height: 56 }}>
-          <Link
-            href="/explore"
-            aria-label="Back"
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 34, height: 34, borderRadius: '50%',
-              color: 'var(--color-text-primary)', textDecoration: 'none', flexShrink: 0,
-            }}
-          >
-            <ArrowLeft size={20} />
-          </Link>
+          <BackButton fallbackHref="/explore" />
           <h1 style={{
             fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 17,
             color: 'var(--color-text-primary)', margin: 0,

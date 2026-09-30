@@ -37,26 +37,26 @@ import {
 
 type Supabase = Awaited<ReturnType<typeof createClient>>
 
-interface TrendingTag  { tag: string; posts_count: number }
+interface TrendingTag { tag: string; posts_count: number }
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 // Maps each top-level tab to the NIGERIAN_INTERESTS category names it covers.
 // Interest IDs (e.g. 'football', 'tech') double as hashtag tags in the DB.
 
 const EXPLORE_TABS = [
-  { key: 'for-you',       label: 'Explore',       icon: Sparkles,     categories: null                                         },
-  { key: 'trending',      label: 'Trending',      icon: TrendingUp,   categories: null                                         },
-  { key: 'news',          label: 'News',          icon: Newspaper,    categories: ['News', 'Finance', 'Career']                },
-  { key: 'sports',        label: 'Sports',        icon: Trophy,       categories: ['Sports']                                   },
-  { key: 'entertainment', label: 'Entertainment', icon: Clapperboard, categories: ['Entertainment', 'Creative', 'Lifestyle']   },
+  { key: 'for-you', label: 'Explore', icon: Sparkles, categories: null },
+  { key: 'trending', label: 'Trending', icon: TrendingUp, categories: null },
+  { key: 'news', label: 'News', icon: Newspaper, categories: ['News', 'Finance', 'Career'] },
+  { key: 'sports', label: 'Sports', icon: Trophy, categories: ['Sports'] },
+  { key: 'entertainment', label: 'Entertainment', icon: Clapperboard, categories: ['Entertainment', 'Creative', 'Lifestyle'] },
 ] as const
 
 type ExploreTabKey = typeof EXPLORE_TABS[number]['key']
 
 // Search-result sub-tabs
 const SEARCH_TABS = [
-  { key: 'posts',    label: 'Posts'    },
-  { key: 'people',  label: 'People'   },
+  { key: 'posts', label: 'Posts' },
+  { key: 'people', label: 'People' },
   { key: 'hashtags', label: 'Hashtags' },
 ] as const
 type SearchTabKey = typeof SEARCH_TABS[number]['key']
@@ -81,14 +81,14 @@ async function hydrateEngagement(db: Supabase, userId: string, posts: any[]) {
     db.from('bookmarks').select('post_id').eq('user_id', userId).in('post_id', ids),
     db.from('posts').select('quoted_post_id').eq('user_id', userId).eq('post_type', 'repost').in('quoted_post_id', ids),
   ])
-  const likedSet      = new Set((likes     || []).map((r: any) => r.post_id))
+  const likedSet = new Set((likes || []).map((r: any) => r.post_id))
   const bookmarkedSet = new Set((bookmarks || []).map((r: any) => r.post_id))
-  const repostedSet   = new Set((reposts   || []).map((r: any) => r.quoted_post_id))
+  const repostedSet = new Set((reposts || []).map((r: any) => r.quoted_post_id))
   return posts.map((p: any) => ({
     ...p,
-    is_liked:      likedSet.has(p.id),
+    is_liked: likedSet.has(p.id),
     is_bookmarked: bookmarkedSet.has(p.id),
-    is_reposted:   repostedSet.has(p.id),
+    is_reposted: repostedSet.has(p.id),
   }))
 }
 
@@ -223,7 +223,10 @@ async function searchUsers(db: Supabase, query: string): Promise<UserResult[]> {
   const { data } = await db.from('users')
     .select('id, username, display_name, avatar_url, verification_tier, followers_count, bio, is_monetised')
     .or(`username.ilike.%${term}%,display_name.ilike.%${term}%`)
-    .is('deleted_at', null).neq('status', 'banned')
+    .is('deleted_at', null)
+    .neq('status', 'banned')
+    .neq('role', 'admin')
+    .not('username', 'is', null)
     .order('followers_count', { ascending: false }).limit(20)
   return (data || []) as UserResult[]
 }
@@ -376,9 +379,9 @@ function SearchTabBar({ query, activeTab, counts }: { query: string; activeTab: 
 interface SP { q?: string; tab?: string; etab?: string }
 
 export default async function ExplorePage({ searchParams }: { searchParams: Promise<SP> }) {
-  const params   = await searchParams
-  const query    = params.q?.trim() || ''
-  const etab     = (params.etab as ExploreTabKey) || 'for-you'
+  const params = await searchParams
+  const query = params.q?.trim() || ''
+  const etab = (params.etab as ExploreTabKey) || 'for-you'
   const searchTab = (params.tab as SearchTabKey) || 'posts'
 
   const db = await createClient()
@@ -386,7 +389,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
   const { data: { user } } = await db.auth.getUser()
   let profileId: string | null = null
   let followingIdSet = new Set<string>()
-  let followerIdSet  = new Set<string>()
+  let followerIdSet = new Set<string>()
   if (user) {
     const { data: profile } = await db.from('users').select('id').eq('auth_id', user.id).single()
     profileId = profile?.id ?? null
@@ -396,7 +399,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
         db.from('follows').select('follower_id').eq('following_id', profileId),
       ])
       followingIdSet = new Set((followingRows || []).map((r: any) => r.following_id as string))
-      followerIdSet  = new Set((followerRows  || []).map((r: any) => r.follower_id  as string))
+      followerIdSet = new Set((followerRows || []).map((r: any) => r.follower_id as string))
     }
   }
 
@@ -422,8 +425,8 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
       searchHashtags(db, query),
     ])
     const counts: Record<SearchTabKey, number> = {
-      posts:    postResults.length,
-      people:   userResults.length,
+      posts: postResults.length,
+      people: userResults.length,
       hashtags: hashtagResults.length,
     }
     const total = counts.posts + counts.people + counts.hashtags
