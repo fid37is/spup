@@ -13,15 +13,18 @@ import type { User } from '@/types'
 
 // ─── Monetisation thresholds from env (never hardcoded in UI) ─────────────────
 const REQUIRED_FOLLOWERS = parseInt(process.env.MONETISATION_REQUIRED_FOLLOWERS ?? '500', 10)
-const REQUIRED_POSTS     = parseInt(process.env.MONETISATION_REQUIRED_POSTS     ?? '100', 10)
+const REQUIRED_POSTS = parseInt(process.env.MONETISATION_REQUIRED_POSTS ?? '100', 10)
 const REQUIRED_ACCOUNT_AGE_DAYS = parseInt(process.env.MONETISATION_REQUIRED_ACCOUNT_AGE_DAYS ?? '90', 10)
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface RightSidebarProps { profile: User }
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
-const AVATAR_COLORS = ['#1A7A4A','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A','#1A6A6A']
-const avatarBg = (s: string) => AVATAR_COLORS[s.charCodeAt(0) % AVATAR_COLORS.length]
+const AVATAR_COLORS = ['#1A7A4A', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A', '#1A6A6A']
+const avatarBg = (s: string | null | undefined) => {
+  if (!s) return AVATAR_COLORS[0]
+  return AVATAR_COLORS[s.charCodeAt(0) % AVATAR_COLORS.length]
+}
 
 function Avatar({ user, size = 40 }: {
   user: Pick<User, 'username' | 'display_name' | 'avatar_url'>
@@ -30,7 +33,7 @@ function Avatar({ user, size = 40 }: {
   return (
     <div style={{
       width: size, height: size, borderRadius: '50%',
-      background: user.avatar_url ? 'transparent' : avatarBg(user.username),
+      background: user.avatar_url ? 'transparent' : avatarBg(user.username ?? user.display_name),
       overflow: 'hidden', flexShrink: 0,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: "'Syne', sans-serif", fontWeight: 800,
@@ -123,14 +126,14 @@ async function MonetisationProgress({ profile }: { profile: User }) {
     .is('deleted_at', null)
     .lte('created_at', new Date().toISOString())
   const postsVal = eligiblePostsCount ?? 0
-  const ninDone       = profile.nin_verified ?? false
+  const ninDone = profile.nin_verified ?? false
   const accountAgeDays = Math.floor(
     (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24)
   )
 
   const followersPct = Math.min(100, Math.round((followersVal / REQUIRED_FOLLOWERS) * 100))
-  const postsPct     = Math.min(100, Math.round((postsVal     / REQUIRED_POSTS)     * 100))
-  const agePct       = Math.min(100, Math.round((accountAgeDays / REQUIRED_ACCOUNT_AGE_DAYS) * 100))
+  const postsPct = Math.min(100, Math.round((postsVal / REQUIRED_POSTS) * 100))
+  const agePct = Math.min(100, Math.round((accountAgeDays / REQUIRED_ACCOUNT_AGE_DAYS) * 100))
   const eligibleToAccept = followersPct >= 100 && postsPct >= 100 && agePct >= 100
 
   return (
@@ -237,8 +240,8 @@ function CreatorWallet({ wallet }: {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
           {[
-            { label: 'Total Earned', value: wallet.total_earned_kobo    },
-            { label: 'Withdrawn',    value: wallet.total_withdrawn_kobo },
+            { label: 'Total Earned', value: wallet.total_earned_kobo },
+            { label: 'Withdrawn', value: wallet.total_withdrawn_kobo },
           ].map(({ label, value }) => (
             <div key={label} style={{ background: 'var(--color-surface-2)', borderRadius: 10, padding: '8px 10px', border: '1px solid var(--color-border)' }}>
               <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 3 }}>{label}</div>
@@ -313,7 +316,7 @@ function WhatsHappening({ trending }: { trending: { tag: string; posts_count: nu
 function WhoToFollow({ suggested, followingIds, followerIds }: { suggested: any[]; followingIds: string[]; followerIds: string[] }) {
   if (!suggested.length) return null
   const followingSet = new Set(followingIds)
-  const followerSet  = new Set(followerIds)
+  const followerSet = new Set(followerIds)
   return (
     <Card>
       <CardHeader title="Who to follow" />
@@ -388,20 +391,20 @@ export default async function RightSidebar({ profile }: RightSidebarProps) {
       .eq('following_id', profile.id),
     profile.is_monetised
       ? admin
-          .from('wallets')
-          .select('balance_kobo, total_earned_kobo, total_withdrawn_kobo')
-          .eq('user_id', profile.id)
-          .single()
+        .from('wallets')
+        .select('balance_kobo, total_earned_kobo, total_withdrawn_kobo')
+        .eq('user_id', profile.id)
+        .single()
       : Promise.resolve({ data: null }),
   ])
 
-  const trending     = (hashtagResult.data || []) as { tag: string; posts_count: number }[]
-  const followingIds = (followsResult.data  || []).map((f: any) => f.following_id as string)
-  const followerIds  = (followerResult.data || []).map((f: any) => f.follower_id  as string)
-  const excludeIds   = [profile.id, ...followingIds]
+  const trending = (hashtagResult.data || []) as { tag: string; posts_count: number }[]
+  const followingIds = (followsResult.data || []).map((f: any) => f.following_id as string)
+  const followerIds = (followerResult.data || []).map((f: any) => f.follower_id as string)
+  const excludeIds = [profile.id, ...followingIds]
 
   const suggested = await getSuggestedUsers(excludeIds, 5)
-  const wallet    = (walletResult as any)?.data as {
+  const wallet = (walletResult as any)?.data as {
     balance_kobo: number; total_earned_kobo: number; total_withdrawn_kobo: number
   } | null
 
@@ -443,13 +446,13 @@ export default async function RightSidebar({ profile }: RightSidebarProps) {
 
       {/* Footer */}
       <div style={{ fontSize: 11, color: 'var(--color-text-faint)', lineHeight: 2, paddingBottom: 12, flexShrink: 0 }}>
-        <Link href="/terms"          style={{ color: 'inherit', textDecoration: 'none' }}>Terms of Service</Link>
+        <Link href="/terms" style={{ color: 'inherit', textDecoration: 'none' }}>Terms of Service</Link>
         {' · '}
-        <Link href="/privacy"        style={{ color: 'inherit', textDecoration: 'none' }}>Privacy Policy</Link>
+        <Link href="/privacy" style={{ color: 'inherit', textDecoration: 'none' }}>Privacy Policy</Link>
         {' · '}
         <Link href="/content-policy" style={{ color: 'inherit', textDecoration: 'none' }}>Content Policy</Link>
         {' · '}
-        <Link href="/contact"        style={{ color: 'inherit', textDecoration: 'none' }}>Contact</Link>
+        <Link href="/contact" style={{ color: 'inherit', textDecoration: 'none' }}>Contact</Link>
         <br />
         © {new Date().getFullYear()} Spup Technologies Limited
       </div>

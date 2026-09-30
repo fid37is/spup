@@ -1,10 +1,9 @@
 // src/app/(main)/connections/[username]/page.tsx
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { notFound, redirect }              from 'next/navigation'
-import { ArrowLeft }                       from 'lucide-react'
-import Link                                from 'next/link'
-import ConnectionsClient                   from './connections-client'
-import type { Metadata }                   from 'next'
+import { notFound, redirect } from 'next/navigation'
+import BackButton from '@/components/ui/back-button'
+import ConnectionsClient from './connections-client'
+import type { Metadata } from 'next'
 
 type Tab = 'following' | 'followers' | 'mutuals'
 
@@ -13,7 +12,7 @@ const VALID_TABS: Tab[] = ['following', 'followers', 'mutuals']
 const USER_FIELDS = 'id, username, display_name, avatar_url, verification_tier, is_monetised, followers_count, bio'
 
 interface PageProps {
-  params:       Promise<{ username: string }>
+  params: Promise<{ username: string }>
   searchParams: Promise<{ tab?: string }>
 }
 
@@ -27,8 +26,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function ConnectionsPage({ params, searchParams }: PageProps) {
   const { username } = await params
-  const sp           = await searchParams
-  const rawTab       = sp?.tab ?? 'following'
+  const sp = await searchParams
+  const rawTab = sp?.tab ?? 'following'
   const activeTab: Tab = VALID_TABS.includes(rawTab as Tab) ? (rawTab as Tab) : 'following'
 
   // Auth check — viewer must be logged in
@@ -54,20 +53,20 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
   const { data: viewer } = await admin
     .from('users').select('id').eq('auth_id', authUser.id).single()
 
-  const isOwn    = viewer?.id === profile.id
+  const isOwn = viewer?.id === profile.id
   const backHref = isOwn ? '/profile' : `/user/${username}`
 
   // Fetch viewer's own follow state (who the logged-in user follows / is followed by)
   // so we can show correct Follow / Follow back / Unfollow buttons
   const [{ data: viewerFollowingRels }, { data: viewerFollowerRels }] = viewer
     ? await Promise.all([
-        admin.from('follows').select('following_id').eq('follower_id', viewer.id),
-        admin.from('follows').select('follower_id').eq('following_id', viewer.id),
-      ])
+      admin.from('follows').select('following_id').eq('follower_id', viewer.id),
+      admin.from('follows').select('follower_id').eq('following_id', viewer.id),
+    ])
     : [{ data: [] }, { data: [] }]
 
   const viewerFollowingIds = (viewerFollowingRels || []).map((r: any) => r.following_id as string)
-  const viewerFollowerIds  = (viewerFollowerRels  || []).map((r: any) => r.follower_id  as string)
+  const viewerFollowerIds = (viewerFollowerRels || []).map((r: any) => r.follower_id as string)
 
   // Fetch follow relationships using profile.id
   const [{ data: followingRels }, { data: followerRels }] = await Promise.all([
@@ -76,7 +75,7 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
   ])
 
   const followingIds = (followingRels || []).map((r: any) => r.following_id as string)
-  const followerIds  = (followerRels  || []).map((r: any) => r.follower_id  as string)
+  const followerIds = (followerRels || []).map((r: any) => r.follower_id as string)
 
   // Fetch user details for both sets
   const [followingUsers, followerUsers] = await Promise.all([
@@ -89,7 +88,7 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
   ])
 
   const following: any[] = followingUsers.data || []
-  const followers: any[] = followerUsers.data  || []
+  const followers: any[] = followerUsers.data || []
 
   // Mutuals = people you follow who also follow you back
   const followerIdSet = new Set(followerIds)
@@ -107,17 +106,8 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '0 20px', height: 56,
       }}>
-        <Link
-          href={backHref}
-          aria-label="Back"
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 34, height: 34, borderRadius: '50%',
-            color: 'var(--color-text-primary)', textDecoration: 'none',
-          }}
-        >
-          <ArrowLeft size={20} />
-        </Link>
+        <BackButton fallbackHref="/profile" label="Back to profile" />
+
         <div>
           <h1 style={{
             fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 17,

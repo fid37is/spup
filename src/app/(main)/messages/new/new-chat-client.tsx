@@ -6,7 +6,7 @@ import { useState, useTransition } from 'react'
 import { getOrCreateConversationAction } from '@/lib/actions/messages'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Search, Loader2, UserPlus } from 'lucide-react'
-import Link from 'next/link'
+import BackButton from '@/components/ui/back-button'
 import VerifiedBadge from '@/components/ui/verified-badge'
 
 const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
@@ -50,9 +50,7 @@ export default function NewChatClient({ following }: { following: FollowUser[] }
         padding: '14px 20px',
         display: 'flex', alignItems: 'center', gap: 14,
       }}>
-        <Link href="/messages" style={{ color: 'var(--color-text-primary)', display: 'flex', flexShrink: 0 }}>
-          <ArrowLeft size={20} />
-        </Link>
+        <BackButton fallbackHref="/messages" />
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 18, color: 'var(--color-text-primary)', margin: 0 }}>
           New Chat
         </h1>

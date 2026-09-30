@@ -1,6 +1,4 @@
 // src/app/(main)/notifications/settings/page.tsx
-//
-// Notification settings hub - mirrors X's "Notifications" settings screen:
 // a short blurb, then Filters and Preferences.
 
 import { createClient } from '@/lib/supabase/server'

@@ -2,7 +2,7 @@
 
 // src/app/(main)/wallet/topup/page.tsx
 import { useState, useTransition } from 'react'
-import Link from 'next/link'
+import BackButton from '@/components/ui/back-button'
 import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
 
@@ -45,9 +45,7 @@ export default function TopUpPage() {
         display: 'flex', alignItems: 'center', gap: 16,
         padding: '14px 20px',
       }}>
-        <Link href="/wallet" style={{ color: 'var(--color-text-primary)', display: 'flex' }}>
-          <ArrowLeft size={20} />
-        </Link>
+        <BackButton fallbackHref="/wallet" />
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
           Top up wallet
         </h1>
