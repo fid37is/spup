@@ -6,11 +6,11 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import BackButton from '@/components/ui/back-button'
 import Link from 'next/link'
 import { ArrowLeft, Users } from 'lucide-react'
 import { getSuggestedUsers, getSuggestedUsersByCategory, ACCOUNT_CATEGORIES } from '@/lib/queries/users'
 import { UserCard, type UserResult } from '@/components/explore/user-card'
-import BackButton from '@/components/ui/back-button'
 
 interface SP { category?: string }
 
@@ -50,8 +50,7 @@ export default async function WhoToFollowPage({ searchParams }: { searchParams: 
   const params   = await searchParams
   const category = params.category && ACCOUNT_CATEGORIES.includes(params.category) ? params.category : 'All'
 
-  // Must use the cookie-backed client — service role has no session, so
-  // admin.auth.getUser() always returns null and bounced "See all" to /login.
+  // Cookie session client — service role has no user session (was bouncing to /login).
   const supabase = await createClient()
   const { data: { user: authUser } } = await supabase.auth.getUser()
   if (!authUser) redirect('/login')
@@ -68,12 +67,18 @@ export default async function WhoToFollowPage({ searchParams }: { searchParams: 
     supabase.from('follows').select('follower_id').eq('following_id', viewer.id),
   ])
   const followingIds = (followingRows || []).map((r: any) => r.following_id as string)
+  const followingIdSet = new Set(followingIds)
   const followerIdSet = new Set((followerRows || []).map((r: any) => r.follower_id as string))
   const excludeIds = [viewer.id, ...followingIds]
 
-  const suggested: UserResult[] = category === 'All'
+  const rawSuggested: UserResult[] = category === 'All'
     ? await getSuggestedUsers(excludeIds, 30) as UserResult[]
     : await getSuggestedUsersByCategory(category, excludeIds, 30) as UserResult[]
+
+  // Never show accounts the viewer already follows (or admins / null usernames).
+  const suggested = rawSuggested.filter(
+    u => u.username && !followingIdSet.has(u.id),
+  )
 
   return (
     <div>
@@ -117,7 +122,7 @@ export default async function WhoToFollowPage({ searchParams }: { searchParams: 
             key={u.id}
             u={u}
             showFollow
-            initialFollowing={false}
+            initialFollowing={followingIdSet.has(u.id)}
             followsMe={followerIdSet.has(u.id)}
           />
         ))

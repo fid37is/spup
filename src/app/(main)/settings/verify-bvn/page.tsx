@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { verifyBvnAction } from '@/lib/actions/bvn-kyc'
 import { ArrowLeft, ShieldCheck, CheckCircle, Lock } from 'lucide-react'
 import Link from 'next/link'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const INP: React.CSSProperties = {
   width: '100%', background: '#131318', border: '1px solid #1E1E26',
@@ -17,6 +18,7 @@ const INP: React.CSSProperties = {
 type Stage = 'enter-bvn' | 'success'
 
 export default function VerifyBvnPage() {
+  const { t } = useTranslation()
   const router = useRouter()
   const [stage, setStage] = useState<Stage>('enter-bvn')
   const [bvn, setBvn]         = useState('')
@@ -29,7 +31,7 @@ export default function VerifyBvnPage() {
   }
 
   function handleSubmit() {
-    if (bvn.length !== 11) { setError('BVN must be exactly 11 digits.'); return }
+    if (bvn.length !== 11) { setError(t('wallet.bvn_must_be_11')); return }
     setError('')
     setPending(true)
     verifyBvnAction(bvn).then(r => {
@@ -43,7 +45,7 @@ export default function VerifyBvnPage() {
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '28px 20px', fontFamily: "'DM Sans', sans-serif" }}>
 
       <Link href="/wallet" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#6A6A60', textDecoration: 'none', marginBottom: 28 }}>
-        <ArrowLeft size={16} /> Back to wallet
+        <ArrowLeft size={16} /> {t('wallet.back_to_wallet')}
       </Link>
 
       {stage === 'success' ? (
@@ -52,16 +54,16 @@ export default function VerifyBvnPage() {
             <CheckCircle size={36} color="#1A9E5F" />
           </div>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 24, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 10 }}>
-            BVN verified!
+            {t('wallet.bvn_verified_title')}
           </h1>
           <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, marginBottom: 32 }}>
-            You can now withdraw large amounts too.
+            {t('wallet.bvn_verified_desc')}
           </p>
           <button
             onClick={() => router.push('/wallet')}
             style={{ background: '#1A9E5F', color: 'white', border: 'none', borderRadius: 10, padding: '13px 32px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
           >
-            Back to wallet
+            {t('wallet.back_to_wallet')}
           </button>
         </div>
       ) : (
@@ -72,10 +74,10 @@ export default function VerifyBvnPage() {
             </div>
             <div>
               <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#F0F0EC', letterSpacing: '-0.02em', marginBottom: 4 }}>
-                Verify your BVN
+                {t('wallet.verify_your_bvn_title')}
               </h1>
               <p style={{ fontSize: 14, color: '#6A6A60', lineHeight: 1.5 }}>
-                Only needed for large withdrawals, as required by the CBN. Most people never need to do this — you&apos;ll only be asked if a withdrawal crosses the threshold.
+                {t('wallet.bvn_only_needed_desc')}
               </p>
             </div>
           </div>
@@ -88,7 +90,7 @@ export default function VerifyBvnPage() {
 
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>
-              Bank Verification Number (BVN)
+              {t('wallet.bvn_label')}
             </label>
             <div style={{ position: 'relative' }}>
               <Lock size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#44444A', pointerEvents: 'none' }} />
@@ -104,7 +106,7 @@ export default function VerifyBvnPage() {
               />
             </div>
             <p style={{ fontSize: 12, color: '#44444A', marginTop: 6 }}>
-              Dial *565*0# on your registered line if you don&apos;t know your BVN. We never store your raw BVN — only a verification reference.
+              {t('wallet.bvn_dial_hint')}
             </p>
           </div>
 
@@ -119,7 +121,7 @@ export default function VerifyBvnPage() {
               transition: 'opacity 0.15s',
             }}
           >
-            {pending ? 'Verifying…' : 'Verify BVN'}
+            {pending ? t('wallet.verifying') : t('wallet.verify_bvn_cta')}
           </button>
         </div>
       )}

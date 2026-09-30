@@ -18,6 +18,7 @@ import { getOrCreateConversationAction } from '@/lib/actions/messages'
 import { useToast } from '@/components/layout/toast'
 import { useEngagement, setEngagement } from '@/lib/engagement-sync'
 import ReportDialog from '@/components/feed/report-dialog'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 interface ProfileActionBarProps {
   targetUserId: string
@@ -44,6 +45,7 @@ export default function ProfileActionBar({
   initialMuted, initialBlocked,
   moreSlotRef,
 }: ProfileActionBarProps) {
+  const { t } = useTranslation()
   const router = useRouter()
   const { success, error: toastError } = useToast()
   const [, startT] = useTransition()
@@ -90,7 +92,7 @@ export default function ProfileActionBar({
     startT(async () => {
       const r = await togglePostNotificationsAction(targetUserId)
       if ('error' in r) { setNotifs(!next); toastError((r as any).error); return }
-      success(r.enabled ? `You'll be notified of @${username}'s posts` : 'Post notifications off')
+      success(r.enabled ? t('profile.notified_of_posts', { username }) : t('profile.post_notifs_off'))
     })
   }
 
@@ -101,7 +103,7 @@ export default function ProfileActionBar({
     startT(async () => {
       const r = await toggleMuteAction(targetUserId)
       if ('error' in r) { setMuted(!next); toastError((r as any).error); return }
-      success(next ? `@${username} muted` : `@${username} unmuted`)
+      success(next ? t('profile.user_muted', { username }) : t('profile.user_unmuted', { username }))
     })
   }
 
@@ -114,24 +116,24 @@ export default function ProfileActionBar({
     startT(async () => {
       const r = await toggleBlockAction(targetUserId)
       if ('error' in r) { setBlocked(!next); toastError((r as any).error); return }
-      success(next ? `@${username} blocked` : `@${username} unblocked`)
+      success(next ? t('profile.user_blocked', { username }) : t('profile.user_unblocked', { username }))
     })
   }
 
   function handleCopyLink() {
     setShowMenu(false)
     navigator.clipboard.writeText(`${window.location.origin}/user/${username}`)
-    success('Profile link copied')
+    success(t('profile.link_copied'))
   }
 
   async function handleShare() {
     setShowMenu(false)
     const url = `${window.location.origin}/user/${username}`
     if (navigator.share) {
-      await navigator.share({ title: `@${username} on Spup`, url })
+      await navigator.share({ title: t('profile.share_title', { username }), url })
     } else {
       navigator.clipboard.writeText(url)
-      success('Profile link copied')
+      success(t('profile.link_copied'))
     }
   }
 
@@ -176,7 +178,7 @@ export default function ProfileActionBar({
       ref={triggerRef}
       onClick={() => (showMenu ? setShowMenu(false) : openMenu())}
       style={moreSlotRef ? FLOATING_BTN : BTN}
-      aria-label="More options"
+      aria-label={t('profile.more_options')}
       onMouseEnter={e => { if (!moreSlotRef) e.currentTarget.style.background = 'var(--color-surface-2)' }}
       onMouseLeave={e => { if (!moreSlotRef) e.currentTarget.style.background = 'none' }}
     >
@@ -213,38 +215,38 @@ export default function ProfileActionBar({
           <button onClick={handleBlock} style={{ ...MENU_BTN, color: 'var(--color-brand)' }}
             onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-            <Ban size={16} /> Unblock @{username}
+            <Ban size={16} /> {t('profile.unblock_user', { username })}
           </button>
         ) : (
           <>
             <button onClick={handleShare} style={MENU_BTN}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-              <Share2 size={16} /> Share @{username}
+              <Share2 size={16} /> {t('profile.share_user', { username })}
             </button>
             <button onClick={handleCopyLink} style={MENU_BTN}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-              <Link2 size={16} /> Copy link to profile
+              <Link2 size={16} /> {t('profile.copy_link_to_profile')}
             </button>
             <div style={{ height: 1, background: 'var(--color-border)', margin: '4px 0' }} />
             <button onClick={handleMute} style={{ ...MENU_BTN, color: muted ? 'var(--color-brand)' : 'var(--color-text-primary)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
               {muted ? <Volume2 size={16} /> : <VolumeX size={16} />}
-              {muted ? `Unmute @${username}` : `Mute @${username}`}
+              {muted ? t('profile.unmute_user', { username }) : t('profile.mute_user', { username })}
             </button>
             <div style={{ height: 1, background: 'var(--color-border)', margin: '4px 0' }} />
             <button onClick={handleBlock} style={{ ...MENU_BTN, color: 'var(--color-error)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-              <Ban size={16} /> Block @{username}
+              <Ban size={16} /> {t('profile.block_user', { username })}
             </button>
             <button onClick={() => { setShowMenu(false); setShowReport(true) }}
               style={{ ...MENU_BTN, color: 'var(--color-error)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-              <Flag size={16} /> Report @{username}
+              <Flag size={16} /> {t('profile.report_user', { username })}
             </button>
           </>
         )}
@@ -268,7 +270,7 @@ export default function ProfileActionBar({
       <>
         {moreButtonRendered}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Blocked</span>
+          <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{t('profile.blocked_label')}</span>
         </div>
       </>
     )
@@ -286,11 +288,11 @@ export default function ProfileActionBar({
               void (async () => {
                 const r = await getOrCreateConversationAction(targetUserId)
                 if ('conversationId' in r) router.push(`/messages/${r.conversationId}`)
-                else toastError('Could not open chat')
+                else toastError(t('profile.could_not_open_chat'))
               })()
             }}
             style={BTN}
-            title={`Message @${username}`}
+            title={t('profile.message_user', { username })}
             onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
           >
@@ -303,7 +305,7 @@ export default function ProfileActionBar({
           <button
             onClick={handleNotif}
             style={{ ...BTN, color: notifs ? 'var(--color-brand)' : 'var(--color-text-primary)', borderColor: notifs ? 'var(--color-brand)' : 'var(--color-border)' }}
-            title={notifs ? 'Turn off post notifications' : 'Turn on post notifications'}
+            title={notifs ? t('profile.turn_off_post_notifs') : t('profile.turn_on_post_notifs')}
             onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-2)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
           >
@@ -333,8 +335,8 @@ export default function ProfileActionBar({
           }}
         >
           {following
-            ? (hovering ? <><UserMinus size={15} /> Unfollow</> : <><UserCheck size={15} /> Following</>)
-            : <><UserPlus size={15} />{!following && followsMe ? 'Follow back' : 'Follow'}</>
+            ? (hovering ? <><UserMinus size={15} /> {t('profile.unfollow')}</> : <><UserCheck size={15} /> {t('feed.following')}</>)
+            : <><UserPlus size={15} />{!following && followsMe ? t('profile.follow_back') : t('profile.follow')}</>
           }
         </button>
       </div>

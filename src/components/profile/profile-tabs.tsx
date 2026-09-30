@@ -13,6 +13,7 @@ import { Loader, PenLine, MessageCircle, Image, Heart, Play, Lock } from 'lucide
 import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import { getProfileTabAction } from '@/lib/actions/feed'
 import type { FeedPost } from '@/lib/actions/feed'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 type Tab = 'posts' | 'replies' | 'media' | 'likes'
 
@@ -30,15 +31,16 @@ interface ProfileTabsProps {
   currentUserId?: string
 }
 
-const ALL_TABS: { key: Tab; label: string }[] = [
-  { key: 'posts',   label: 'Posts'   },
-  { key: 'replies', label: 'Replies' },
-  { key: 'media',   label: 'Media'   },
-  { key: 'likes',   label: 'Likes'   },
+const ALL_TABS: { key: Tab; labelKey: string }[] = [
+  { key: 'posts',   labelKey: 'profile.tab_posts'   },
+  { key: 'replies', labelKey: 'profile.tab_replies' },
+  { key: 'media',   labelKey: 'profile.tab_media'   },
+  { key: 'likes',   labelKey: 'profile.tab_likes'   },
 ]
 
 // ── Media grid item ───────────────────────────────────────────────────────────
 function MediaGridItem({ post }: { post: FeedPost }) {
+  const { t } = useTranslation()
   const router = useRouter()
   const media  = post.media?.[0]
   if (!media) return null
@@ -60,7 +62,7 @@ function MediaGridItem({ post }: { post: FeedPost }) {
         <>
           <img
             src={media.thumbnail_url || media.url}
-            alt="Video thumbnail"
+            alt={t('profile.video_thumbnail_alt')}
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           />
           <div style={{
@@ -80,7 +82,7 @@ function MediaGridItem({ post }: { post: FeedPost }) {
       ) : (
         <img
           src={media.url}
-          alt={post.body || 'Media'}
+          alt={post.body || t('profile.media_alt')}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         />
       )}
@@ -90,11 +92,12 @@ function MediaGridItem({ post }: { post: FeedPost }) {
 
 // ── Empty state — lucide icons only ──────────────────────────────────────────
 function Empty({ tab }: { tab: Tab }) {
+  const { t } = useTranslation()
   const config: Record<Tab, { icon: React.ReactNode; text: string }> = {
-    posts:   { icon: <PenLine size={28} color="var(--color-text-muted)" strokeWidth={1.5} />,    text: 'No posts yet'       },
-    replies: { icon: <MessageCircle size={28} color="var(--color-text-muted)" strokeWidth={1.5} />, text: 'No replies yet'     },
-    media:   { icon: <Image size={28} color="var(--color-text-muted)" strokeWidth={1.5} />,       text: 'No media posts yet' },
-    likes:   { icon: <Heart size={28} color="var(--color-text-muted)" strokeWidth={1.5} />,       text: 'No liked posts yet' },
+    posts:   { icon: <PenLine size={28} color="var(--color-text-muted)" strokeWidth={1.5} />,    text: t('profile.empty_posts')  },
+    replies: { icon: <MessageCircle size={28} color="var(--color-text-muted)" strokeWidth={1.5} />, text: t('profile.empty_replies') },
+    media:   { icon: <Image size={28} color="var(--color-text-muted)" strokeWidth={1.5} />,       text: t('profile.empty_media')  },
+    likes:   { icon: <Heart size={28} color="var(--color-text-muted)" strokeWidth={1.5} />,       text: t('profile.empty_likes')  },
   }
   const { icon, text } = config[tab]
   return (
@@ -115,6 +118,7 @@ function Empty({ tab }: { tab: Tab }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function ProfileTabs({ profileId, initialPosts, isOwner, canSeeContent, currentUserId }: ProfileTabsProps) {
+  const { t } = useTranslation()
   const [activeTab,   setActiveTab]   = useState<Tab>('posts')
   const [isPending,   startTransition] = useTransition()
   const [loadingMore, setLoadingMore]  = useState(false)
@@ -169,7 +173,7 @@ export default function ProfileTabs({ profileId, initialPosts, isOwner, canSeeCo
         WebkitOverflowScrolling: 'touch' as any,
         marginTop: 16,
       }}>
-        {visibleTabs.map(({ key, label }) => {
+        {visibleTabs.map(({ key, labelKey }) => {
           const active = activeTab === key
           return (
             <button
@@ -189,7 +193,7 @@ export default function ProfileTabs({ profileId, initialPosts, isOwner, canSeeCo
                 whiteSpace: 'nowrap',
               }}
             >
-              {label}
+              {t(labelKey)}
             </button>
           )
         })}
@@ -208,7 +212,7 @@ export default function ProfileTabs({ profileId, initialPosts, isOwner, canSeeCo
             <Lock size={24} color="var(--color-text-muted)" strokeWidth={1.5} />
           </div>
           <p style={{ fontSize: 15, color: 'var(--color-text-muted)', margin: 0 }}>
-            Follow this account to see their content.
+            {t('profile.follow_to_see_content')}
           </p>
         </div>
       )}
@@ -259,7 +263,7 @@ export default function ProfileTabs({ profileId, initialPosts, isOwner, canSeeCo
                 }}
               >
                 {loadingMore && <Loader size={14} style={{ animation: 'spin .7s linear infinite' }} />}
-                {loadingMore ? 'Loading…' : 'Load more'}
+                {loadingMore ? t('feed.new_posts_loading') : t('profile.load_more')}
               </button>
             </div>
           )}

@@ -15,8 +15,9 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import BackButton from '@/components/ui/back-button'
 import {
-  ArrowLeft, Send, X, Trash2, CornerUpLeft, Lock, ChevronDown, Loader2, RefreshCw, WifiOff,
+  Send, X, Trash2, CornerUpLeft, Lock, ChevronDown, Loader2, RefreshCw, WifiOff,
   ImagePlus, Play, AlertCircle,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -41,6 +42,7 @@ import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
 import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 import { compressImageForUpload } from '@/lib/media-client'
 import { validateMediaFile, mediaKindOf } from '@/lib/media-limits'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
 const MAX_TEXT = 4000            // characters per message (the server allows more for ciphertext overhead)
@@ -80,31 +82,32 @@ const isTouchPrimary = () => typeof window !== 'undefined' && window.matchMedia?
 export default function ChatClient({
   conversationId, initialMessages, initialHasMore, initialError, currentUserId, otherUser,
 }: ChatClientProps) {
+  const { t } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [messages,     setMessages]     = useState<Message[]>(() => arrange(initialMessages as Message[]))
-  const [texts,        setTexts]        = useState<Record<string, string>>({})   // message id -> plaintext
-  const [body,         setBody]         = useState('')
-  const [replyTo,      setReplyTo]      = useState<Message | null>(null)
-  const [selectedId,   setSelectedId]   = useState<string | null>(null)          // message whose action bar is open
-  const [hasMore,      setHasMore]      = useState(initialHasMore)
+  const [messages, setMessages] = useState<Message[]>(() => arrange(initialMessages as Message[]))
+  const [texts, setTexts] = useState<Record<string, string>>({})   // message id -> plaintext
+  const [body, setBody] = useState('')
+  const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)          // message whose action bar is open
+  const [hasMore, setHasMore] = useState(initialHasMore)
   const [loadingOlder, setLoadingOlder] = useState(false)
-  const [loaded,       setLoaded]       = useState(false)                        // first client sync finished
-  const [loadError,    setLoadError]    = useState<string | null>(initialError)
-  const [cryptoState,  setCryptoState]  = useState<CryptoState>('loading')
-  const [realtime,     setRealtime]     = useState<RealtimeState>('connecting')
-  const [online,       setOnline]       = useState(true)
-  const [unseen,       setUnseen]       = useState(0)
-  const [showJump,     setShowJump]     = useState(false)
+  const [loaded, setLoaded] = useState(false)                        // first client sync finished
+  const [loadError, setLoadError] = useState<string | null>(initialError)
+  const [cryptoState, setCryptoState] = useState<CryptoState>('loading')
+  const [realtime, setRealtime] = useState<RealtimeState>('connecting')
+  const [online, setOnline] = useState(true)
+  const [unseen, setUnseen] = useState(0)
+  const [showJump, setShowJump] = useState(false)
 
   // Attached photo/video, staged before sending (upload finishes first - keeps
   // the send/optimistic-echo flow simple, and means Retry never re-uploads).
-  const [attachment,     setAttachment]     = useState<UploadedChatMedia | null>(null)
+  const [attachment, setAttachment] = useState<UploadedChatMedia | null>(null)
   const [attachUploading, setAttachUploading] = useState(false)
   const [attachProgress, setAttachProgress] = useState(0)
-  const [attachError,    setAttachError]    = useState('')
-  const [lightbox,       setLightbox]       = useState<{ url: string; type: 'image' | 'video' } | null>(null)
+  const [attachError, setAttachError] = useState('')
+  const [lightbox, setLightbox] = useState<{ url: string; type: 'image' | 'video' } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const attachAbortRef = useRef<AbortController | null>(null)
 
@@ -119,24 +122,24 @@ export default function ChatClient({
   }, [])
 
   // ── Refs ───────────────────────────────────────────────────────────────────
-  const listRef      = useRef<HTMLDivElement>(null)
-  const contentRef   = useRef<HTMLDivElement>(null)
-  const inputRef     = useRef<HTMLTextAreaElement>(null)
-  const sbRef        = useRef<ReturnType<typeof createBrowserClient> | null>(null)
-  const messagesRef  = useRef<Message[]>(messages)
-  const stickRef     = useRef(true)                       // is the view pinned to the latest message?
-  const prevLenRef   = useRef(0)
-  const restoreRef   = useRef<{ h: number; top: number } | null>(null)   // keep scroll position when older pages are prepended
-  const syncingRef   = useRef(false)
-  const ackTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const sbRef = useRef<ReturnType<typeof createBrowserClient> | null>(null)
+  const messagesRef = useRef<Message[]>(messages)
+  const stickRef = useRef(true)                       // is the view pinned to the latest message?
+  const prevLenRef = useRef(0)
+  const restoreRef = useRef<{ h: number; top: number } | null>(null)   // keep scroll position when older pages are prepended
+  const syncingRef = useRef(false)
+  const ackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sendChainRef = useRef<Promise<void>>(Promise.resolve())
-  const outboxRef    = useRef(new Map<string, { text: string; replyId: string | null; wire: string | null; media: ChatMediaInput | null }>())
+  const outboxRef = useRef(new Map<string, { text: string; replyId: string | null; wire: string | null; media: ChatMediaInput | null }>())
 
   // Encryption
   const privateKeyRef = useRef<CryptoKey | null>(null)
-  const sharedKeyRef  = useRef<CryptoKey | null>(null)
-  const peerPubRef    = useRef<string | null>(null)
-  const peerCheckRef  = useRef(0)
+  const sharedKeyRef = useRef<CryptoKey | null>(null)
+  const peerPubRef = useRef<string | null>(null)
+  const peerCheckRef = useRef(0)
   const [sharedKey, setSharedKey] = useState<CryptoKey | null>(null)
   // Resolves once we know whether we can encrypt (ready / peer has no key / unavailable).
   const settledRef = useRef<{ promise: Promise<void>; resolve: () => void } | null>(null)
@@ -150,8 +153,8 @@ export default function ChatClient({
   const getSb = () => (sbRef.current ??= createBrowserClient())
 
   const otherInitials = otherUser.display_name?.slice(0, 2).toUpperCase() ?? '??'
-  const otherColor    = AVATAR_COLORS[(otherUser.username?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]
-  const canSend       = !!otherUser.id
+  const otherColor = AVATAR_COLORS[(otherUser.username?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]
+  const canSend = !!otherUser.id
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -164,7 +167,7 @@ export default function ChatClient({
   }
 
   function placeholder(): string {
-    return cryptoState === 'loading' ? '…' : 'Encrypted message'
+    return cryptoState === 'loading' ? '…' : t('chat.encrypted_message')
   }
 
   const nameOf = (senderId: string) => (senderId === currentUserId ? 'You' : otherUser.display_name)
@@ -226,37 +229,37 @@ export default function ChatClient({
 
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      try {
-        const { publicKeyB64, privateKey } = await recoverOrCreateKeyPair({
-          userId: currentUserId,
-          fetchPublicKey: async () => (await getPublicKeyAction(currentUserId)).publicKey,
-          fetchWrapped: async () => (await getWrappedKeyAction()).wrapped ?? null,
-          uploadWrapped: async (wrapped, salt, iv) => { await uploadWrappedKeyAction(wrapped, salt, iv) },
-          getPassword,
-        })
-        if (cancelled) return
-        privateKeyRef.current = privateKey
-        await uploadPublicKeyAction(publicKeyB64)
-        const ok = await connectPeer()
-        if (!cancelled && !ok) setCryptoState('no-peer-key')
-      } catch (e) {
-        if (cancelled) return
-        if (e instanceof WrongPasswordError) {
-          // The cached PIN+pepper didn't unlock the saved key - a data
-          // inconsistency, not a user mistake (PinGate already verified the
-          // PIN server-side before this ever runs).
-          console.warn('Chat key recovery: PIN did not unlock the saved key', e)
-        } else {
-          console.warn('Crypto init failed - messages will be unencrypted', e)
+      ; (async () => {
+        try {
+          const { publicKeyB64, privateKey } = await recoverOrCreateKeyPair({
+            userId: currentUserId,
+            fetchPublicKey: async () => (await getPublicKeyAction(currentUserId)).publicKey,
+            fetchWrapped: async () => (await getWrappedKeyAction()).wrapped ?? null,
+            uploadWrapped: async (wrapped, salt, iv) => { await uploadWrappedKeyAction(wrapped, salt, iv) },
+            getPassword,
+          })
+          if (cancelled) return
+          privateKeyRef.current = privateKey
+          await uploadPublicKeyAction(publicKeyB64)
+          const ok = await connectPeer()
+          if (!cancelled && !ok) setCryptoState('no-peer-key')
+        } catch (e) {
+          if (cancelled) return
+          if (e instanceof WrongPasswordError) {
+            // The cached PIN+pepper didn't unlock the saved key - a data
+            // inconsistency, not a user mistake (PinGate already verified the
+            // PIN server-side before this ever runs).
+            console.warn('Chat key recovery: PIN did not unlock the saved key', e)
+          } else {
+            console.warn('Crypto init failed - messages will be unencrypted', e)
+          }
+          setCryptoState('unavailable')
+        } finally {
+          // Only the run that is still current may settle, otherwise React
+          // StrictMode's first (cancelled) run would release queued sends early.
+          if (!cancelled) settledRef.current?.resolve()
         }
-        setCryptoState('unavailable')
-      } finally {
-        // Only the run that is still current may settle, otherwise React
-        // StrictMode's first (cancelled) run would release queued sends early.
-        if (!cancelled) settledRef.current?.resolve()
-      }
-    })()
+      })()
     return () => { cancelled = true }
   }, [currentUserId, getPassword, connectPeer])
 
@@ -273,16 +276,16 @@ export default function ChatClient({
     }
     if (todo.length === 0) return
     let cancelled = false
-    ;(async () => {
-      const done = await Promise.all(todo.map(async x => [x.id, await decryptMessage(x.body, sharedKey)] as const))
-      if (cancelled) return
-      setTexts(prev => {
-        const next = { ...prev }
-        for (const [id, text] of done) if (next[id] === undefined) next[id] = text
-        return next
-      })
-      if (done.some(([, t]) => t === UNDECRYPTABLE)) void recheckPeerKey()
-    })()
+      ; (async () => {
+        const done = await Promise.all(todo.map(async x => [x.id, await decryptMessage(x.body, sharedKey)] as const))
+        if (cancelled) return
+        setTexts(prev => {
+          const next = { ...prev }
+          for (const [id, text] of done) if (next[id] === undefined) next[id] = text
+          return next
+        })
+        if (done.some(([, t]) => t === UNDECRYPTABLE)) void recheckPeerKey()
+      })()
     return () => { cancelled = true }
   }, [messages, sharedKey, texts, recheckPeerKey])
 
@@ -331,7 +334,7 @@ export default function ChatClient({
       if (!sharedKeyRef.current) void recheckPeerKey()
     } catch (e) {
       console.error('[chat] sync threw:', e)
-      if (!opts.silent || messagesRef.current.length === 0) setLoadError('Could not reach the server')
+      if (!opts.silent || messagesRef.current.length === 0) setLoadError(t('chat.could_not_reach_server'))
     } finally {
       syncingRef.current = false
       setLoaded(true)
@@ -428,7 +431,7 @@ export default function ChatClient({
       latest.current.scheduleAck()
       retryFailedSends()
     }
-    const onOnline  = () => { setOnline(true); wake() }
+    const onOnline = () => { setOnline(true); wake() }
     const onOffline = () => setOnline(false)
     const poll = setInterval(() => { if (navigator.onLine) wake() }, POLL_MS)
     document.addEventListener('visibilitychange', wake)
@@ -498,13 +501,13 @@ export default function ChatClient({
     setLoadingOlder(true)
     try {
       const res = await loadMessagesAction(conversationId, oldest.created_at)
-      if (res.error) { toastError("Couldn't load earlier messages. Try again."); return }
+      if (res.error) { toastError(t('chat.could_not_load_earlier')); return }
       const el = listRef.current
       if (el && res.messages.length > 0) restoreRef.current = { h: el.scrollHeight, top: el.scrollTop }
       setMessages(prev => mergeFetched(prev, res.messages as Message[]))
       setHasMore(res.hasMore)
     } catch {
-      toastError("Couldn't load earlier messages. Try again.")
+      toastError(t('chat.could_not_load_earlier'))
     } finally {
       setLoadingOlder(false)
     }
@@ -535,7 +538,7 @@ export default function ChatClient({
         setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, body: wire } : m)))
       }
       const res = await sendMessageAction(conversationId, item.wire ?? '', item.replyId ?? undefined, item.media ?? undefined)
-      if (!('success' in res) || !res.success) throw new Error(('error' in res && res.error) || 'Send failed')
+      if (!('success' in res) || !res.success) throw new Error(('error' in res && res.error) || t('chat.send_failed'))
       outboxRef.current.delete(tempId)
       if (item.text) setTexts(t => ({ ...t, [res.messageId]: item.text }))
       setMessages(prev => confirmOptimistic(prev, tempId, { id: res.messageId, created_at: res.createdAt }))
@@ -547,7 +550,7 @@ export default function ChatClient({
   }, [conversationId, connectPeer])
 
   const enqueue = useCallback((tempId: string) => {
-    sendChainRef.current = sendChainRef.current.then(() => deliver(tempId)).catch(() => {})
+    sendChainRef.current = sendChainRef.current.then(() => deliver(tempId)).catch(() => { })
   }, [deliver])
 
   // ── Attachments ────────────────────────────────────────────────────────────
@@ -565,7 +568,7 @@ export default function ChatClient({
     const kind = mediaKindOf(file)
     const validationError = validateMediaFile(file)
     if (!kind || validationError) {
-      setAttachError(validationError || "That file type isn't supported.")
+      setAttachError(validationError || t('chat.file_type_not_supported'))
       return
     }
 
@@ -592,7 +595,7 @@ export default function ChatClient({
     } catch (err) {
       URL.revokeObjectURL(localPreview)
       if (!(err instanceof UploadCancelledError)) {
-        setAttachError(err instanceof Error && err.message ? err.message : 'Upload failed. Check your connection.')
+        setAttachError(err instanceof Error && err.message ? err.message : t('profile.upload_failed_connection'))
       }
     } finally {
       setAttachUploading(false)
@@ -674,14 +677,14 @@ export default function ChatClient({
     const res = await deleteMessageAction(id).catch(() => ({ error: 'network' }))
     if (res && 'error' in res && res.error) {
       setMessages(prev => prev.map(m => (m.id === id ? snapshot : m)))
-      toastError("Couldn't delete that message. Try again.")
+      toastError(t('chat.could_not_delete'))
     }
   }
 
   async function handleCopy(m: Message) {
-    const t = textOf(m)
-    if (!t) return
-    try { await navigator.clipboard.writeText(t); toastSuccess('Copied') } catch { toastError("Couldn't copy") }
+    const plaintext = textOf(m)
+    if (!plaintext) return
+    try { await navigator.clipboard.writeText(plaintext); toastSuccess(t('chat.copied')) } catch { toastError(t('chat.could_not_copy')) }
     setSelectedId(null)
   }
 
@@ -707,7 +710,7 @@ export default function ChatClient({
     : realtime === 'down' && loaded
       ? { text: 'Reconnecting…', lock: false }
       : cryptoState === 'ready'
-        ? { text: 'End-to-end encrypted', lock: true }
+        ? { text: t('chat.end_to_end_encrypted'), lock: true }
         : { text: '', lock: false }
 
   const pillBtn: React.CSSProperties = {
@@ -728,9 +731,7 @@ export default function ChatClient({
         padding: '12px 16px', paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))',
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
-        <Link href="/messages" aria-label="Back to chats" style={{ color: 'var(--color-text-primary)', display: 'flex', flexShrink: 0, padding: 4, margin: -4 }}>
-          <ArrowLeft size={20} />
-        </Link>
+        <BackButton fallbackHref="/messages" />
         <Link href={otherUser.id ? `/user/${otherUser.username}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', flex: 1, minWidth: 0 }}>
           <div style={{
             width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
@@ -773,7 +774,7 @@ export default function ChatClient({
               <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 8px' }}>
                 <button onClick={e => { e.stopPropagation(); void loadOlder() }} disabled={loadingOlder} style={pillBtn}>
                   {loadingOlder ? <Loader2 size={13} style={{ animation: 'chat-spin 0.8s linear infinite' }} /> : null}
-                  {loadingOlder ? 'Loading…' : 'Load earlier messages'}
+                  {loadingOlder ? t('feed.new_posts_loading') : t('chat.load_earlier')}
                 </button>
               </div>
             )}
@@ -838,10 +839,10 @@ export default function ChatClient({
 
               const replyText = msg.reply_to
                 ? (msg.reply_to.is_deleted || (msg.reply_to.body === null && !msg.reply_to.media_type)
-                    ? 'Message deleted'
-                    : msg.reply_to.body === null && msg.reply_to.media_type
-                      ? (msg.reply_to.media_type === 'video' ? 'Video' : 'Photo')
-                      : (textOf(msg.reply_to) ?? placeholder()))
+                  ? t('chat.message_deleted')
+                  : msg.reply_to.body === null && msg.reply_to.media_type
+                    ? (msg.reply_to.media_type === 'video' ? t('notif.video') : t('notif.photo'))
+                    : (textOf(msg.reply_to) ?? placeholder()))
                 : null
 
               return (
@@ -876,7 +877,7 @@ export default function ChatClient({
                     <div
                       role={canAct ? 'button' : undefined}
                       tabIndex={canAct ? 0 : undefined}
-                      aria-label={canAct ? 'Message options' : undefined}
+                      aria-label={canAct ? t('chat.message_options') : undefined}
                       onClick={e => { e.stopPropagation(); if (canAct) setSelectedId(selected ? null : msg.id) }}
                       onKeyDown={e => { if (canAct && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelectedId(selected ? null : msg.id) } }}
                       style={{
@@ -933,7 +934,7 @@ export default function ChatClient({
                           {msg.media_type === 'video' ? (
                             <>
                               {msg.media_thumbnail_url
-                                ? <img src={msg.media_thumbnail_url} alt="Video attachment" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                ? <img src={msg.media_thumbnail_url} alt={t('chat.video_attachment_alt')} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                 : <video src={msg.media_url ?? undefined} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted />
                               }
                               <div style={{
@@ -948,15 +949,15 @@ export default function ChatClient({
                               </div>
                             </>
                           ) : (
-                            <img src={msg.media_url ?? undefined} alt="Photo attachment" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            <img src={msg.media_url ?? undefined} alt={t('chat.photo_attachment_alt')} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                           )}
                         </div>
                       )}
 
                       {msg.is_deleted
-                        ? <em style={{ opacity: 0.6, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Message deleted</em>
+                        ? <em style={{ opacity: 0.6, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> {t('chat.message_deleted')}</em>
                         : failedDecrypt
-                          ? <em style={{ opacity: 0.7, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Can&apos;t open this message on this device</em>
+                          ? <em style={{ opacity: 0.7, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> {t('chat.cant_open_on_device')}</em>
                           : hasMedia
                             ? (hasCaption ? <span style={{ padding: '0 7px 3px' }}>{text}</span> : null)
                             : text === undefined
@@ -971,7 +972,7 @@ export default function ChatClient({
                           <CornerUpLeft size={12} /> Reply
                         </button>
                         {!!textOf(msg) && !failedDecrypt && (
-                          <button style={pillBtn} onClick={e => { e.stopPropagation(); void handleCopy(msg) }}>Copy</button>
+                          <button style={pillBtn} onClick={e => { e.stopPropagation(); void handleCopy(msg) }}>{t('chat.copy')}</button>
                         )}
                         {isMine && (
                           <button style={{ ...pillBtn, color: 'var(--color-error)' }} onClick={e => { e.stopPropagation(); void handleDelete(msg.id) }}>
@@ -1006,7 +1007,7 @@ export default function ChatClient({
         {/* Jump to latest */}
         {showJump && (
           <button
-            aria-label={unseen > 0 ? `Jump to latest, ${unseen} new` : 'Jump to latest'}
+            aria-label={unseen > 0 ? t('chat.jump_to_latest_new', { count: unseen }) : t('chat.jump_to_latest')}
             onClick={() => { scrollToBottom('smooth'); setUnseen(0) }}
             style={{
               position: 'absolute', right: 14, bottom: 12, height: 38, minWidth: 38, padding: unseen > 0 ? '0 12px' : 0,
@@ -1034,7 +1035,7 @@ export default function ChatClient({
             </div>
             <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {replyTo.body === null && replyTo.media_type
-                ? (replyTo.media_type === 'video' ? 'Video' : 'Photo')
+                ? (replyTo.media_type === 'video' ? t('notif.video') : t('notif.photo'))
                 : (textOf(replyTo) ?? placeholder())}
             </div>
           </div>
@@ -1074,8 +1075,8 @@ export default function ChatClient({
               {attachment && (
                 attachment.type === 'video'
                   ? (attachment.thumbnail_url
-                      ? <img src={attachment.thumbnail_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : <video src={attachment.localPreview} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted />)
+                    ? <img src={attachment.thumbnail_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : <video src={attachment.localPreview} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted />)
                   : <img src={attachment.localPreview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               )}
               {attachUploading && (
@@ -1092,12 +1093,12 @@ export default function ChatClient({
               </div>
             ) : (
               <div style={{ fontSize: 12.5, color: 'var(--color-text-secondary)' }}>
-                {attachUploading ? `Uploading… ${attachProgress}%` : attachment?.type === 'video' ? 'Video attached' : 'Photo attached'}
+                {attachUploading ? t('chat.uploading_percent', { percent: attachProgress }) : attachment?.type === 'video' ? t('chat.video_attached') : t('chat.photo_attached')}
               </div>
             )}
           </div>
           <button
-            aria-label={attachUploading ? 'Cancel upload' : 'Remove attachment'}
+            aria-label={attachUploading ? t('chat.cancel_upload') : t('chat.remove_attachment')}
             onClick={attachUploading ? cancelAttachUpload : removeAttachment}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', flexShrink: 0, padding: 4 }}
           >
@@ -1124,7 +1125,7 @@ export default function ChatClient({
             onChange={handleFileSelected}
           />
           <button
-            aria-label="Attach photo or video"
+            aria-label={t('chat.attach_photo_video')}
             onClick={openFilePicker}
             disabled={attachUploading || !!attachment}
             style={{
@@ -1149,7 +1150,7 @@ export default function ChatClient({
             }}
             onKeyDown={handleKeyDown}
             placeholder="Message…"
-            aria-label="Message"
+            aria-label={t('chat.message_input_aria')}
             enterKeyHint="send"
             rows={1}
             style={{
@@ -1168,7 +1169,7 @@ export default function ChatClient({
             }}
           />
           <button
-            aria-label="Send message"
+            aria-label={t('chat.send_message')}
             onMouseDown={e => e.preventDefault()}   // keep the keyboard open on the phone
             onClick={handleSend}
             disabled={(!body.trim() && !attachment) || attachUploading}
@@ -1194,7 +1195,7 @@ export default function ChatClient({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={lightbox.type === 'video' ? 'Video' : 'Photo'}
+          aria-label={lightbox.type === 'video' ? t('notif.video') : t('notif.photo')}
           onClick={() => setLightbox(null)}
           style={{
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1000,
@@ -1203,7 +1204,7 @@ export default function ChatClient({
           }}
         >
           <button
-            aria-label="Close"
+            aria-label={t('chat.close')}
             onClick={() => setLightbox(null)}
             style={{
               position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 0px))', right: 16,

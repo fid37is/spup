@@ -14,6 +14,7 @@ import {
   getCachedPeerPublicKey, setCachedPeerPublicKey,
 } from '@/lib/chat-crypto'
 import Link from 'next/link'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const AVATAR_COLORS = ['#1A9E5F','#7A3A1A','#1A4A7A','#4A1A7A','#7A6A1A']
 
@@ -31,6 +32,7 @@ interface Props {
 }
 
 export default function MessagesListClient({ initialConversations, currentUserId }: Props) {
+  const { t } = useTranslation()
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations)
   const supabase = useRef<ReturnType<typeof createBrowserClient> | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -181,10 +183,10 @@ export default function MessagesListClient({ initialConversations, currentUserId
         const preview  = isEncrypted(conv.last_message_preview) && decrypted[conv.last_message_preview!] !== undefined
           ? decrypted[conv.last_message_preview!]
           : isEncrypted(conv.last_message_preview) || conv.last_message_preview === '[Encrypted message]'
-            ? 'Message' // isEncrypted: new rows we can't decrypt (yet); the literal string: rows written before this fix
+            ? t('chat.message_label') // isEncrypted: new rows we can't decrypt (yet); the literal string: rows written before this fix
             : conv.last_message_preview === 'Message deleted'
-              ? 'Message deleted'
-              : (conv.last_message_preview ?? 'No messages yet')
+              ? t('chat.message_deleted')
+              : (conv.last_message_preview ?? t('chat.no_messages_yet'))
 
         return (
           <Link key={conv.id} href={`/messages/${conv.id}`} style={{ textDecoration: 'none', display: 'block' }}>

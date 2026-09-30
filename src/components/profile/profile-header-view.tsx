@@ -8,6 +8,7 @@ import {
   ChevronDown, Shield, Phone, Briefcase,
 } from 'lucide-react'
 import VerifiedBadge from '@/components/ui/verified-badge'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 interface ViewProps {
   profile: {
@@ -42,6 +43,7 @@ const ROW: React.CSSProperties = {
 export default function ProfileHeaderView({
   profile, stats, isOwner, showBirthday,
 }: ViewProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 
   const joinDate = new Date(profile.created_at).toLocaleDateString('en-NG', {
@@ -109,11 +111,11 @@ export default function ProfileHeaderView({
         {(isOwner || showBirthday) && profile.date_of_birth && (
           <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, color: 'var(--color-text-muted)' }}>
             <Cake size={14} strokeWidth={1.8} />
-            Born {new Date(profile.date_of_birth).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}
+            {t('profile.born', { date: new Date(profile.date_of_birth).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' }) })}
           </span>
         )}
         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, color: 'var(--color-text-muted)' }}>
-          <Calendar size={14} strokeWidth={1.8} />Joined {joinDate}
+          <Calendar size={14} strokeWidth={1.8} />{t('profile.joined', { date: joinDate })}
         </span>
         <button
           onClick={() => setExpanded(v => !v)}
@@ -141,11 +143,11 @@ export default function ProfileHeaderView({
           )}
           <div style={{ ...ROW, color: profile.phone_verified ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
             <Phone size={15} strokeWidth={1.8} color={profile.phone_verified ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
-            <span>{profile.phone_verified ? 'Phone verified' : 'Phone not verified'}</span>
+            <span>{profile.phone_verified ? t('profile.phone_verified') : t('profile.phone_not_verified')}</span>
           </div>
           <div style={{ ...ROW, color: profile.nin_verified ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
             <Shield size={15} strokeWidth={1.8} color={profile.nin_verified ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
-            <span>{profile.nin_verified ? 'NIN verified' : 'NIN not verified — required before withdrawal'}</span>
+            <span>{profile.nin_verified ? t('profile.nin_verified') : t('profile.nin_not_verified')}</span>
           </div>
         </div>
       )}
@@ -153,9 +155,9 @@ export default function ProfileHeaderView({
       {/* Stats row */}
       <div style={{ display: 'flex', gap: 20, margin: '12px 0 4px' }}>
         {[
-          { value: stats.following, label: 'Following', tab: 'following' },
-          { value: stats.followers, label: 'Followers',  tab: 'followers' },
-          { value: stats.mutuals,  label: 'Mutuals',    tab: 'mutuals'   },
+          { value: stats.following, label: t('feed.following'), tab: 'following' },
+          { value: stats.followers, label: t('profile.followers_label'),  tab: 'followers' },
+          { value: stats.mutuals,  label: t('feed.mutuals'),    tab: 'mutuals'   },
         ].map(({ value, label, tab }) => (
           <Link
             key={tab}

@@ -6,8 +6,9 @@ import { useState, useTransition } from 'react'
 import { getOrCreateConversationAction } from '@/lib/actions/messages'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Search, Loader2, UserPlus } from 'lucide-react'
-import BackButton from '@/components/ui/back-button'
+import Link from 'next/link'
 import VerifiedBadge from '@/components/ui/verified-badge'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
 
@@ -20,6 +21,7 @@ interface FollowUser {
 }
 
 export default function NewChatClient({ following }: { following: FollowUser[] }) {
+  const { t } = useTranslation()
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -50,9 +52,11 @@ export default function NewChatClient({ following }: { following: FollowUser[] }
         padding: '14px 20px',
         display: 'flex', alignItems: 'center', gap: 14,
       }}>
-        <BackButton fallbackHref="/messages" />
+        <Link href="/messages" style={{ color: 'var(--color-text-primary)', display: 'flex', flexShrink: 0 }}>
+          <ArrowLeft size={20} />
+        </Link>
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 18, color: 'var(--color-text-primary)', margin: 0 }}>
-          New Chat
+          {t('chat.new_chat_title')}
         </h1>
       </div>
 
@@ -66,7 +70,7 @@ export default function NewChatClient({ following }: { following: FollowUser[] }
           }} />
           <input
             type="search"
-            placeholder="Search people you follow…"
+            placeholder={t('chat.search_people_placeholder')}
             value={query}
             onChange={e => setQuery(e.target.value)}
             autoFocus
@@ -93,10 +97,10 @@ export default function NewChatClient({ following }: { following: FollowUser[] }
             <UserPlus size={24} color="var(--color-text-secondary)" />
           </div>
           <h3 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)', marginBottom: 8 }}>
-            Follow people first
+            {t('chat.follow_people_first')}
           </h3>
           <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-            You can only chat with people you follow. Start following some creators to message them.
+            {t('chat.only_chat_with_following')}
           </p>
         </div>
       )}
@@ -105,7 +109,7 @@ export default function NewChatClient({ following }: { following: FollowUser[] }
       {following.length > 0 && filtered.length === 0 && (
         <div style={{ padding: '40px 20px', textAlign: 'center' }}>
           <p style={{ fontSize: 14, color: 'var(--color-text-secondary)' }}>
-            No one found matching &ldquo;{query}&rdquo;
+            {t('chat.no_one_found_matching', { query })}
           </p>
         </div>
       )}

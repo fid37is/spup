@@ -6,6 +6,7 @@ import { Send, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { transferAction } from '@/lib/actions/wallet-transfer'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 type Step = 'form' | 'confirm' | 'success' | 'error'
 
@@ -21,6 +22,7 @@ interface SendButtonProps {
 }
 
 export default function SendButton({ balance }: SendButtonProps) {
+  const { t } = useTranslation()
   const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
@@ -122,7 +124,7 @@ export default function SendButton({ balance }: SendButtonProps) {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px 16px' }}>
           <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
-            {step === 'confirm' ? 'Confirm transfer' : step === 'success' ? 'Money sent' : step === 'error' ? 'Transfer failed' : 'Send money'}
+            {step === 'confirm' ? t('wallet.send_confirm_transfer') : step === 'success' ? t('wallet.send_money_sent') : step === 'error' ? t('wallet.send_transfer_failed') : t('wallet.send_money_title')}
           </h2>
           <button onClick={handleClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}>
             <X size={20} />
@@ -138,13 +140,13 @@ export default function SendButton({ balance }: SendButtonProps) {
                 <CheckCircle size={32} color="var(--color-brand)" />
               </div>
               <p style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--color-text-primary)', marginBottom: 8 }}>
-                {formatNaira(amountKobo)} sent
+                {t('wallet.amount_sent', { amount: formatNaira(amountKobo) })}
               </p>
               <p style={{ fontSize: 14, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
-                @{recipient?.username} received it instantly in their wallet.
+                {t('wallet.received_instantly', { username: recipient?.username || '' })}
               </p>
               <button onClick={handleClose} style={{ marginTop: 28, width: '100%', padding: '14px', background: 'var(--color-brand)', color: 'white', border: 'none', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
-                Done
+                {t('wallet.done')}
               </button>
             </div>
           )}
@@ -155,10 +157,10 @@ export default function SendButton({ balance }: SendButtonProps) {
               <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--color-surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
                 <AlertCircle size={32} color="var(--color-error)" />
               </div>
-              <p style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)', marginBottom: 8 }}>Something went wrong</p>
+              <p style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)', marginBottom: 8 }}>{t('wallet.something_went_wrong')}</p>
               <p style={{ fontSize: 14, color: 'var(--color-text-muted)', marginBottom: 28 }}>{error}</p>
               <button onClick={() => setStep('form')} style={{ width: '100%', padding: '14px', background: 'var(--color-surface-2)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
-                Try again
+                {t('wallet.try_again')}
               </button>
             </div>
           )}
@@ -167,21 +169,21 @@ export default function SendButton({ balance }: SendButtonProps) {
           {step === 'confirm' && recipient && (
             <div>
               <div style={{ background: 'var(--color-surface-2)', borderRadius: 14, overflow: 'hidden', marginBottom: 20 }}>
-                <Row label="Amount" value={formatNaira(amountKobo)} strong />
-                <Row label="To" value={`@${recipient.username}`} />
-                <Row label="Name" value={recipient.display_name} last={!note.trim()} />
-                {note.trim() && <Row label="Note" value={note.trim()} last />}
+                <Row label={t('wallet.row_amount')} value={formatNaira(amountKobo)} strong />
+                <Row label={t('wallet.row_to')} value={`@${recipient.username}`} />
+                <Row label={t('wallet.row_name')} value={recipient.display_name} last={!note.trim()} />
+                {note.trim() && <Row label={t('wallet.row_note')} value={note.trim()} last />}
               </div>
               <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20, lineHeight: 1.6 }}>
-                By confirming, {formatNaira(amountKobo)} moves from your wallet to @{recipient.username}&rsquo;s wallet immediately. This cannot be reversed.
+                {t('wallet.confirm_transfer_desc', { amount: formatNaira(amountKobo), username: recipient.username })}
               </p>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => setStep('form')} style={{ flex: 1, padding: '14px', background: 'none', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>
-                  Back
+                  {t('wallet.back')}
                 </button>
                 <button onClick={handleSend} disabled={isPending} style={{ flex: 2, padding: '14px', background: 'var(--color-brand)', color: 'white', border: 'none', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: isPending ? 'not-allowed' : 'pointer', opacity: isPending ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                   {isPending && <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />}
-                  {isPending ? 'Sending…' : 'Confirm & send'}
+                  {isPending ? t('wallet.sending') : t('wallet.confirm_and_send')}
                 </button>
               </div>
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -193,18 +195,18 @@ export default function SendButton({ balance }: SendButtonProps) {
             <div>
               {/* Recipient */}
               <div style={{ marginBottom: 20 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>To</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>{t('wallet.row_to')}</label>
                 <input
                   value={username}
                   onChange={e => setUsername(e.target.value)}
-                  placeholder="@username"
+                  placeholder={t('wallet.username_placeholder')}
                   style={{ width: '100%', padding: '13px 14px', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', borderRadius: 12, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'DM Sans', sans-serif", outline: 'none', boxSizing: 'border-box' }}
                 />
                 <div style={{ marginTop: 10, minHeight: 44 }}>
                   {resolving && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'var(--color-surface-2)', borderRadius: 12, border: '1px solid var(--color-border)' }}>
                       <Loader2 size={14} color="var(--color-text-muted)" style={{ animation: 'spin 0.8s linear infinite' }} />
-                      <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>Looking up user…</span>
+                      <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>{t('wallet.looking_up_user')}</span>
                       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                     </div>
                   )}
@@ -222,7 +224,7 @@ export default function SendButton({ balance }: SendButtonProps) {
                   {!resolving && !recipient && username.trim().replace(/^@/, '').length >= 2 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'var(--color-surface-2)', borderRadius: 12, border: '1px solid var(--color-border)' }}>
                       <AlertCircle size={15} color="var(--color-error)" />
-                      <span style={{ fontSize: 14, color: 'var(--color-error)' }}>User not found</span>
+                      <span style={{ fontSize: 14, color: 'var(--color-error)' }}>{t('wallet.user_not_found')}</span>
                     </div>
                   )}
                 </div>
@@ -230,7 +232,7 @@ export default function SendButton({ balance }: SendButtonProps) {
 
               {/* Amount */}
               <div style={{ marginBottom: 20 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>Amount</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>{t('wallet.row_amount')}</label>
                 <div style={{ position: 'relative' }}>
                   <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--color-text-muted)', fontFamily: "'Syne', sans-serif", fontWeight: 700 }}>₦</span>
                   <input
@@ -244,18 +246,18 @@ export default function SendButton({ balance }: SendButtonProps) {
                   />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Min ₦50 · Balance {formatNaira(balance)}</span>
-                  <button onClick={() => setAmountKobo(balance)} style={{ fontSize: 12, color: 'var(--color-brand)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>Send all</button>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('wallet.min_balance', { min: '₦50', balance: formatNaira(balance) })}</span>
+                  <button onClick={() => setAmountKobo(balance)} style={{ fontSize: 12, color: 'var(--color-brand)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>{t('wallet.send_all')}</button>
                 </div>
               </div>
 
               {/* Note */}
               <div style={{ marginBottom: 24 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>Note (optional)</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 8 }}>{t('wallet.note_optional')}</label>
                 <input
                   value={note}
                   onChange={e => setNote(e.target.value.slice(0, 200))}
-                  placeholder="What's this for?"
+                  placeholder={t('wallet.note_placeholder')}
                   style={{ width: '100%', padding: '13px 14px', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', borderRadius: 12, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'DM Sans', sans-serif", outline: 'none', boxSizing: 'border-box' }}
                 />
               </div>
@@ -265,7 +267,7 @@ export default function SendButton({ balance }: SendButtonProps) {
                 disabled={!canProceed}
                 style={{ width: '100%', padding: '14px', background: canProceed ? 'var(--color-brand)' : 'var(--color-surface-2)', color: canProceed ? 'white' : 'var(--color-text-muted)', border: 'none', borderRadius: 12, fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, cursor: canProceed ? 'pointer' : 'not-allowed', transition: 'background 0.15s' }}
               >
-                Continue
+                {t('wallet.continue')}
               </button>
             </div>
           )}
@@ -284,7 +286,7 @@ export default function SendButton({ balance }: SendButtonProps) {
         style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', color: canSend ? 'var(--color-text-secondary)' : 'var(--color-text-muted)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '11px 20px', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, cursor: canSend ? 'pointer' : 'not-allowed', transition: 'background 0.15s' }}
       >
         <Send size={16} />
-        Send
+        {t('wallet.send')}
       </button>
       {mounted && open && createPortal(modal, document.body)}
     </>

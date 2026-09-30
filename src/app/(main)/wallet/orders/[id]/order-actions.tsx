@@ -14,15 +14,18 @@ import {
   respondToProposalAction,
   escalateDisputeAction,
 } from '@/lib/actions/escrow'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 type DisputeReason = 'item_not_received' | 'item_not_as_described' | 'seller_unresponsive' | 'buyer_falsely_disputing' | 'other'
 
-const REASON_LABEL: Record<DisputeReason, string> = {
-  item_not_received: "I haven't received this",
-  item_not_as_described: 'Not as described',
-  seller_unresponsive: "Seller isn't responding",
-  buyer_falsely_disputing: 'Buyer is disputing unfairly',
-  other: 'Something else',
+function reasonLabel(t: (key: string, vars?: Record<string, string | number>) => string): Record<DisputeReason, string> {
+  return {
+    item_not_received: t('wallet.reason_not_received'),
+    item_not_as_described: t('wallet.reason_not_as_described'),
+    seller_unresponsive: t('wallet.reason_seller_unresponsive'),
+    buyer_falsely_disputing: t('wallet.reason_buyer_falsely_disputing'),
+    other: t('wallet.reason_other'),
+  }
 }
 
 function PrimaryButton({ children, onClick, disabled, pending, variant = 'primary' }: any) {
@@ -71,6 +74,7 @@ export default function OrderActions({
   viewerRole: 'buyer' | 'seller'
   dispute: any
 }) {
+  const { t } = useTranslation()
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
@@ -92,7 +96,7 @@ export default function OrderActions({
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', border: '1px solid var(--color-border)', borderRadius: 14 }}>
         <CheckCircle size={18} color="var(--color-brand)" />
         <span style={{ fontSize: 14, color: 'var(--color-text-secondary)' }}>
-          {viewerRole === 'seller' ? 'Funds have been released to your wallet.' : "You confirmed receipt — funds have been released to the seller."}
+          {viewerRole === 'seller' ? t('wallet.funds_released_seller') : t('wallet.funds_released_buyer')}
         </span>
       </div>
     )
@@ -102,7 +106,7 @@ export default function OrderActions({
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', border: '1px solid var(--color-border)', borderRadius: 14 }}>
         <CheckCircle size={18} color="var(--color-text-muted)" />
         <span style={{ fontSize: 14, color: 'var(--color-text-secondary)' }}>
-          This order was refunded{viewerRole === 'buyer' ? ' to your wallet' : ''}.
+          {t('wallet.order_refunded', { suffix: viewerRole === 'buyer' ? t('wallet.order_refunded_to_wallet_suffix') : '' })}
         </span>
       </div>
     )
@@ -120,25 +124,25 @@ export default function OrderActions({
 
       {viewerRole === 'seller' && status === 'held' && (
         <PrimaryButton pending={isPending} onClick={() => run(() => markDeliveredAction({ orderId }))}>
-          Mark as delivered / sent
+          {t('wallet.mark_delivered')}
         </PrimaryButton>
       )}
 
       {viewerRole === 'seller' && status === 'delivered_by_seller' && (
         <div style={{ padding: '14px 16px', border: '1px solid var(--color-border)', borderRadius: 14, fontSize: 14, color: 'var(--color-text-muted)' }}>
-          Waiting for the buyer to confirm receipt.
+          {t('wallet.waiting_buyer_confirm')}
         </div>
       )}
 
       {viewerRole === 'buyer' && (status === 'held' || status === 'delivered_by_seller') && (
         <PrimaryButton pending={isPending} onClick={() => run(() => confirmReceiptAction({ orderId }))}>
-          Confirm receipt — release funds
+          {t('wallet.confirm_receipt_release')}
         </PrimaryButton>
       )}
 
       {!showDisputeForm ? (
         <PrimaryButton variant="danger" onClick={() => setShowDisputeForm(true)}>
-          Report a problem
+          {t('wallet.report_problem')}
         </PrimaryButton>
       ) : (
         <OpenDisputeForm orderId={orderId} onCancel={() => setShowDisputeForm(false)} viewerRole={viewerRole} />
@@ -150,6 +154,8 @@ export default function OrderActions({
 // ─── Open a new dispute ───────────────────────────────────────────────────
 
 function OpenDisputeForm({ orderId, onCancel, viewerRole }: { orderId: string; onCancel: () => void; viewerRole: 'buyer' | 'seller' }) {
+  const { t } = useTranslation()
+  const REASON_LABEL = reasonLabel(t)
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [reason, setReason] = useState<DisputeReason>(viewerRole === 'buyer' ? 'item_not_received' : 'buyer_falsely_disputing')
@@ -161,7 +167,7 @@ function OpenDisputeForm({ orderId, onCancel, viewerRole }: { orderId: string; o
     : ['buyer_falsely_disputing', 'other']
 
   function handleSubmit() {
-    if (!details.trim()) { setError('Please describe what happened'); return }
+    if (!details.trim()) { setError(t('wallet.describe_what_happened_error')); return }
     setError('')
     startTransition(async () => {
       const result = await openDisputeAction({ orderId, reason, details })
@@ -173,7 +179,7 @@ function OpenDisputeForm({ orderId, onCancel, viewerRole }: { orderId: string; o
   return (
     <div style={{ border: '1px solid var(--color-border)', borderRadius: 14, padding: 16 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 12, fontFamily: "'Syne', sans-serif" }}>
-        What went wrong?
+        {t('wallet.what_went_wrong')}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
         {reasons.map(r => (
@@ -195,14 +201,14 @@ function OpenDisputeForm({ orderId, onCancel, viewerRole }: { orderId: string; o
       <textarea
         value={details}
         onChange={e => setDetails(e.target.value)}
-        placeholder="Describe what happened — the other party will see this and can respond."
+        placeholder={t('wallet.describe_what_happened_placeholder')}
         rows={3}
         style={{ width: '100%', border: '1px solid var(--color-border)', borderRadius: 10, padding: '10px 12px', fontSize: 14, color: 'var(--color-text-primary)', background: 'none', outline: 'none', resize: 'none', marginBottom: 14, boxSizing: 'border-box', fontFamily: "'DM Sans', sans-serif" }}
       />
       {error && <ErrorBanner message={error} />}
       <div style={{ display: 'flex', gap: 10 }}>
-        <PrimaryButton variant="secondary" onClick={onCancel}>Cancel</PrimaryButton>
-        <PrimaryButton pending={isPending} onClick={handleSubmit}>Open dispute</PrimaryButton>
+        <PrimaryButton variant="secondary" onClick={onCancel}>{t('common.cancel')}</PrimaryButton>
+        <PrimaryButton pending={isPending} onClick={handleSubmit}>{t('wallet.open_dispute')}</PrimaryButton>
       </div>
     </div>
   )
@@ -211,6 +217,8 @@ function OpenDisputeForm({ orderId, onCancel, viewerRole }: { orderId: string; o
 // ─── Full dispute panel: evidence, proposals, escalate ────────────────────
 
 function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispute: any; viewerRole: 'buyer' | 'seller' }) {
+  const { t } = useTranslation()
+  const REASON_LABEL = reasonLabel(t)
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
@@ -247,15 +255,16 @@ function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispu
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', border: '1px solid var(--color-border)', borderRadius: 14 }}>
           <CheckCircle size={18} color="var(--color-brand)" />
           <span style={{ fontSize: 14, color: 'var(--color-text-secondary)' }}>
-            Resolved{dispute.status === 'resolved_admin' ? ' by Spup' : ' by agreement'} — {dispute.resolution?.replace(/_/g, ' ')}
-            {dispute.resolution_notes ? `: ${dispute.resolution_notes}` : ''}
+            {dispute.status === 'resolved_admin'
+              ? t('wallet.resolved_admin', { detail: `${dispute.resolution?.replace(/_/g, ' ')}${dispute.resolution_notes ? `: ${dispute.resolution_notes}` : ''}` })
+              : t('wallet.resolved_agreement', { detail: `${dispute.resolution?.replace(/_/g, ' ')}${dispute.resolution_notes ? `: ${dispute.resolution_notes}` : ''}` })}
           </span>
         </div>
       )}
 
       {dispute.status === 'escalated' && (
         <div style={{ padding: '14px 16px', border: '1px solid var(--color-border)', borderRadius: 14, fontSize: 14, color: 'var(--color-text-muted)' }}>
-          This dispute has been escalated to Spup for review. You'll be notified once it's resolved.
+          {t('wallet.escalated_notice')}
         </div>
       )}
 
@@ -263,24 +272,24 @@ function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispu
       {(dispute.evidence?.length > 0 || !resolved) && (
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 8, fontFamily: "'Syne', sans-serif" }}>
-            Evidence
+            {t('wallet.evidence_label')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
             {(dispute.evidence || []).map((ev: any) => (
               <div key={ev.id} style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: '10px 12px' }}>
                 {ev.file_url && ev.evidence_type === 'photo' && (
-                  <img src={ev.file_url} alt="Evidence" style={{ width: '100%', borderRadius: 8, marginBottom: ev.text_content ? 8 : 0, display: 'block' }} />
+                  <img src={ev.file_url} alt={t('wallet.evidence_alt')} style={{ width: '100%', borderRadius: 8, marginBottom: ev.text_content ? 8 : 0, display: 'block' }} />
                 )}
                 {ev.text_content && <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{ev.text_content}</div>}
               </div>
             ))}
             {(!dispute.evidence || dispute.evidence.length === 0) && (
-              <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No evidence submitted yet.</div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{t('wallet.no_evidence_yet')}</div>
             )}
           </div>
           {!resolved && !showEvidenceForm && (
             <button onClick={() => setShowEvidenceForm(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--color-brand)', fontSize: 13, fontWeight: 700, cursor: 'pointer', padding: 0 }}>
-              <Upload size={14} /> Add evidence
+              <Upload size={14} /> {t('wallet.add_evidence')}
             </button>
           )}
           {showEvidenceForm && <EvidenceForm disputeId={dispute.id} onDone={() => { setShowEvidenceForm(false); router.refresh() }} onCancel={() => setShowEvidenceForm(false)} />}
@@ -291,15 +300,15 @@ function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispu
       {!resolved && dispute.status !== 'escalated' && (
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 8, fontFamily: "'Syne', sans-serif" }}>
-            Resolve together
+            {t('wallet.resolve_together')}
           </div>
 
           {(dispute.proposals || []).filter((p: any) => p.status !== 'withdrawn').map((p: any) => (
             <div key={p.id} style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
               <div style={{ fontSize: 13, color: 'var(--color-text-primary)', fontWeight: 600, marginBottom: 2 }}>
-                {p.resolution_type === 'release_to_seller' && 'Proposed: release full amount to seller'}
-                {p.resolution_type === 'refund_to_buyer' && 'Proposed: full refund to buyer'}
-                {p.resolution_type === 'split' && `Proposed split: ${formatNaira(p.split_seller_kobo)} to seller, ${formatNaira(p.split_buyer_kobo)} to buyer`}
+                {p.resolution_type === 'release_to_seller' && t('wallet.proposal_release_seller')}
+                {p.resolution_type === 'refund_to_buyer' && t('wallet.proposal_refund_buyer')}
+                {p.resolution_type === 'split' && t('wallet.proposal_split', { seller: formatNaira(p.split_seller_kobo), buyer: formatNaira(p.split_buyer_kobo) })}
               </div>
               {p.message && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 6 }}>{p.message}</div>}
               <div style={{ fontSize: 11, fontWeight: 600, color: p.status === 'pending' ? 'var(--color-gold)' : p.status === 'accepted' ? 'var(--color-brand)' : 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: p.status === 'pending' ? 8 : 0 }}>
@@ -308,10 +317,10 @@ function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispu
               {p.status === 'pending' && (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => run(() => respondToProposalAction({ proposalId: p.id, accept: true }))} disabled={isPending} style={{ flex: 1, padding: '8px', borderRadius: 8, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                    Accept
+                    {t('wallet.accept')}
                   </button>
                   <button onClick={() => run(() => respondToProposalAction({ proposalId: p.id, accept: false }))} disabled={isPending} style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                    Reject
+                    {t('wallet.reject')}
                   </button>
                 </div>
               )}
@@ -322,7 +331,7 @@ function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispu
 
           {!showProposeForm && !pendingProposal && (
             <PrimaryButton variant="secondary" onClick={() => setShowProposeForm(true)}>
-              Propose a resolution
+              {t('wallet.propose_resolution')}
             </PrimaryButton>
           )}
           {showProposeForm && (
@@ -335,7 +344,7 @@ function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispu
 
           <div style={{ marginTop: 10 }}>
             <PrimaryButton variant="danger" pending={isPending} onClick={() => run(() => escalateDisputeAction({ disputeId: dispute.id }))}>
-              Can't agree — ask Spup to step in
+              {t('wallet.escalate_cta')}
             </PrimaryButton>
           </div>
         </div>
@@ -345,6 +354,7 @@ function DisputePanel({ orderId, dispute, viewerRole }: { orderId: string; dispu
 }
 
 function EvidenceForm({ disputeId, onDone, onCancel }: { disputeId: string; onDone: () => void; onCancel: () => void }) {
+  const { t } = useTranslation()
   const [isPending, startTransition] = useTransition()
   const [uploading, setUploading] = useState(false)
   const [fileUrl, setFileUrl] = useState('')
@@ -362,17 +372,17 @@ function EvidenceForm({ disputeId, onDone, onCancel }: { disputeId: string; onDo
       formData.append('type', 'image')
       const res = await fetch('/api/upload', { method: 'POST', body: formData })
       const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error || 'Upload failed'); return }
+      if (!res.ok || data.error) { setError(data.error || t('wallet.upload_failed_generic')); return }
       setFileUrl(data.media.url)
     } catch {
-      setError('Upload failed. Please try again.')
+      setError(t('wallet.upload_failed_retry'))
     } finally {
       setUploading(false)
     }
   }
 
   function handleSubmit() {
-    if (!fileUrl && !note.trim()) { setError('Add a photo or a note'); return }
+    if (!fileUrl && !note.trim()) { setError(t('wallet.add_photo_or_note_error')); return }
     setError('')
     startTransition(async () => {
       const result = await submitDisputeEvidenceAction({
@@ -390,7 +400,7 @@ function EvidenceForm({ disputeId, onDone, onCancel }: { disputeId: string; onDo
     <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: 12, marginTop: 8 }}>
       {fileUrl ? (
         <div style={{ position: 'relative', marginBottom: 10 }}>
-          <img src={fileUrl} alt="Evidence preview" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+          <img src={fileUrl} alt={t('wallet.evidence_preview_alt')} style={{ width: '100%', borderRadius: 8, display: 'block' }} />
           <button onClick={() => setFileUrl('')} style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <X size={14} color="white" />
           </button>
@@ -398,22 +408,22 @@ function EvidenceForm({ disputeId, onDone, onCancel }: { disputeId: string; onDo
       ) : (
         <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px', border: '1px dashed var(--color-border)', borderRadius: 10, cursor: 'pointer', marginBottom: 10, fontSize: 13, color: 'var(--color-text-muted)' }}>
           {uploading ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Upload size={14} />}
-          {uploading ? 'Uploading…' : 'Upload a photo (e.g. tracking receipt, item condition)'}
+          {uploading ? t('wallet.uploading') : t('wallet.upload_a_photo_hint')}
           <input type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} disabled={uploading} />
         </label>
       )}
       <textarea
         value={note}
         onChange={e => setNote(e.target.value)}
-        placeholder="Tracking number or a note (optional if you added a photo)"
+        placeholder={t('wallet.tracking_note_placeholder')}
         rows={2}
         style={{ width: '100%', border: '1px solid var(--color-border)', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: 'var(--color-text-primary)', background: 'none', outline: 'none', resize: 'none', marginBottom: 10, boxSizing: 'border-box', fontFamily: "'DM Sans', sans-serif" }}
       />
       {error && <ErrorBanner message={error} />}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={onCancel} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{t('common.cancel')}</button>
         <button onClick={handleSubmit} disabled={isPending || uploading} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-          {isPending ? 'Submitting…' : 'Submit evidence'}
+          {isPending ? t('wallet.submitting') : t('wallet.submit_evidence')}
         </button>
       </div>
     </div>
@@ -421,6 +431,7 @@ function EvidenceForm({ disputeId, onDone, onCancel }: { disputeId: string; onDo
 }
 
 function ProposeForm({ disputeId, onDone, onCancel }: { disputeId: string; onDone: () => void; onCancel: () => void }) {
+  const { t } = useTranslation()
   const [isPending, startTransition] = useTransition()
   const [type, setType] = useState<'release_to_seller' | 'refund_to_buyer' | 'split'>('release_to_seller')
   const [message, setMessage] = useState('')
@@ -439,8 +450,8 @@ function ProposeForm({ disputeId, onDone, onCancel }: { disputeId: string; onDon
     <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: 12, marginTop: 8 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
         {[
-          { v: 'release_to_seller', label: 'Release full amount to seller' },
-          { v: 'refund_to_buyer', label: 'Full refund to buyer' },
+          { v: 'release_to_seller', label: t('wallet.propose_release_full') },
+          { v: 'refund_to_buyer', label: t('wallet.propose_refund_full') },
         ].map(opt => (
           <button
             key={opt.v}
@@ -458,20 +469,20 @@ function ProposeForm({ disputeId, onDone, onCancel }: { disputeId: string; onDon
         ))}
       </div>
       <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10 }}>
-        Need a split (e.g. partial refund, delivery fee deducted)? Agree the exact amounts in chat first, then message support to have Spup enter it as a split — not available as a self-serve option yet.
+        {t('wallet.split_hint')}
       </p>
       <textarea
         value={message}
         onChange={e => setMessage(e.target.value)}
-        placeholder="Add a note explaining your offer (optional)"
+        placeholder={t('wallet.offer_note_placeholder')}
         rows={2}
         style={{ width: '100%', border: '1px solid var(--color-border)', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: 'var(--color-text-primary)', background: 'none', outline: 'none', resize: 'none', marginBottom: 10, boxSizing: 'border-box', fontFamily: "'DM Sans', sans-serif" }}
       />
       {error && <ErrorBanner message={error} />}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={onCancel} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{t('common.cancel')}</button>
         <button onClick={handleSubmit} disabled={isPending} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: 'var(--color-brand)', color: 'white', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-          {isPending ? 'Sending…' : 'Send proposal'}
+          {isPending ? t('wallet.sending') : t('wallet.send_proposal')}
         </button>
       </div>
     </div>

@@ -4,14 +4,15 @@
 import { useState, useRef, useCallback, useEffect, isValidElement, cloneElement } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
+import BackButton from '@/components/ui/back-button'
 import Link from 'next/link'
 import { Settings, Camera, Loader, ArrowLeft } from 'lucide-react'
 import { updateAvatarAction, updateBannerAction } from '@/lib/actions/profiles'
-import BackButton from '@/components/ui/back-button'
 import CropModal from './crop-modal'
 import ProfileHeaderView from './profile-header-view'
 import ProfileHeaderEdit from './profile-header-edit'
 import VerifiedBadge from '@/components/ui/verified-badge'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 type UploadTarget = 'avatar' | 'banner'
 
@@ -53,6 +54,7 @@ interface ProfileHeaderProps {
 export default function ProfileHeader({
   profile, stats, isOwner, actionSlot, showBirthday = false, mode = 'view',
 }: ProfileHeaderProps) {
+  const { t } = useTranslation()
   const editing = mode === 'edit'
   const [avatarSrc, setAvatarSrc] = useState<string | null>(profile.avatar_url)
   const [bannerSrc, setBannerSrc] = useState<string | null>(profile.banner_url)
@@ -105,7 +107,7 @@ export default function ProfileHeader({
       if (!res.ok || !data.media?.url) {
         if (target === 'avatar') setAvatarSrc(profile.avatar_url)
         else setBannerSrc(profile.banner_url)
-        setUploadErr(data.error ?? 'Image upload failed.')
+        setUploadErr(data.error ?? t('profile.image_upload_failed'))
         return
       }
 
@@ -125,7 +127,7 @@ export default function ProfileHeader({
     } catch {
       if (target === 'avatar') setAvatarSrc(profile.avatar_url)
       else setBannerSrc(profile.banner_url)
-      setUploadErr('Upload failed. Check your connection.')
+      setUploadErr(t('profile.upload_failed_connection'))
     } finally {
       setUploading(null)
     }
@@ -181,16 +183,15 @@ export default function ProfileHeader({
         }}
       >
         {bannerSrc && (
-          <img src={bannerSrc} alt="Cover"
+          <img src={bannerSrc} alt={t('profile.cover_photo_alt')}
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         )}
 
-        <BackButton
-          variant="banner"
-          fallbackHref="/feed"
-          iconSize={18}
-          onClick={e => e.stopPropagation()}
-        />
+        {/* Back button — floats on the banner like LinkedIn's, so the page
+            doesn't need a separate nav bar just to hold it. Stops propagation
+            so it doesn't trigger the banner's own onClick (opens file picker
+            in edit mode). */}
+        <BackButton variant="banner" fallbackHref="/feed" iconSize={18} onClick={e => e.stopPropagation()} />
 
         {/* Portal target for ProfileActionBar's "···" more-options button —
             mirrors the back button on the opposite side of the banner. Only
@@ -209,7 +210,7 @@ export default function ProfileHeader({
               : <>
                 <Camera size={18} color="white" strokeWidth={2} />
                 <span style={{ fontSize: 13, color: 'white', fontWeight: 600, fontFamily: "'Syne', sans-serif" }}>
-                  {bannerSrc ? 'Change cover photo' : 'Add cover photo'}
+                  {bannerSrc ? t('profile.change_cover_photo') : t('profile.add_cover_photo')}
                 </span>
               </>
             }
@@ -284,7 +285,7 @@ export default function ProfileHeader({
               display: 'flex', gap: 8, alignItems: 'center',
               flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto',
             }}>
-              <Link href="/settings" aria-label="Settings" style={{
+              <Link href="/settings" aria-label={t('nav.settings')} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 38, height: 38, borderRadius: '50%',
                 border: '1px solid var(--color-border)',
@@ -300,7 +301,7 @@ export default function ProfileHeader({
                 cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
                 flexShrink: 0, whiteSpace: 'nowrap',
               }}>
-                Edit profile
+                {t('profile.edit_profile')}
               </button>
             </div>
           )}

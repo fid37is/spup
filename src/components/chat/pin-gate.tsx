@@ -33,6 +33,7 @@ import { useState, useEffect, useRef } from 'react'
 import { setChatPinAction, verifyChatPinAction, hasChatPinAction } from '@/lib/actions/messages'
 import { setSessionPinMaterial, clearSessionPinMaterial } from '@/lib/chat-pin-session'
 import { Lock, Eye, EyeOff, Shield } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 const UNLOCK_KEY = 'spup_chat_unlocked'
 
@@ -77,6 +78,7 @@ interface PinGateProps {
 }
 
 export default function PinGate({ children }: PinGateProps) {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<'loading' | 'unlocked' | 'create' | 'verify'>('loading')
   const [pin, setPin] = useState(['', '', '', ''])
   const [confirmPin, setConfirmPin] = useState(['', '', '', ''])
@@ -180,8 +182,8 @@ export default function PinGate({ children }: PinGateProps) {
       setStatus('unlocked')
     } else {
       setError('rateLimited' in result && result.rateLimited
-        ? 'Too many attempts. Please wait a few minutes and try again.'
-        : 'Incorrect PIN. Try again.')
+        ? t('chat.pin_too_many_attempts')
+        : t('chat.pin_incorrect'))
       setPin(['', '', '', ''])
       inputRefs[0].current?.focus()
     }
@@ -192,7 +194,7 @@ export default function PinGate({ children }: PinGateProps) {
     const enterStr = pin.join('')
     if (confirmStr.length !== 4) return
     if (confirmStr !== enterStr) {
-      setError('PINs do not match. Try again.')
+      setError(t('chat.pins_dont_match'))
       setConfirmPin(['', '', '', ''])
       confirmRefs[0].current?.focus()
       return
@@ -241,17 +243,17 @@ export default function PinGate({ children }: PinGateProps) {
 
       <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: 'var(--color-text-primary)', marginBottom: 8, textAlign: 'center' }}>
         {isCreate
-          ? (isConfirmStep ? 'Confirm your PIN' : 'Create a chat PIN')
-          : 'Enter your chat PIN'
+          ? (isConfirmStep ? t('chat.confirm_your_pin') : t('chat.create_chat_pin'))
+          : t('chat.enter_your_chat_pin')
         }
       </h2>
       <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 36, textAlign: 'center', maxWidth: 260, lineHeight: 1.5 }}>
         {isCreate
           ? (isConfirmStep
-            ? 'Re-enter your 4-digit PIN to confirm'
-            : 'Set a 4-digit PIN to keep your messages private'
+            ? t('chat.reenter_pin_confirm')
+            : t('chat.set_4digit_pin')
           )
-          : 'Enter your PIN to access your messages'
+          : t('chat.enter_pin_access')
         }
       </p>
 
@@ -320,13 +322,13 @@ export default function PinGate({ children }: PinGateProps) {
           marginBottom: 16,
         }}
       >
-        {isPending ? 'Verifying…' : isCreate ? (isConfirmStep ? 'Confirm PIN' : 'Continue') : 'Unlock Chat'}
+        {isPending ? t('wallet.verifying') : isCreate ? (isConfirmStep ? t('chat.confirm_pin_btn') : t('wallet.continue')) : t('chat.unlock_chat')}
       </button>
 
       {isCreate && isConfirmStep && (
         <button onClick={() => { setStep('enter'); setConfirmPin(['', '', '', '']); setError('') }}
           style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 13 }}>
-          ← Go back
+          ← {t('profile.go_back')}
         </button>
       )}
     </div>
