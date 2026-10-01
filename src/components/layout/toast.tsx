@@ -72,13 +72,54 @@ const STYLES: Record<ToastType, {
   },
 }
 
+// The colours above are tuned for the dark theme (pale text on a dark/tinted
+// glass pill) and are close to invisible on a light page. Light theme gets its
+// own set: a near-white pill with dark text and a darker accent icon.
+const LIGHT_STYLES: typeof STYLES = {
+  success: {
+    icon: CheckCircle,
+    background: 'rgba(240, 253, 244, 0.97)',
+    border: 'rgba(22, 163, 74, 0.35)',
+    iconColor: '#16a34a',
+    textColor: '#14532d',
+    shadow: '0 8px 24px rgba(22,163,74,0.18), 0 1px 3px rgba(0,0,0,0.08)',
+  },
+  error: {
+    icon: AlertCircle,
+    background: 'rgba(255, 255, 255, 0.97)',
+    border: 'rgba(0,0,0,0.12)',
+    iconColor: '#dc2626',
+    textColor: '#0e0e10',
+    shadow: '0 8px 24px rgba(0,0,0,0.14), 0 1px 3px rgba(0,0,0,0.08)',
+  },
+  warning: {
+    icon: AlertTriangle,
+    background: 'rgba(255, 255, 255, 0.97)',
+    border: 'rgba(0,0,0,0.12)',
+    iconColor: '#d97706',
+    textColor: '#0e0e10',
+    shadow: '0 8px 24px rgba(0,0,0,0.14), 0 1px 3px rgba(0,0,0,0.08)',
+  },
+  info: {
+    icon: Info,
+    background: 'rgba(255, 255, 255, 0.97)',
+    border: 'rgba(0,0,0,0.12)',
+    iconColor: '#2563eb',
+    textColor: '#0e0e10',
+    shadow: '0 8px 24px rgba(0,0,0,0.14), 0 1px 3px rgba(0,0,0,0.08)',
+  },
+}
+
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   const [visible, setVisible] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // A toast with a button needs time to be read and tapped.
   const duration = toast.duration ?? (toast.action ? 6000 : 3000)
-  const cfg = STYLES[toast.type]
+  // Toasts only ever render on the client and live a few seconds, so reading
+  // the resolved theme (always 'light' or 'dark') once when it appears is enough.
+  const [light] = useState(() => document.documentElement.getAttribute('data-theme') === 'light')
+  const cfg = (light ? LIGHT_STYLES : STYLES)[toast.type]
   const Icon = cfg.icon
 
   useEffect(() => {
@@ -136,7 +177,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
             padding: '4px 12px',
             borderRadius: 100,
             border: 'none',
-            background: 'rgba(255,255,255,0.14)',
+            background: light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.14)',
             color: cfg.textColor,
             fontSize: 12.5,
             fontWeight: 700,

@@ -55,7 +55,7 @@
   "composer.upload_failed": "Upload failed. Try again.",
   "composer.queued_offline": "Post queued - it'll go out once you're back online",
   "composer.post_live": "Your post is live",
-    "composer.post_sent": "Post don go",
+  "composer.post_sent": "Post don go",
   "composer.reply_sent": "Reply don go",
   "composer.view": "See am",
   "composer.retry": "Try again",

@@ -8,7 +8,7 @@ import NestedReplies from './nested-replies'
 import AdSlot from '@/components/feed/ad-card'
 
 
-const REPLY_AD_POSITIONS = new Set([1, 3, 8])
+const REPLY_AD_EVERY = 5
 
 interface RepliesPanelProps {
   postId: string
@@ -84,7 +84,7 @@ export default function RepliesPanel({
                 />
               )}
             </div>
-            {REPLY_AD_POSITIONS.has(index + 1) && (
+            {(index + 1) % REPLY_AD_EVERY === 0 && (
               <AdSlot postId={postId} position={index} />
             )}
           </div>
