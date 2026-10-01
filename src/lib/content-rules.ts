@@ -68,13 +68,31 @@ export async function recordContentFlag(args: {
   if (args.matches.length === 0) return
   try {
     const admin = createAdminClient()
+    const snippet = (args.text ?? '').trim().slice(0, 280) || null
+
+    // The same blocked text from the same person inside 24h is one incident,
+    // not a new one (retries, the Retry button, queued offline posts). Checked
+    // across every status so dismissing a flag doesn't make the next retry
+    // reappear. Published posts are separate live content, so never merged.
+    if (args.outcome === 'blocked' && snippet) {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const { count } = await admin
+        .from('content_flags')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', args.userId)
+        .eq('outcome', 'blocked')
+        .eq('snippet', snippet)
+        .gte('created_at', since)
+      if ((count ?? 0) > 0) return
+    }
+
     const { error } = await admin.from('content_flags').insert({
       user_id: args.userId,
       post_id: args.postId,
       outcome: args.outcome,
       matched_terms: [...new Set(args.matches.map(m => m.term))],
       categories: [...new Set(args.matches.map(m => m.category))],
-      snippet: (args.text ?? '').trim().slice(0, 280) || null,
+      snippet,
     })
     if (error) console.error('[content-rules] flag insert failed:', error.message)
   } catch (err) {

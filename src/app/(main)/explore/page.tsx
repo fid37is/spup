@@ -8,6 +8,10 @@
 //   News         → posts tagged with News/Finance/Career interest IDs
 //   Sports       → posts tagged with Sports interest IDs
 //   Entertainment→ posts tagged with Entertainment/Creative interest IDs
+//   Jobs         → vacancies and employment posts (hashtags + wording)
+//
+// Every topic tab matches a post by hashtag OR by wording (see
+// lib/explore-topics.ts), so posts show up even when nobody typed the exact tag.
 //
 // Search state (query present):
 //   Posts / People / Hashtags tabs — same as before
@@ -20,6 +24,7 @@ import React from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { formatNumber, formatRelativeTime } from '@/lib/utils'
 import { NIGERIAN_INTERESTS } from '@/types'
+import { INTEREST_TOPICS, TAB_EXTRAS, JOBS_TOPIC, mergeTopics, type ExploreTopic } from '@/lib/explore-topics'
 import PostCard from '@/components/feed/post-card'
 import Link from 'next/link'
 import ExploreSearchInput from './search-input'
@@ -30,7 +35,7 @@ import { UserCard, avatarBg, type UserResult } from '@/components/explore/user-c
 import {
   TrendingUp, Users, Hash,
   Flame, ArrowUpRight, Search, UserRound, Newspaper,
-  Trophy, Clapperboard, Sparkles,
+  Trophy, Clapperboard, Sparkles, Briefcase,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -49,6 +54,7 @@ const EXPLORE_TABS = [
   { key: 'news', label: 'News', icon: Newspaper, categories: ['News', 'Finance', 'Career'] },
   { key: 'sports', label: 'Sports', icon: Trophy, categories: ['Sports'] },
   { key: 'entertainment', label: 'Entertainment', icon: Clapperboard, categories: ['Entertainment', 'Creative', 'Lifestyle'] },
+  { key: 'jobs', label: 'Jobs', icon: Briefcase, categories: null },
 ] as const
 
 type ExploreTabKey = typeof EXPLORE_TABS[number]['key']
@@ -96,71 +102,68 @@ function noEngagement(posts: any[]) {
   return posts.map((p: any) => ({ ...p, is_liked: false, is_reposted: false, is_bookmarked: false }))
 }
 
-/** Posts tagged with any of the given hashtag tags (interest IDs). */
-async function getPostsByInterestIds(db: Supabase, interestIds: string[], profileId: string | null, limit = 20) {
-  if (!interestIds.length) return []
+/**
+ * Posts that belong to a topic: carry one of its hashtags OR contain one of its
+ * words. The match runs in Postgres (explore_topic_post_ids); this loads the
+ * full rows for the ids it returns and keeps their newest-first order.
+ */
+async function getTopicPosts(
+  db: Supabase, topics: ExploreTopic[], profileId: string | null,
+  { days = 30, limit = 30 }: { days?: number; limit?: number } = {},
+) {
+  const { tags, pattern } = mergeTopics(topics)
+  if (!tags.length && !pattern) return []
 
-  // Resolve hashtag UUIDs for these interest IDs
-  const { data: tags } = await db
-    .from('hashtags')
-    .select('id')
-    .in('tag', interestIds)
+  const { data: idRows, error } = await db.rpc('explore_topic_post_ids', {
+    p_tags: tags, p_pattern: pattern, p_days: days, p_limit: limit,
+  })
+  if (error) { console.error('explore_topic_post_ids failed:', error.message); return [] }
+  const ids: string[] = (idRows || []).map((r: any) => r.id as string)
+  if (!ids.length) return []
 
-  const tagIds = (tags || []).map((t: any) => t.id)
-  if (!tagIds.length) return []
-
-  // Over-fetch, then keep only real top-level posts and show newest first.
-  // post_hashtags has no ordering of its own, so a bare .limit() returned an
-  // arbitrary slice - including deleted posts, replies and reposts.
-  const { data: rows } = await db
-    .from('post_hashtags')
-    .select(`post:posts(${POST_SELECT}, deleted_at, parent_post_id)`)
-    .in('hashtag_id', tagIds)
-    .limit(Math.max(limit * 5, 100))
-
-  const seen = new Set<string>()
-  const posts = (rows || [])
-    .map((r: any) => r.post)
-    .filter((p: any) => p && !p.deleted_at && !p.parent_post_id && p.post_type !== 'repost')
-    .filter((p: any) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
-    .sort((a: any, b: any) => +new Date(b.created_at) - +new Date(a.created_at))
-    .slice(0, limit)
+  const { data: rows } = await db.from('posts').select(POST_SELECT).in('id', ids)
+  const byId = new Map<string, any>((rows || []).map((p: any) => [p.id as string, p]))
+  const posts = ids.map((id: string) => byId.get(id)).filter(Boolean) as any[]
   if (!posts.length) return []
-  if (!profileId) return noEngagement(posts)
-  return hydrateEngagement(db, profileId, posts)
+  return profileId ? hydrateEngagement(db, profileId, posts) : noEngagement(posts)
 }
 
-/** For You: posts tagged with the user's own saved interests. */
+function topicsForInterests(interestIds: readonly string[]): ExploreTopic[] {
+  return interestIds.map(id => INTEREST_TOPICS[id]).filter(Boolean)
+}
+
+/** For You: posts matching the user's saved interests, topped up with hot posts so it is never empty. */
 async function getForYouPosts(db: Supabase, profileId: string | null) {
-  if (!profileId) {
-    // Unauthenticated: fall back to hot posts
-    return getHotPosts(db, null)
-  }
+  if (!profileId) return getHotPosts(db, null)
 
-  const { data: saved } = await db
-    .from('user_interests')
-    .select('interest')
-    .eq('user_id', profileId)
-
-  const interestIds = (saved || []).map((r: any) => r.interest)
+  const { data: saved } = await db.from('user_interests').select('interest').eq('user_id', profileId)
+  const interestIds = (saved || []).map((r: any) => r.interest as string)
   if (!interestIds.length) return getHotPosts(db, profileId)
 
-  const posts = await getPostsByInterestIds(db, interestIds, profileId, 30)
-  // Fall back to hot posts if the user's interests have no content yet
-  return posts.length ? posts : getHotPosts(db, profileId)
+  const matched = await getTopicPosts(db, topicsForInterests(interestIds), profileId, { limit: 30 })
+  if (matched.length >= 15) return matched
+
+  const seen = new Set(matched.map((p: any) => p.id))
+  const hot = (await getHotPosts(db, profileId)).filter((p: any) => !seen.has(p.id))
+  return [...matched, ...hot].slice(0, 30)
 }
 
-/** Category tab: posts matching interests in the given NIGERIAN_INTERESTS categories. */
-async function getCategoryPosts(db: Supabase, categories: readonly string[], profileId: string | null) {
-  const interestIds = NIGERIAN_INTERESTS
-    .filter(i => categories.includes(i.category))
-    .map(i => i.id)
-  return getPostsByInterestIds(db, interestIds, profileId, 30)
+/** Category tab: the tab's interests plus the tab's own extra tags and words. */
+async function getCategoryPosts(db: Supabase, tabKey: string, categories: readonly string[], profileId: string | null) {
+  const interestIds = NIGERIAN_INTERESTS.filter(i => categories.includes(i.category)).map(i => i.id)
+  const topics = topicsForInterests(interestIds)
+  if (TAB_EXTRAS[tabKey]) topics.push(TAB_EXTRAS[tabKey])
+  return getTopicPosts(db, topics, profileId, { limit: 30 })
 }
 
-/** Hot posts: highest likes_count in last 48 hrs. */
+/** Jobs tab: vacancies and employment posts. */
+async function getJobPosts(db: Supabase, profileId: string | null) {
+  return getTopicPosts(db, [JOBS_TOPIC], profileId, { days: 45, limit: 40 })
+}
+
+/** Hot posts: most-liked in the last 7 days, newest first among ties. */
 async function getHotPosts(db: Supabase, profileId: string | null) {
-  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
   const { data: raw } = await db
     .from('posts')
     .select(POST_SELECT)
@@ -169,6 +172,8 @@ async function getHotPosts(db: Supabase, profileId: string | null) {
     .neq('post_type', 'repost')
     .gte('created_at', since)
     .order('likes_count', { ascending: false })
+    .order('created_at', { ascending: false })
+    .lte('created_at', new Date().toISOString())
     .limit(20)
   const posts = raw || []
   if (!posts.length) return []
@@ -180,6 +185,7 @@ async function getTrending(db: Supabase): Promise<TrendingTag[]> {
   const { data } = await db
     .from('hashtags')
     .select('tag, posts_count')
+    .gt('posts_count', 0)
     .order('posts_count', { ascending: false })
     .limit(10)
   return (data || []) as TrendingTag[]
@@ -381,7 +387,7 @@ interface SP { q?: string; tab?: string; etab?: string }
 export default async function ExplorePage({ searchParams }: { searchParams: Promise<SP> }) {
   const params = await searchParams
   const query = params.q?.trim() || ''
-  const etab = (params.etab as ExploreTabKey) || 'for-you'
+  const etab: ExploreTabKey = EXPLORE_TABS.some(t => t.key === params.etab) ? (params.etab as ExploreTabKey) : 'for-you'
   const searchTab = (params.tab as SearchTabKey) || 'posts'
 
   const db = await createClient()
@@ -514,10 +520,29 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     )
   }
 
+  // Jobs tab - full post cards so the role, requirements and how to apply are readable in place
+  if (etab === 'jobs') {
+    const jobPosts = await getJobPosts(db, profileId)
+    return (
+      <div>
+        {StickyHeader}
+        {jobPosts.length === 0
+          ? <EmptyState Icon={Briefcase} title="No job posts yet" sub="Posts about vacancies and hiring show up here. Use #hiring or #jobs when you post an opening." />
+          : (
+            <div>
+              <SectionHeader icon={Briefcase} title="Jobs & opportunities" />
+              {jobPosts.map((p: any) => <PostCard key={p.id} post={p} />)}
+            </div>
+          )
+        }
+      </div>
+    )
+  }
+
   // News / Sports / Entertainment tabs
   const tabConfig = EXPLORE_TABS.find(t => t.key === etab)
   if (tabConfig && tabConfig.categories) {
-    const posts = await getCategoryPosts(db, tabConfig.categories, profileId)
+    const posts = await getCategoryPosts(db, tabConfig.key, tabConfig.categories, profileId)
     const TabIcon = tabConfig.icon
     return (
       <div>
