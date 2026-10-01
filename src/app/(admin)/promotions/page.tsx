@@ -14,6 +14,7 @@ interface PromotionRow {
   id: string
   tier: string
   price_kobo: number
+  amount_paid_kobo: number
   duration_hours: number
   status: string
   impressions_count: number
@@ -32,7 +33,7 @@ async function getPromotions(params: SearchParams) {
   const { data } = await admin
     .from('post_promotions')
     .select(`
-      id, tier, price_kobo, duration_hours, status, impressions_count, clicks_count,
+      id, tier, price_kobo, amount_paid_kobo, duration_hours, status, impressions_count, clicks_count,
       starts_at, ends_at, created_at,
       post:posts(id, body),
       user:users(username, display_name)
@@ -62,11 +63,11 @@ async function getSummary() {
 
   const [{ count: activeCount }, { data: monthRevenue }, { data: allImpressions }] = await Promise.all([
     admin.from('post_promotions').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-    admin.from('post_promotions').select('price_kobo').in('status', ['active', 'completed']).gte('created_at', startOfMonth),
+    admin.from('post_promotions').select('amount_paid_kobo').in('status', ['active', 'completed']).gte('created_at', startOfMonth),
     admin.from('post_promotions').select('impressions_count').in('status', ['active', 'completed']),
   ])
 
-  const revenueThisMonth = (monthRevenue || []).reduce((sum: number, r: { price_kobo: number }) => sum + r.price_kobo, 0)
+  const revenueThisMonth = (monthRevenue || []).reduce((sum: number, r: { amount_paid_kobo: number }) => sum + r.amount_paid_kobo, 0)
   const totalImpressions = (allImpressions || []).reduce((sum: number, r: { impressions_count: number }) => sum + r.impressions_count, 0)
 
   return { activeCount: activeCount || 0, revenueThisMonth, totalImpressions }
@@ -98,7 +99,7 @@ export default async function AdminPromotionsPage({ searchParams }: { searchPara
       ),
     },
     { key: 'tier', header: 'Tier', mobileHidden: true, render: r => <span className="text-[13px] capitalize text-secondary">{r.tier}</span> },
-    { key: 'price', header: 'Price', align: 'right', render: r => <span className="font-display text-[13px] font-bold text-brand">{formatNaira(r.price_kobo)}</span> },
+    { key: 'price', header: 'Paid', align: 'right', render: r => <span className="font-display text-[13px] font-bold text-brand">{r.amount_paid_kobo > 0 || ['pending', 'failed'].includes(r.status) ? formatNaira(r.amount_paid_kobo > 0 ? r.amount_paid_kobo : r.price_kobo) : 'Free'}</span> },
     { key: 'impressions', header: 'Impressions', align: 'right', mobileHidden: true, render: r => <span className="text-[13px] text-[#D0D0C8]">{formatNumber(r.impressions_count)}</span> },
     { key: 'clicks', header: 'Clicks', align: 'right', render: r => <span className="text-[13px] text-[#D0D0C8]">{formatNumber(r.clicks_count)}</span> },
     { key: 'status', header: 'Status', render: r => <StatusBadge status={r.status} /> },

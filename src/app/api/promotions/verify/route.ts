@@ -34,12 +34,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${BASE_URL}/post/${promotion.post_id}?promoted=failed`)
     }
 
-        const now = new Date()
+    // Revenue is what Paystack actually collected (kobo), not the tier's list price.
+    const amountPaidKobo = Number(verifyRes.data?.amount) || promotion.price_kobo
+
+    const now = new Date()
     const endsAt = new Date(now.getTime() + promotion.duration_hours * 60 * 60 * 1000)
 
     await admin
       .from('post_promotions')
-      .update({ status: 'active', starts_at: now.toISOString(), ends_at: endsAt.toISOString() })
+      .update({ status: 'active', starts_at: now.toISOString(), ends_at: endsAt.toISOString(), amount_paid_kobo: amountPaidKobo })
       .eq('reference', reference)
 
     // Log to the finance ledger (no wallet balance change - this is external card spend)
@@ -53,7 +56,7 @@ export async function GET(request: NextRequest) {
       await admin.from('transactions').insert({
         wallet_id: wallet.id,
         type: 'promotion_spend',
-        amount_kobo: promotion.price_kobo,
+        amount_kobo: amountPaidKobo,
         status: 'completed',
         reference: `${reference}-TXN`,
         description: `Post promotion (${promotion.tier})`,

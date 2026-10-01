@@ -2,13 +2,20 @@
 
 // src/lib/actions/messages.ts
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import bcrypt from 'bcryptjs'
 import nodeCrypto from 'crypto'
 import { createNotification } from '@/lib/notifications'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { fetchMessagePage, type MessagePage } from '@/lib/chat-queries'
 import { getUnreadChatCount } from '@/lib/queries/chat'
+import { getChatLockReason, getChatLockReasons } from '@/lib/mutuals'
+import { CHAT_LOCK_COPY, type ChatLockReason } from '@/lib/chat-access'
+
+/** A refusal that tells the client exactly why (so it can stop retrying and show the right banner). */
+function chatLocked(reason: ChatLockReason) {
+  return { error: CHAT_LOCK_COPY[reason], code: reason }
+}
 
 async function getCallerProfile() {
   const supabase = await createClient()
@@ -158,21 +165,33 @@ export async function getConversationsAction() {
       participant_1, participant_2,
       p1:users!conversations_participant_1_fkey(id, username, display_name, avatar_url, verification_tier),
       p2:users!conversations_participant_2_fkey(id, username, display_name, avatar_url, verification_tier),
-      members:conversation_members(unread_count, user_id)
+      members:conversation_members(unread_count, user_id, hidden_at)
     `)
     .or(`participant_1.eq.${profile.id},participant_2.eq.${profile.id}`)
     .order('last_message_at', { ascending: false })
     .limit(50)
 
-  return (data || []).map((c: any) => {
+  const rows = data || []
+  const reasons = await getChatLockReasons(
+    profile.id,
+    rows.map((c: any) => (c.participant_1 === profile.id ? c.participant_2 : c.participant_1)),
+  )
+
+  return rows.map((c: any) => {
     const other = c.participant_1 === profile.id ? c.p2 : c.p1
     const myMembership = (c.members || []).find((m: any) => m.user_id === profile.id)
+    const hiddenAt: string | null = myMembership?.hidden_at ?? null
+    // Hidden until something newer than the moment it was hidden arrives.
+    const hidden = !!hiddenAt && (!c.last_message_at || new Date(c.last_message_at) <= new Date(hiddenAt))
     return {
       id: c.id,
       other,
       last_message_preview: c.last_message_preview,
       last_message_at: c.last_message_at,
       unread_count: myMembership?.unread_count ?? 0,
+      // Why this thread is read-only (null = normal). Deleted accounts have no `other`.
+      lock: (other?.id ? reasons.get(other.id) ?? null : null) as ChatLockReason | null,
+      hidden,
     }
   })
 }
@@ -182,6 +201,8 @@ export async function getOrCreateConversationAction(targetUserId: string) {
   if (!profile) return { error: 'Not authenticated' }
   if (!targetUserId) return { error: 'Missing user' }
   if (targetUserId === profile.id) return { error: "You can't start a chat with yourself" }
+  const lock = await getChatLockReason(profile.id, targetUserId)
+  if (lock) return chatLocked(lock)
 
   // Check if conversation already exists. limit(1) instead of maybeSingle():
   // maybeSingle() ERRORS when two rows match (e.g. two chats created by a
@@ -196,7 +217,10 @@ export async function getOrCreateConversationAction(targetUserId: string) {
     .order('created_at', { ascending: true })
     .limit(1)
 
-  if (existingRows && existingRows.length > 0) return { conversationId: existingRows[0].id }
+  if (existingRows && existingRows.length > 0) {
+    await unhideConversationFor(existingRows[0].id, profile.id)   // reopening a chat you hid brings it back
+    return { conversationId: existingRows[0].id }
+  }
 
   // Create new conversation
   const { data: conv, error } = await supabase
@@ -214,6 +238,43 @@ export async function getOrCreateConversationAction(targetUserId: string) {
   if (memberError) console.error('[getOrCreateConversationAction] could not create conversation_members:', memberError.message)
 
   return { conversationId: conv.id }
+}
+
+// ── Hide / unhide (per person - never touches the other side or the messages) ──
+
+async function setHiddenAt(conversationId: string, userId: string, hiddenAt: string | null) {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('conversation_members')
+    .update({ hidden_at: hiddenAt })
+    .match({ conversation_id: conversationId, user_id: userId })
+    .select('user_id')
+  if (!data || data.length === 0) {
+    // Older conversations may be missing the member row
+    await admin.from('conversation_members').insert({ conversation_id: conversationId, user_id: userId, hidden_at: hiddenAt })
+  }
+}
+
+async function unhideConversationFor(conversationId: string, userId: string) {
+  try { await setHiddenAt(conversationId, userId, null) } catch (e) { console.error('[unhideConversation] failed:', e) }
+}
+
+export async function hideConversationAction(conversationId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!(await getMyConversation(supabase, profile.id, conversationId))) return { error: 'Conversation not found' }
+  try { await setHiddenAt(conversationId, profile.id, new Date().toISOString()) }
+  catch (e) { console.error('[hideConversationAction] failed:', e); return { error: 'Could not hide this chat' } }
+  return { success: true as const }
+}
+
+export async function unhideConversationAction(conversationId: string) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!(await getMyConversation(supabase, profile.id, conversationId))) return { error: 'Conversation not found' }
+  try { await setHiddenAt(conversationId, profile.id, null) }
+  catch (e) { console.error('[unhideConversationAction] failed:', e); return { error: 'Could not unhide this chat' } }
+  return { success: true as const }
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -349,6 +410,11 @@ export async function sendMessageAction(conversationId: string, body: string, re
   // Only participants may post (also gives us the recipient for the notification).
   const conv = await getMyConversation(supabase, profile.id, conversationId)
   if (!conv) return { error: 'Conversation not found' }
+
+  // Chat is mutual-only: if either side has since unfollowed, sending stops.
+  const otherId = conv.participant_1 === profile.id ? conv.participant_2 : conv.participant_1
+  const lock = await getChatLockReason(profile.id, otherId)
+  if (lock) return chatLocked(lock)
 
   if (replyToId) {
     const { data: target } = await supabase

@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { getFollowing } from '@/lib/queries'
+import { getMutuals } from '@/lib/mutuals'
 import NewChatClient from './new-chat-client'
 import PinGate from '@/components/chat/pin-gate'
 
@@ -15,8 +15,8 @@ export default async function NewChatPage() {
     .from('users').select('id').eq('auth_id', user.id).single()
   if (!profile) redirect('/login')
 
-  // Show people the viewer follows — most natural list to message
-  const following = await getFollowing(profile.id, 100)
+  // Chat is mutual-only, so the picker lists only people who follow each other
+  const following = await getMutuals(profile.id, 100)
 
   return (
     <PinGate>

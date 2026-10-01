@@ -146,7 +146,7 @@ function UserCard({
 
   return (
     <div
-      onClick={() => router.push(`/user/${user.username}`)}
+      onClick={() => router.push(isOwnProfile ? '/profile' : `/user/${user.username}`)}
       style={{
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '14px 20px',

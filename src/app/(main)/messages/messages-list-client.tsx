@@ -5,10 +5,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction } from '@/lib/actions/messages'
+import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction, unhideConversationAction } from '@/lib/actions/messages'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
 import { formatRelativeTime } from '@/lib/utils'
-import { Trash2, Image as ImageIcon, Video } from 'lucide-react'
+import { Trash2, Image as ImageIcon, Video, ChevronDown, ChevronRight } from 'lucide-react'
 import {
   getStoredKeyPair, deriveSharedKey, decryptMessage, isEncrypted, UNDECRYPTABLE,
   getCachedPeerPublicKey, setCachedPeerPublicKey,
@@ -24,6 +24,10 @@ interface Conversation {
   last_message_preview: string | null
   last_message_at: string | null
   unread_count: number
+  /** Why the thread is read-only (blocked / no longer mutual). null = normal. */
+  lock: 'blocked_by_me' | 'not_mutual' | null
+  /** Hidden by me (the other person's copy is untouched). */
+  hidden: boolean
 }
 
 interface Props {
@@ -37,6 +41,8 @@ export default function MessagesListClient({ initialConversations, currentUserId
   const supabase = useRef<ReturnType<typeof createBrowserClient> | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const busy = useRef(false)
+  const [showInactive, setShowInactive] = useState(false)
+  const [showHidden, setShowHidden] = useState(false)
 
   // ── Decrypt previews ────────────────────────────────────────────────────────
   // last_message_preview may now hold ciphertext (see sendMessageAction) instead
@@ -170,9 +176,14 @@ export default function MessagesListClient({ initialConversations, currentUserId
 
   if (conversations.length === 0) return null
 
-  return (
-    <div>
-      {conversations.map((conv) => {
+  async function handleUnhide(id: string) {
+    setConversations(prev => prev.map(c => (c.id === id ? { ...c, hidden: false } : c)))   // optimistic
+    const r = await unhideConversationAction(id).catch(() => ({ error: 'network' }))
+    if ('error' in r) setConversations(prev => prev.map(c => (c.id === id ? { ...c, hidden: true } : c)))
+  }
+
+  const renderRow = (conv: Conversation, hiddenRow = false) => {
+    {
         const other    = conv.other
         const initials = other?.display_name?.slice(0, 2).toUpperCase() ?? '??'
         const color    = AVATAR_COLORS[(other?.username?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]
@@ -237,6 +248,14 @@ export default function MessagesListClient({ initialConversations, currentUserId
                     {conv.last_message_preview === 'Message deleted' && <Trash2 size={12} style={{ flexShrink: 0, opacity: 0.7 }} />}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview}</span>
                   </span>
+                  {hiddenRow && (
+                    <button
+                      onClick={e => { e.preventDefault(); e.stopPropagation(); void handleUnhide(conv.id) }}
+                      style={{ flexShrink: 0, marginLeft: 8, background: 'none', border: '1px solid var(--color-border)', borderRadius: 14, padding: '3px 10px', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+                    >
+                      Unhide
+                    </button>
+                  )}
                   {conv.unread_count > 0 && (
                     <div style={{
                       minWidth: 20, height: 20, borderRadius: 10,
@@ -253,7 +272,55 @@ export default function MessagesListClient({ initialConversations, currentUserId
             </div>
           </Link>
         )
-      })}
+    }
+  }
+
+  const visible  = conversations.filter(c => !c.hidden)
+  const active   = visible.filter(c => !c.lock)
+  const inactive = visible.filter(c => c.lock)
+  const hidden   = conversations.filter(c => c.hidden)
+  const unreadIn = (list: Conversation[]) => list.reduce((n, c) => n + (c.unread_count > 0 ? 1 : 0), 0)
+
+  const sectionHeader = (label: string, count: number, open: boolean, toggle: () => void, unread: number) => (
+    <button
+      onClick={toggle}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '12px 20px',
+        background: 'var(--color-surface-2)', border: 'none', borderBottom: '1px solid var(--color-border)',
+        cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--color-text-secondary)',
+        fontFamily: "'Syne', sans-serif", textAlign: 'left',
+      }}
+    >
+      {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+      {label} ({count})
+      {!open && unread > 0 && <span style={{ width: 8, height: 8, borderRadius: 4, background: 'var(--color-brand)' }} />}
+    </button>
+  )
+
+  return (
+    <div>
+      {active.map(c => renderRow(c))}
+
+      {inactive.length > 0 && (
+        <>
+          {sectionHeader('Inactive chats', inactive.length, showInactive, () => setShowInactive(v => !v), unreadIn(inactive))}
+          {showInactive && (
+            <>
+              <p style={{ margin: 0, padding: '10px 20px', fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                You can read these, but not reply until you follow each other again.
+              </p>
+              {inactive.map(c => renderRow(c))}
+            </>
+          )}
+        </>
+      )}
+
+      {hidden.length > 0 && (
+        <>
+          {sectionHeader('Hidden chats', hidden.length, showHidden, () => setShowHidden(v => !v), 0)}
+          {showHidden && hidden.map(c => renderRow(c, true))}
+        </>
+      )}
     </div>
   )
 }

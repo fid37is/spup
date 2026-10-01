@@ -131,7 +131,11 @@ async function send(kind: EngagementKind, id: string, desired: boolean): Promise
       }
       return { outcome: 'server' }
     }
-    if ([400, 401, 403, 404].includes(res.status)) return { outcome: 'fatal' }
+    if ([400, 401, 403, 404].includes(res.status)) {
+      // A blocked follow is refused for good; its message is safe to show.
+      const data = await res.json().catch(() => null)
+      return { outcome: 'fatal', message: data?.code === 'follow_blocked' ? data.error : undefined }
+    }
     return { outcome: 'server' }  // 5xx / gateway timeout on a weak link
   } catch {
     return { outcome: 'network' } // timeout, dropped connection, offline
@@ -167,7 +171,7 @@ async function deliver(k: string, it: Intent) {
     const fails = it.fails + (outcome === 'server' ? 1 : 0)
     if (outcome === 'fatal' || fails >= MAX_SERVER_FAILS) {
       intents.delete(k)
-      failureListeners.forEach(l => l(kind, id))
+      failureListeners.forEach(l => l(kind, id, message))
     } else {
       const attempts = it.attempts + 1
       intents.set(k, {

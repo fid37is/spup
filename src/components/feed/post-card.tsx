@@ -52,7 +52,7 @@ import { useTranslation } from '@/lib/i18n/language-context'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
-  name, avatarUrl, size = 42, username, clickable = false, postId,
+  name, avatarUrl, size = 42, username, clickable = false, postId, isOwn = false,
 }: {
   name: string
   avatarUrl?: string | null
@@ -60,6 +60,8 @@ function Avatar({
   username?: string
   clickable?: boolean
   postId?: string
+  /** The author is the signed-in user: go to /profile and don't count a visit. */
+  isOwn?: boolean
 }) {
   const router = useRouter()
   const colors = ['#1A7A4A', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A1A4A', '#4A7A1A']
@@ -70,6 +72,7 @@ function Avatar({
         clickable && username
           ? e => {
             e.stopPropagation()
+            if (isOwn) { router.push('/profile'); return }
             if (postId) void recordProfileVisitFromPostAction(postId)
             router.push(`/user/${username}`)
           }
@@ -1067,7 +1070,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
         <Repeat2 size={14} color="var(--color-text-muted)" />
         <span style={{ fontSize: 13, color: 'var(--color-text-muted)', fontFamily: "'DM Sans',sans-serif" }}>
           <span
-            onClick={e => { e.stopPropagation(); router.push(`/user/${post.author.username}`) }}
+            onClick={e => { e.stopPropagation(); router.push(currentUserId && post.author.id === currentUserId ? '/profile' : `/user/${post.author.username}`) }}
             style={{ color: 'var(--color-text-secondary)', fontWeight: 600, cursor: 'pointer' }}
             onMouseEnter={e => e.currentTarget.style.color = 'var(--color-text-primary)'}
             onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-secondary)'}
@@ -1081,12 +1084,17 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
 
       {/* Normal post layout, showing the original post */}
       <div style={{ display: 'flex', gap: 12 }}>
-        <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable postId={original.id} />
+        <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable postId={original.id} isOwn={!!currentUserId && original.author?.id === currentUserId} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 3 }}>
             <span
-              onClick={e => { e.stopPropagation(); void recordProfileVisitFromPostAction(original.id); router.push(`/user/${original.author.username}`) }}
+              onClick={e => {
+                e.stopPropagation()
+                if (currentUserId && original.author.id === currentUserId) { router.push('/profile'); return }
+                void recordProfileVisitFromPostAction(original.id)
+                router.push(`/user/${original.author.username}`)
+              }}
               style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
               onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
               onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
@@ -1347,7 +1355,7 @@ export default function PostCard({
         onMouseEnter={e => { if (!isReply) e.currentTarget.style.background = 'var(--color-surface-2)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
       >
-        <Avatar name={author?.display_name || 'S'} avatarUrl={author?.avatar_url} username={author?.username} clickable postId={post.id} />
+        <Avatar name={author?.display_name || 'S'} avatarUrl={author?.avatar_url} username={author?.username} clickable postId={post.id} isOwn={isOwnPost} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Promoted badge - same spot Pinned uses, shown instead of it when
@@ -1368,7 +1376,11 @@ export default function PostCard({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
               <span
-                onClick={e => { e.stopPropagation(); if (author?.username) { void recordProfileVisitFromPostAction(post.id); router.push(`/user/${author.username}`) } }}
+                onClick={e => {
+                  e.stopPropagation()
+                  if (isOwnPost) { router.push('/profile'); return }
+                  if (author?.username) { void recordProfileVisitFromPostAction(post.id); router.push(`/user/${author.username}`) }
+                }}
                 style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
                 onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
                 onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}

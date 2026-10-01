@@ -24,7 +24,7 @@ async function getActivityFeed(): Promise<FeedEvent[]> {
     admin.from('users').select('id, username, display_name, created_at').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('posts').select('id, body, post_type, created_at, author:users!posts_user_id_fkey(username)').is('deleted_at', null).order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('transactions').select('id, type, amount_kobo, status, created_at, wallet:wallets(user:users(username))').eq('status', 'completed').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
-    admin.from('post_promotions').select('id, tier, price_kobo, status, created_at, user:users(username)').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
+    admin.from('post_promotions').select('id, tier, price_kobo, amount_paid_kobo, status, created_at, user:users(username)').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
     admin.from('reports').select('id, reason, entity_type, created_at, reporter:users!reports_reporter_id_fkey(username)').order('created_at', { ascending: false }).limit(LIMIT_PER_SOURCE),
   ])
 
@@ -52,7 +52,7 @@ async function getActivityFeed(): Promise<FeedEvent[]> {
     events.push({ id: `txn-${t.id}`, type: 'transaction', created_at: t.created_at, actor: `@${t.wallet?.user?.username || 'unknown'}`, detail: `${label} · ${formatNaira(t.amount_kobo)}`, color: '#1A9E5F', icon: Wallet })
   }
   for (const pr of (promos || []) as any[]) {
-    events.push({ id: `promo-${pr.id}`, type: 'promotion', created_at: pr.created_at, actor: `@${pr.user?.username || 'unknown'}`, detail: `${pr.status === 'active' ? 'boosted a post' : `promotion ${pr.status}`} (${pr.tier}, ${formatNaira(pr.price_kobo)})`, color: '#D4A017', icon: Megaphone })
+    events.push({ id: `promo-${pr.id}`, type: 'promotion', created_at: pr.created_at, actor: `@${pr.user?.username || 'unknown'}`, detail: `${pr.status === 'active' ? 'boosted a post' : `promotion ${pr.status}`} (${pr.tier}, ${pr.amount_paid_kobo > 0 ? formatNaira(pr.amount_paid_kobo) : ['pending', 'failed'].includes(pr.status) ? formatNaira(pr.price_kobo) : 'free'})`, color: '#D4A017', icon: Megaphone })
   }
   for (const r of (reports || []) as any[]) {
     events.push({ id: `report-${r.id}`, type: 'report', created_at: r.created_at, actor: `@${r.reporter?.username || 'unknown'}`, detail: `reported a ${r.entity_type} for ${r.reason.replace(/_/g, ' ')}`, color: '#E53935', icon: Flag })

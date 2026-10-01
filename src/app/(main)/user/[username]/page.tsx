@@ -1,11 +1,13 @@
 // src/app/(main)/user/[username]/page.tsx
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
-import { getProfileByUsername, getUserPosts, attachQuotedPosts } from '@/lib/queries'
+import { getProfileByUsername, getUserPosts } from '@/lib/queries'
 import { formatNumber } from '@/lib/utils'
 import { Lock } from 'lucide-react'
 import Link from 'next/link'
 import ProfileActionBar from './profile-action-bar'
+import BlockedProfile from './blocked-profile'
+import { getBlockState } from '@/lib/mutuals'
 import ProfileHeader from '@/components/profile/profile-header'
 import ProfileTabs from '@/components/profile/profile-tabs'
 import type { FeedPost } from '@/lib/actions/feed'
@@ -84,8 +86,23 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
 
   if (isOwnProfile) redirect('/profile')
 
+  // If this person blocked the viewer, show an explicit "You're blocked" screen
+  // (name, handle and avatar only). Returns before any posts are fetched.
+  const blockState = viewerProfileId
+    ? await getBlockState(viewerProfileId, profile.id)
+    : { byMe: false, byThem: false }
+  if (blockState.byThem) {
+    return (
+      <BlockedProfile
+        displayName={profile.display_name}
+        username={profile.username}
+        avatarUrl={profile.avatar_url ?? null}
+      />
+    )
+  }
+
   const canSeeContent = !profile.is_private || isFollowing
-  const rawPosts      = canSeeContent ? await attachQuotedPosts(await getUserPosts(profile.id, 20)) : []
+  const rawPosts      = canSeeContent ? await getUserPosts(profile.id, 20) : []
 
   // Hydrate engagement for viewer
   const postIds = rawPosts.map((p: any) => p.id)
@@ -148,20 +165,20 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   // Fetch mute/block/notification status for viewer
   let initialMuted = false, initialBlocked = false, initialNotifsEnabled = false
   if (viewerProfileId) {
-    const [muteRow, blockRow, notifRow] = await Promise.all([
-      admin.from('mutes').select('id').match({ muter_id: viewerProfileId, muted_id: profile.id }).maybeSingle(),
-      admin.from('blocks').select('id').match({ blocker_id: viewerProfileId, blocked_id: profile.id }).maybeSingle(),
+    // The tables are user_mutes / user_blocks (composite keys, no `id` column) -
+    // this used to query 'mutes' / 'blocks', so a refreshed profile never
+    // showed a blocked or muted person as blocked or muted.
+    const [muteRow, notifRow] = await Promise.all([
+      admin.from('user_mutes').select('muter_id').match({ muter_id: viewerProfileId, muted_id: profile.id }).maybeSingle(),
       admin.from('user_notification_preferences').select('id').match({ user_id: viewerProfileId, target_user_id: profile.id, type: 'post' }).maybeSingle(),
     ])
     initialMuted          = !!muteRow.data
-    initialBlocked        = !!blockRow.data
+    initialBlocked        = blockState.byMe
     initialNotifsEnabled  = !!notifRow.data
   }
 
-  // Chat is allowed if: profile has chat open to everyone, OR viewer follows them
-  const chatAllowed = !!(viewerProfileId && (
-    (profile as any).chat_visibility === 'everyone' || isFollowing
-  ))
+  // Chat is only allowed between mutuals: the viewer follows them AND they follow the viewer.
+  const chatAllowed = !!(viewerProfileId && isFollowing && followsMe && !blockState.byMe && !blockState.byThem)
 
   const actionSlot = authUser && viewerProfileId ? (
     <ProfileActionBar

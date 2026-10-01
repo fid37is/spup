@@ -12,6 +12,7 @@ interface PromotionDetail {
   id: string
   tier: string
   price_kobo: number
+  amount_paid_kobo: number
   duration_hours: number
   status: string
   impressions_count: number
@@ -43,7 +44,7 @@ async function getPromotion(id: string) {
   const { data } = await admin
     .from('post_promotions')
     .select(`
-      id, tier, price_kobo, duration_hours, status, impressions_count, clicks_count,
+      id, tier, price_kobo, amount_paid_kobo, duration_hours, status, impressions_count, clicks_count,
       starts_at, ends_at, created_at,
       post:posts(id, body, likes_count, comments_count, reposts_count, created_at),
       user:users(id, username, display_name, avatar_url)
@@ -135,7 +136,7 @@ export default async function PromotionDetailPage({ params }: { params: Promise<
         <div className="rounded-2xl border border-border bg-surface p-4 sm:p-5">
           <div className="mb-3.5 text-[11px] font-bold tracking-wide text-faint">PACKAGE</div>
           <DetailRow label="Tier" value={<span className="capitalize">{promotion.tier}</span>} />
-          <DetailRow label="Price paid" value={<span className="font-bold text-brand">{formatNaira(promotion.price_kobo)}</span>} />
+          <DetailRow label="Price paid" value={<span className="font-bold text-brand">{promotion.amount_paid_kobo > 0 ? formatNaira(promotion.amount_paid_kobo) : ['pending', 'failed'].includes(promotion.status) ? `${formatNaira(promotion.price_kobo)} (unpaid)` : 'Free (promo code)'}</span>} />
           <DetailRow label="Duration" value={`${promotion.duration_hours} hours`} />
         </div>
 
