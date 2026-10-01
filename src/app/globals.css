@@ -273,6 +273,10 @@ body > * { position: relative; z-index: 1; }
 }
 
 /* ── Animations ───────────────────────────────────────────────── */
+@keyframes mediaPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }

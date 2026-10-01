@@ -1047,10 +1047,12 @@ async function hydrateEngagement(
   const [{ data: likes }, { data: bookmarks }, { data: reposts }, { data: quotedPosts }] = await Promise.all([
     supabase.from('likes').select('post_id').eq('user_id', userId).in('post_id', ids),
     supabase.from('bookmarks').select('post_id').eq('user_id', userId).in('post_id', ids),
-    supabase.from('posts').select('quoted_post_id').eq('user_id', userId).eq('post_type', 'repost').in('quoted_post_id', ids),
+    // Includes the quoted/original posts too, so a repost card knows whether the
+    // viewer has already reposted the ORIGINAL (that is what its Repost button acts on).
+    supabase.from('posts').select('quoted_post_id').eq('user_id', userId).eq('post_type', 'repost').is('deleted_at', null).in('quoted_post_id', [...new Set([...ids, ...quotedIds])]),
     quotedIds.length
       ? supabase.from('posts').select(`
-          id, body, created_at, is_selling,
+          id, body, created_at, is_selling, likes_count, comments_count, reposts_count,
           author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier),
           media:post_media(id, media_type, url, thumbnail_url, width, height, position)
         `).in('id', quotedIds)
@@ -1067,6 +1069,8 @@ async function hydrateEngagement(
     is_liked: likedSet.has(p.id),
     is_bookmarked: bookmarkedSet.has(p.id),
     is_reposted: repostedSet.has(p.id),
-    quoted_post: p.quoted_post_id ? (quotedMap.get(p.quoted_post_id) ?? null) : null,
+    quoted_post: p.quoted_post_id
+      ? (() => { const q = quotedMap.get(p.quoted_post_id!); return q ? { ...q, is_reposted: repostedSet.has(q.id) } : null })()
+      : null,
   }))
 }

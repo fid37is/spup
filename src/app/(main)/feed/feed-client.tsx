@@ -10,6 +10,7 @@ import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
 import { NotifAvatar } from '@/components/notifications/avatar'
 import { useNetworkStatus } from '@/lib/network-status'
+import { subscribeFeedEvents } from '@/lib/feed-local-events'
 import { useOfflinePostSync } from '@/hooks/use-offline-post-sync'
 import { useTranslation } from '@/lib/i18n/language-context'
 
@@ -471,6 +472,33 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
+  }, [currentUserId])
+
+  // Your own repost: the realtime channel skips your own inserts, so PostActions
+  // hands the new repost over here. It waits behind the pill like anyone else's new
+  // post (already in hand, so showing it costs no fetch). Undoing a repost removes
+  // that repost from the list straight away.
+  useEffect(() => {
+    return subscribeFeedEvents(e => {
+      if (e.type === 'repost-added') {
+        if (tabRef.current !== 'for-you') return
+        const id = e.post.id
+        if (postsRef.current.some(p => p.id === id) || pendingIdsRef.current.includes(id)) return
+        if (pendingIdsRef.current.length >= MAX_PENDING_IDS) { pendingOverflowRef.current = true }
+        else { pendingIdsRef.current.push(id); pendingPostsRef.current.set(id, e.post) }
+        setHasNew(true)
+        return
+      }
+      const isMineOf = (p: FeedPost) =>
+        p.post_type === 'repost' && p.quoted_post_id === e.originalId && (!currentUserId || p.author?.id === currentUserId)
+      const mine = new Set(postsRef.current.filter(isMineOf).map(p => p.id))
+      for (const [id, p] of pendingPostsRef.current) if (isMineOf(p)) mine.add(id)
+      if (mine.size === 0) return
+      pendingIdsRef.current = pendingIdsRef.current.filter(id => !mine.has(id))
+      mine.forEach(id => pendingPostsRef.current.delete(id))
+      if (pendingIdsRef.current.length === 0 && !pendingOverflowRef.current) setHasNew(false)
+      setPosts(prev => prev.filter(p => !mine.has(p.id)))
+    })
   }, [currentUserId])
 
   async function showNewPosts() {
