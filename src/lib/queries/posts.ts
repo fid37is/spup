@@ -108,6 +108,29 @@ export async function getUserPosts(userId: string, limit = 20) {
   return data || []
 }
 
+// ─── Quoted posts for a list of rows ─────────────────────────────────────────
+// Rows from getUserPosts and friends only carry quoted_post_id. The profile pages
+// build their first paint straight from those rows, so a quote (or repost) showed
+// no embedded post - and none of its media - until a tab was switched. This attaches
+// `quoted_post` (author + media included), the same shape the feed hydration gives.
+export async function attachQuotedPosts<T extends { quoted_post_id?: string | null }>(rows: T[]) {
+  const ids = [...new Set(rows.map(r => r.quoted_post_id).filter(Boolean))] as string[]
+  if (!ids.length) return rows.map(r => ({ ...r, quoted_post: null as any }))
+
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('posts')
+    .select(POST_SELECT)
+    .in('id', ids)
+    .is('deleted_at', null)
+
+  const byId = new Map<string, any>((data || []).map((q: any) => [q.id, q]))
+  return rows.map(r => ({
+    ...r,
+    quoted_post: r.quoted_post_id ? (byId.get(r.quoted_post_id) ?? null) : null,
+  }))
+}
+
 // ─── User's replies ───────────────────────────────────────────────────────────
 
 export async function getUserReplies(userId: string, limit = 20) {

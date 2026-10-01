@@ -32,6 +32,9 @@ interface PostModalProps {
   // posts (no parentPostId) - replies/quotes can't be scheduled (see
   // createPostSchema) and aren't the kind of thing people draft for later.
   userId?: string
+  // Replies only: hands the new reply to the thread on screen so it shows up in
+  // place. Without it the modal falls back to router.refresh().
+  onPosted?: (post: any) => void
 }
 
 const AvatarCircle = ({ name, url, size = 44 }: { name: string; url?: string | null; size?: number }) => {
@@ -53,7 +56,7 @@ const AvatarCircle = ({ name, url, size = 44 }: { name: string; url?: string | n
   )
 }
 
-export default function PostModal({ onClose, parentPostId, replyTo, viewer, userId }: PostModalProps) {
+export default function PostModal({ onClose, parentPostId, replyTo, viewer, userId, onPosted }: PostModalProps) {
   const router = useRouter()
   const { t } = useTranslation()
   const [body, setBody] = useState('')
@@ -171,6 +174,13 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
         toastSuccess(`Scheduled for ${formatScheduled(scheduledFor)}`)
         // Not visible anywhere yet (see createPostAction) - nothing new for
         // the page to reflect.
+        return
+      }
+      // router.refresh() clears the client cache, so the feed behind this page would
+      // refetch (skeleton) when the person goes back. A reply is put into the thread
+      // directly instead.
+      if (parentPostId && onPosted && 'post' in result && result.post) {
+        onPosted(result.post)
         return
       }
       router.refresh()

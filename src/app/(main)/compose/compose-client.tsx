@@ -51,8 +51,12 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
     // at the top straight away (null = scheduled/queued offline: nothing to
     // show yet, either way).
     if (replyTo) {
+      // No router.refresh() after this: replace() is already a fresh navigation (pages
+      // are not cached between visits), so the new reply loads with it. A refresh on
+      // top of that was a second server round trip, and it also cleared the client
+      // cache, so going back to the feed had to refetch it (skeleton) instead of
+      // restoring it as it was.
       router.replace(`/post/${returnTo ?? replyTo.id}`)
-      router.refresh()
       return
     }
     if (post) {
