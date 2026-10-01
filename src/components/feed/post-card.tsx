@@ -319,20 +319,26 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
     )
   }
 
-  // Multiple items - matches the reference: tight square-ish tiles, 3px gap,
-  // one continuous rounded block. Exactly 2 items fill the row edge-to-edge,
+  // Multiple items - matches the reference: tight tiles, 3px gap. In the feed
+  // the tiles are PORTRAIT and big enough to read without opening them. The
+  // compact quoted-post embed keeps its small squares. Exactly 2 items fill the row edge-to-edge,
   // same as X's static grid. 3+ items scroll horizontally (X can't show more
   // than 2-4 in a static grid at all - this is the one deliberate departure,
   // since the ask was specifically to make extra photos reachable by swipe).
+  // Two or more photos scroll sideways (X-style): tiles keep a relaxed width so
+  // the next photo peeks in from the edge instead of every photo being squeezed
+  // into the frame. Only the small quoted-post embed keeps its squeezed pair.
+  const scrolls = sorted.length > 2 || (!compact && sorted.length === 2)
+
   return (
     <>
       <div
         ref={scrollerRef}
         className="media-scroller"
         style={{
-          display: 'flex', gap: 3, borderRadius: radius, overflow: sorted.length > 2 ? 'auto' : 'hidden',
+          display: 'flex', gap: 3, borderRadius: radius, overflow: scrolls ? 'auto' : 'hidden',
           marginBottom: compact ? 0 : 10,
-          scrollSnapType: sorted.length > 2 ? 'x mandatory' : undefined,
+          scrollSnapType: scrolls ? 'x mandatory' : undefined,
           WebkitOverflowScrolling: 'touch',
           maxHeight: compact ? cap : undefined,
           // Stops horizontal swipes through multi-image posts from being
@@ -346,15 +352,16 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
             key={m.id || i}
             onClick={compact ? undefined : (e => openViewer(i, e))}
             style={{
-              flex: sorted.length > 2 ? '0 0 48%' : '1 1 50%',
-              scrollSnapAlign: sorted.length > 2 ? 'start' : undefined,
-              aspectRatio: '1/1', overflow: 'hidden',
+              // ~59% wide, 3:4 tall, so the next photo peeks in and invites the swipe
+              flex: scrolls ? (compact ? '0 0 48%' : '0 0 59%') : '1 1 50%',
+              scrollSnapAlign: scrolls ? 'start' : undefined,
+              aspectRatio: compact ? '1/1' : '3/4', overflow: 'hidden',
               background: 'var(--color-surface-2)', position: 'relative',
               cursor: 'pointer',
             }}
           >
             {m.media_type === 'image'
-              ? <GatedMedia render={() => <img src={cloudinaryImage(m.url, 480)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(m.url)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
+              ? <GatedMedia render={() => <img src={cloudinaryImage(m.url, compact ? 480 : 700)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(m.url)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
               : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} registry={inlineVideos.current} index={i} />} />
             }
           </div>
