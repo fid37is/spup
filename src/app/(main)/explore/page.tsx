@@ -103,19 +103,43 @@ function noEngagement(posts: any[]) {
 }
 
 /**
+ * People this viewer has blocked or muted. Explore must hide them exactly like the
+ * feed does (lib/actions/feed.ts) - they were never filtered here, so a blocked
+ * user's posts kept turning up in every tab and in search.
+ */
+async function getHiddenIds(db: Supabase, profileId: string | null): Promise<string[]> {
+  if (!profileId) return []
+  const [{ data: blocks }, { data: mutes }] = await Promise.all([
+    db.from('user_blocks').select('blocked_id').eq('blocker_id', profileId),
+    db.from('user_mutes').select('muted_id').eq('muter_id', profileId),
+  ])
+  return Array.from(new Set([
+    ...(blocks || []).map((b: any) => b.blocked_id as string),
+    ...(mutes || []).map((m: any) => m.muted_id as string),
+  ]))
+}
+
+/** Drops posts written by hidden users (for queries where the filter can't be done in SQL). */
+function withoutHidden(posts: any[], hidden: string[]) {
+  if (!hidden.length) return posts
+  const set = new Set(hidden)
+  return posts.filter((p: any) => !set.has(p.author?.id))
+}
+
+/**
  * Posts that belong to a topic: carry one of its hashtags OR contain one of its
  * words. The match runs in Postgres (explore_topic_post_ids); this loads the
  * full rows for the ids it returns and keeps their newest-first order.
  */
 async function getTopicPosts(
   db: Supabase, topics: ExploreTopic[], profileId: string | null,
-  { days = 30, limit = 30 }: { days?: number; limit?: number } = {},
+  { days = 30, limit = 30, hidden = [] }: { days?: number; limit?: number; hidden?: string[] } = {},
 ) {
   const { tags, pattern } = mergeTopics(topics)
   if (!tags.length && !pattern) return []
 
   const { data: idRows, error } = await db.rpc('explore_topic_post_ids', {
-    p_tags: tags, p_pattern: pattern, p_days: days, p_limit: limit,
+    p_tags: tags, p_pattern: pattern, p_days: days, p_limit: limit, p_exclude: hidden,
   })
   if (error) { console.error('explore_topic_post_ids failed:', error.message); return [] }
   const ids: string[] = (idRows || []).map((r: any) => r.id as string)
@@ -133,36 +157,36 @@ function topicsForInterests(interestIds: readonly string[]): ExploreTopic[] {
 }
 
 /** For You: posts matching the user's saved interests, topped up with hot posts so it is never empty. */
-async function getForYouPosts(db: Supabase, profileId: string | null) {
-  if (!profileId) return getHotPosts(db, null)
+async function getForYouPosts(db: Supabase, profileId: string | null, hidden: string[]) {
+  if (!profileId) return getHotPosts(db, null, hidden)
 
   const { data: saved } = await db.from('user_interests').select('interest').eq('user_id', profileId)
   const interestIds = (saved || []).map((r: any) => r.interest as string)
-  if (!interestIds.length) return getHotPosts(db, profileId)
+  if (!interestIds.length) return getHotPosts(db, profileId, hidden)
 
-  const matched = await getTopicPosts(db, topicsForInterests(interestIds), profileId, { limit: 30 })
+  const matched = await getTopicPosts(db, topicsForInterests(interestIds), profileId, { limit: 30, hidden })
   if (matched.length >= 15) return matched
 
   const seen = new Set(matched.map((p: any) => p.id))
-  const hot = (await getHotPosts(db, profileId)).filter((p: any) => !seen.has(p.id))
+  const hot = (await getHotPosts(db, profileId, hidden)).filter((p: any) => !seen.has(p.id))
   return [...matched, ...hot].slice(0, 30)
 }
 
 /** Category tab: the tab's interests plus the tab's own extra tags and words. */
-async function getCategoryPosts(db: Supabase, tabKey: string, categories: readonly string[], profileId: string | null) {
+async function getCategoryPosts(db: Supabase, tabKey: string, categories: readonly string[], profileId: string | null, hidden: string[]) {
   const interestIds = NIGERIAN_INTERESTS.filter(i => categories.includes(i.category)).map(i => i.id)
   const topics = topicsForInterests(interestIds)
   if (TAB_EXTRAS[tabKey]) topics.push(TAB_EXTRAS[tabKey])
-  return getTopicPosts(db, topics, profileId, { limit: 30 })
+  return getTopicPosts(db, topics, profileId, { limit: 30, hidden })
 }
 
 /** Jobs tab: vacancies and employment posts. */
-async function getJobPosts(db: Supabase, profileId: string | null) {
-  return getTopicPosts(db, [JOBS_TOPIC], profileId, { days: 45, limit: 40 })
+async function getJobPosts(db: Supabase, profileId: string | null, hidden: string[]) {
+  return getTopicPosts(db, [JOBS_TOPIC], profileId, { days: 45, limit: 40, hidden })
 }
 
 /** Hot posts: most-liked in the last 7 days, newest first among ties. */
-async function getHotPosts(db: Supabase, profileId: string | null) {
+async function getHotPosts(db: Supabase, profileId: string | null, hidden: string[] = []) {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
   const { data: raw } = await db
     .from('posts')
@@ -175,7 +199,7 @@ async function getHotPosts(db: Supabase, profileId: string | null) {
     .order('created_at', { ascending: false })
     .lte('created_at', new Date().toISOString())
     .limit(20)
-  const posts = raw || []
+  const posts = withoutHidden(raw || [], hidden)
   if (!posts.length) return []
   if (!profileId) return noEngagement(posts)
   return hydrateEngagement(db, profileId, posts)
@@ -191,9 +215,9 @@ async function getTrending(db: Supabase): Promise<TrendingTag[]> {
   return (data || []) as TrendingTag[]
 }
 
-async function getSuggestedPeople(db: Supabase, profileId: string): Promise<UserResult[]> {
+async function getSuggestedPeople(db: Supabase, profileId: string, hidden: string[]): Promise<UserResult[]> {
   const { data: follows } = await db.from('follows').select('following_id').eq('follower_id', profileId)
-  const excludeIds = [profileId, ...((follows || []).map((f: any) => f.following_id))]
+  const excludeIds = [profileId, ...hidden, ...((follows || []).map((f: any) => f.following_id))]
   // Blends newest accounts in with the most-followed ones so new users
   // actually get discovered instead of being buried under everyone
   // who already has followers — see lib/queries/users.ts.
@@ -202,7 +226,7 @@ async function getSuggestedPeople(db: Supabase, profileId: string): Promise<User
 
 // ─── Search fetchers ──────────────────────────────────────────────────────────
 
-async function searchPosts(db: Supabase, query: string, profileId: string | null) {
+async function searchPosts(db: Supabase, query: string, profileId: string | null, hidden: string[]) {
   const isHashtag = query.startsWith('#')
   const term = isHashtag ? query.slice(1).toLowerCase() : query
   let rawPosts: any[] = []
@@ -220,6 +244,7 @@ async function searchPosts(db: Supabase, query: string, profileId: string | null
     rawPosts = data || []
   }
 
+  rawPosts = withoutHidden(rawPosts, hidden)
   if (!rawPosts.length || !profileId) return noEngagement(rawPosts)
   return hydrateEngagement(db, profileId, rawPosts)
 }
@@ -408,6 +433,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
       followerIdSet = new Set((followerRows || []).map((r: any) => r.follower_id as string))
     }
   }
+  const hidden = await getHiddenIds(db, profileId)
 
   // Only needed for the browse/discovery tabs — skip the fetch entirely
   // when the person is searching.
@@ -426,7 +452,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
   // ─── Search state ──────────────────────────────────────────────────────────
   if (query) {
     const [postResults, userResults, hashtagResults] = await Promise.all([
-      searchPosts(db, query, profileId),
+      searchPosts(db, query, profileId, hidden),
       searchUsers(db, query),
       searchHashtags(db, query),
     ])
@@ -463,8 +489,8 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
   // For You tab
   if (etab === 'for-you') {
     const [forYouPosts, suggestedPeople] = await Promise.all([
-      getForYouPosts(db, profileId),
-      profileId ? getSuggestedPeople(db, profileId) : Promise.resolve([]),
+      getForYouPosts(db, profileId, hidden),
+      profileId ? getSuggestedPeople(db, profileId, hidden) : Promise.resolve([]),
     ])
     return (
       <div>
@@ -494,7 +520,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
   // Trending tab
   if (etab === 'trending') {
     const [hotPosts, trending] = await Promise.all([
-      getHotPosts(db, profileId),
+      getHotPosts(db, profileId, hidden),
       getTrending(db),
     ])
     return (
@@ -522,7 +548,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
 
   // Jobs tab - full post cards so the role, requirements and how to apply are readable in place
   if (etab === 'jobs') {
-    const jobPosts = await getJobPosts(db, profileId)
+    const jobPosts = await getJobPosts(db, profileId, hidden)
     return (
       <div>
         {StickyHeader}
@@ -542,7 +568,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
   // News / Sports / Entertainment tabs
   const tabConfig = EXPLORE_TABS.find(t => t.key === etab)
   if (tabConfig && tabConfig.categories) {
-    const posts = await getCategoryPosts(db, tabConfig.key, tabConfig.categories, profileId)
+    const posts = await getCategoryPosts(db, tabConfig.key, tabConfig.categories, profileId, hidden)
     const TabIcon = tabConfig.icon
     return (
       <div>
