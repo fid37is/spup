@@ -2,24 +2,26 @@ import { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'com.spup.app',
-  appName: "Spup",
-  webDir: 'out',          // Next.js static export output
-  
+  appName: 'Spup',
+
+  // Placeholder folder (the app loads your live site via server.url below).
+  // Must exist, or `npx cap sync` fails.
+  webDir: 'mobile-www',
+
   server: {
-    // During development, point to local Next.js server so the device/
-    // simulator can reach it. Replace 192.168.1.x with your machine's
-    // actual LAN IP (e.g. `ipconfig getifaddr en0` on macOS, `hostname -I`
-    // on Linux, `ipconfig` on Windows) — this placeholder will not resolve.
-    // Comment this whole block out for production builds.
-    url: 'http://192.168.1.x:3000',
-    cleartext: true,
+    url: 'https://spup.live',
+    // Links to these domains stay inside the app; everything else
+    // opens outside it.
+    allowNavigation: ['spup.live', '*.spup.live'],
   },
+
   plugins: {
     SplashScreen: {
-      // Was a fixed 2000ms regardless of how fast the app was ready. Now a
-      // 500ms safety cap; NativeSplashHider hides it earlier, as soon as the
-      // web app has mounted.
-      launchShowDuration: 500,
+      // Safety cap. NativeSplashHider hides the splash earlier, as soon
+      // as the page has loaded, so this only matters on a very slow
+      // connection. 500ms was too short for a remote site and would
+      // cause a white flash before the page appeared.
+      launchShowDuration: 3000,
       launchAutoHide: true,
       launchFadeOutDuration: 200,
       backgroundColor: '#0A0A0A',
@@ -31,18 +33,19 @@ const config: CapacitorConfig = {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
     StatusBar: {
-      style: 'dark',                  // Spup is dark-themed
+      style: 'DARK', // light icons/text, for your dark theme
       backgroundColor: '#0A0A0A',
     },
   },
+
   android: {
-    allowMixedContent: true,
     backgroundColor: '#0A0A0A',
     buildOptions: {
       keystorePath: 'android/app/spup.keystore',
       keystoreAlias: 'spup',
     },
   },
+
   ios: {
     backgroundColor: '#0A0A0A',
     contentInset: 'always',
