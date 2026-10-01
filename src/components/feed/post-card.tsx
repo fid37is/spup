@@ -897,6 +897,7 @@ export default function PostCard({
   onReplyClick,
   isReply = false,
   hideBorder = false,
+  replyingTo,
 }: {
   post: FeedPost
   currentUserId?: string
@@ -919,6 +920,10 @@ export default function PostCard({
   // ever separates two *different* comment threads, never a comment from
   // its own replies).
   hideBorder?: boolean
+  // Handle of the nested reply this row answers - set only on replies to a reply
+  // (not on direct replies to the top-level comment). Renders a small
+  // "Replying to @handle" line above the body.
+  replyingTo?: string
 }) {
   const { t } = useTranslation()
   const [, startTransition] = useTransition()
@@ -1207,6 +1212,12 @@ export default function PostCard({
               </div>
             </div>
           </div>
+
+          {replyingTo && (
+            <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 4 }}>
+              Replying to <span style={{ color: 'var(--color-brand)' }}>@{replyingTo}</span>
+            </div>
+          )}
 
           {/* Body */}
           {post.body?.trim() && (
