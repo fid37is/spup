@@ -2,6 +2,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useTranslation } from '@/lib/i18n/language-context'
 
@@ -34,11 +35,46 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
     setError('')
 
     const supabase = createBrowserClient()
+    const scopes = provider === 'google' ? 'email profile' : 'email public_profile'
+
+    // ── Native app (Capacitor) ──────────────────────────────────────────
+    // Google refuses OAuth inside an embedded WebView, so open the system
+    // browser (Chrome Custom Tab) instead. Supabase sends the user back to
+    // the custom URL scheme below, which Android routes to the app;
+    // NativeBootstrap catches it and finishes sign-in at /api/auth/callback.
+    // The PKCE verifier cookie lives in this WebView, so the exchange works.
+    if (Capacitor.isNativePlatform()) {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: 'com.spup.app://auth/callback',
+          skipBrowserRedirect: true,
+          scopes,
+        },
+      })
+      if (error || !data?.url) {
+        setError(error?.message ?? 'Could not start sign in')
+        setLoading(null)
+        return
+      }
+      try {
+        const { Browser } = await import('@capacitor/browser')
+        await Browser.open({ url: data.url })
+      } catch {
+        setError('Could not open the sign-in page')
+      }
+      // Reset the spinner so the buttons work again if the user backs out
+      // of the browser without finishing.
+      setLoading(null)
+      return
+    }
+
+    // ── Web ─────────────────────────────────────────────────────────────
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: `${window.location.origin}/api/auth/callback`,
-        scopes: provider === 'google' ? 'email profile' : 'email public_profile',
+        scopes,
       },
     })
 
