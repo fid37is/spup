@@ -8,6 +8,7 @@ import { GoogleAnalytics } from '@next/third-parties/google'
 import { ToastProvider } from '@/components/layout/toast'
 import { NetworkStatusProvider } from '@/lib/network-status'
 import NativeSplashHider from '@/components/layout/native-splash-hider'
+import NativeBootstrap from '@/components/layout/native-bootstrap'
 import { AppThemeProvider } from '@/components/layout/theme-provider'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
@@ -194,6 +195,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <PWAProvider />
         <NativeSplashHider />
+        <NativeBootstrap />
         <AppThemeProvider>
           <NetworkStatusProvider>
             <ToastProvider>
