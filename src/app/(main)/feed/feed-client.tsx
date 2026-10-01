@@ -612,7 +612,9 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
         // Cursor is the created_at of the last post, so a shorter list just
         // needs the cursor moved back to its own last (non-promoted) post.
         keep = list.slice(0, SNAPSHOT_MAX_POSTS)
-        cursorOut = [...keep].reverse().find(p => !p.is_promoted)?.created_at ?? null
+        cursorOut = /^\d+$/.test(cursorRef.current ?? '')
+          ? String(keep.filter(p => !p.is_promoted).length) // ranked pool: the cursor is an offset
+          : [...keep].reverse().find(p => !p.is_promoted)?.created_at ?? null
         hasMoreOut = true
       }
       const a = anchor && keep.some(p => p.id === anchor!.id) ? anchor : null

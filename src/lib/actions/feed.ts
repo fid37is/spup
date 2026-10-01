@@ -14,6 +14,15 @@ import { scorePost, SCORE_WEIGHTS } from '@/lib/feed/scoring'
 
 const PAGE_SIZE = 20
 
+// For You ranks the most recent posts (up to FEED_WINDOW_MS old, at most
+// FEED_POOL_SIZE of them) with scorePost, so a strong older post can sit above
+// a weak newer one. Once that pool is used up the feed carries on with older
+// posts, newest first - nothing is cut off. A brand-new post has no
+// engagement yet, so it gets FEED_FRESHNESS points that fade with age.
+const FEED_WINDOW_MS = 14 * 24 * 3_600_000
+const FEED_POOL_SIZE = 200
+const FEED_FRESHNESS = 3
+
 // Scheduled posts carry a future created_at (see createPostAction) and must
 // never surface in a feed/listing - including the author's own profile -
 // until that moment arrives. RLS already enforces this as the real security
@@ -203,14 +212,19 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   const interestIds = (savedInterests || []).map((r: any) => r.interest)
 
   // Exclude posts from blocked/muted users
-  const [{ data: blocks }, { data: mutes }] = await Promise.all([
-    supabase.from('user_blocks').select('blocked_id').eq('blocker_id', profile.id),
-    supabase.from('user_mutes').select('muted_id').eq('muter_id', profile.id),
-  ])
-  const excludeIds = [
-    ...(blocks || []).map((b: {blocked_id: string}) => b.blocked_id),
-    ...(mutes || []).map((m: {muted_id: string}) => m.muted_id),
-  ]
+  const graph = await loadViewerGraph(supabase, profile.id)
+  const excludeIds = graph.hidden
+
+  // A cursor is a ranked-pool offset (digits) while inside the ranked window,
+  // or a created_at once the feed has moved on to older posts.
+  const isRanked = !cursor || /^\d+$/.test(cursor)
+  const offset = cursor && isRanked ? Number(cursor) : 0
+  const windowStartIso = new Date(Date.now() - FEED_WINDOW_MS).toISOString()
+  const scoreCtx = { followingIds: new Set(graph.following), mutualIds: new Set(graph.mutuals) }
+  const rankScore = (p: any) =>
+    scorePost(p, scoreCtx, { decayRate: SCORE_WEIGHTS.CATCH_UP_DECAY_RATE })
+    + FEED_FRESHNESS * Math.exp(-SCORE_WEIGHTS.DECAY_RATE * (Date.now() - Date.parse(p.created_at)) / 3_600_000)
+  const byRank = (a: any, b: any) => rankScore(b) - rankScore(a) || (a.created_at < b.created_at ? 1 : -1)
 
   let query = supabase
     .from('posts')
@@ -233,21 +247,34 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     // like any other post, at its own created_at (i.e. when it happened).
     .lte('created_at', nowIso())         // exclude scheduled posts not yet due
     .order('created_at', { ascending: false })
-    .limit(PAGE_SIZE + 1)                // fetch one extra to know if there's a next page
+    .limit(isRanked ? FEED_POOL_SIZE : PAGE_SIZE + 1)   // ranked: the whole pool; else one extra to know if there's a next page
 
   if (excludeIds.length) {
     query = query.not('user_id', 'in', `(${excludeIds.join(',')})`)
   }
-  if (cursor) {
-    query = query.lt('created_at', cursor)
+  if (isRanked) {
+    query = query.gte('created_at', windowStartIso)
+  } else {
+    query = query.lt('created_at', cursor!)
   }
 
   const { data: posts } = await query
   const rawPosts = asRawRows(posts)
 
-  const hasMore = rawPosts.length > PAGE_SIZE
-  const page = hasMore ? rawPosts.slice(0, PAGE_SIZE) : rawPosts
-  const nextCursor = hasMore ? page[page.length - 1].created_at : null
+  let page: RawFeedRow[]
+  let nextCursor: string | null
+  if (isRanked) {
+    const sorted = [...rawPosts].sort(byRank)
+    page = sorted.slice(offset, offset + PAGE_SIZE)
+    // Where the older-posts stretch begins: just below the pool if it was cut short, else the window edge.
+    const tailCursor = rawPosts.length === FEED_POOL_SIZE ? rawPosts[rawPosts.length - 1].created_at : windowStartIso
+    if (!page.length) return getForYouFeedAction(tailCursor)
+    nextCursor = offset + PAGE_SIZE < sorted.length ? String(offset + PAGE_SIZE) : tailCursor
+  } else {
+    const hasMore = rawPosts.length > PAGE_SIZE
+    page = hasMore ? rawPosts.slice(0, PAGE_SIZE) : rawPosts
+    nextCursor = hasMore ? page[page.length - 1].created_at : null
+  }
 
   // Interest-based personalisation - first page only (pages 2+ continue the
   // plain chronological order from `page` above, which keeps "load more"
@@ -296,8 +323,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
         const matchedIds = new Set(matched.map((p: any) => p.id))
         const backfillNeeded = Math.max(0, PAGE_SIZE - matched.length)
         const backfill = page.filter((p: any) => !matchedIds.has(p.id)).slice(0, backfillNeeded)
-        finalPage = [...matched, ...backfill]
-          .sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1))
+        finalPage = [...matched, ...backfill].sort(byRank)
       }
     }
   }
