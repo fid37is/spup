@@ -10,14 +10,11 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Loader2 } from 'lucide-react'
+import { X } from 'lucide-react'
 import PostComposer, { type PostComposerHandle, type ReplyToContext } from '@/app/(main)/feed/post-composer'
 import DraftsPanel from '@/components/feed/drafts-panel'
 import ChatViewport from '@/components/chat/chat-viewport'
 import type { LocalDraft } from '@/lib/local-drafts'
-
-// The feed picks this up when it mounts and shows the new post at the top.
-const JUST_POSTED_KEY = 'spup:just-posted'   // keep in sync with feed-client.tsx
 
 export default function ComposeClient({ userId, authorAvatarUrl, authorName, replyTo = null, replyChain = [], returnTo }: {
   userId?: string
@@ -32,9 +29,7 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   const router = useRouter()
   const composerRef = useRef<PostComposerHandle>(null)
   const [showDrafts, setShowDrafts] = useState(false)
-  const [composerState, setComposerState] = useState({
-    canPost: false, isPending: false, hasUploading: false, isScheduled: false,
-  })
+  const [composerState, setComposerState] = useState({ canPost: false, isScheduled: false })
 
   function leave() {
     // Back to wherever they came from; if this page was opened directly, the feed.
@@ -42,25 +37,19 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
     else router.replace('/feed')
   }
 
-  function handlePosted(post: unknown) {
+  // Called the moment Post is tapped. The post itself is being sent in the
+  // background (see lib/posting/poster) - a progress line shows at the top of
+  // the screen and a "Post sent" toast follows - so there is nothing to wait
+  // for: just leave. The poster also puts the finished post on the feed (or
+  // refreshes the thread, for a reply) once it's live.
+  function handlePosted() {
     // A reply: go back to the post detail page you were actually reading -
     // not the replied-to comment's own separate page, which is a different,
-    // disorienting destination even though the reply is technically visible
-    // there too. Falls back to the reply target itself only for an old link
-    // that predates returnTo. A new post: hand it to the feed so it appears
-    // at the top straight away (null = scheduled/queued offline: nothing to
-    // show yet, either way).
+    // disorienting destination. Falls back to the reply target itself only for
+    // an old link that predates returnTo.
     if (replyTo) {
-      // No router.refresh() after this: replace() is already a fresh navigation (pages
-      // are not cached between visits), so the new reply loads with it. A refresh on
-      // top of that was a second server round trip, and it also cleared the client
-      // cache, so going back to the feed had to refetch it (skeleton) instead of
-      // restoring it as it was.
       router.replace(`/post/${returnTo ?? replyTo.id}`)
       return
-    }
-    if (post) {
-      try { sessionStorage.setItem(JUST_POSTED_KEY, JSON.stringify(post)) } catch { /* private mode */ }
     }
     router.replace('/feed')
   }
@@ -70,13 +59,8 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
     composerRef.current?.loadDraft(draft)
   }
 
-  const { canPost, isPending, isScheduled } = composerState
-  // Replies show just the spinner while sending (no "Replying..." text).
-  const postLabel = replyTo
-    ? (isPending ? '' : 'Reply')
-    : isPending
-      ? (isScheduled ? 'Scheduling...' : 'Posting...')
-      : (isScheduled ? 'Schedule' : 'Post')
+  const { canPost, isScheduled } = composerState
+  const postLabel = replyTo ? 'Reply' : (isScheduled ? 'Schedule' : 'Post')
 
   return (
     <ChatViewport>
@@ -123,7 +107,6 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
               ...(replyTo ? { minWidth: 76 } : {}),
             }}
           >
-            {isPending && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
             {postLabel}
           </button>
         )}
@@ -139,6 +122,7 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
           userId={userId}
           replyTo={replyTo}
           replyChain={replyChain}
+          viewHref={replyTo ? `/post/${returnTo ?? replyTo.id}` : undefined}
           onStateChange={setComposerState}
           onPosted={handlePosted}
         />

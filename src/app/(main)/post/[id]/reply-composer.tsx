@@ -9,14 +9,12 @@
 // down the thread (see reply-to-reply.tsx) - the Maximize2 button here is
 // just an explicit opt-in for someone who wants more room to write.
 
-import { useState, useRef, useEffect, useTransition, useCallback } from 'react'
-import { ImageIcon, VideoIcon, X, Loader2, BarChart2, MapPin, Maximize2 } from 'lucide-react'
-import { createPostAction } from '@/lib/actions'
-import { showSupportResources } from '@/lib/support-resources'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { ImageIcon, VideoIcon, X, BarChart2, MapPin, Maximize2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useMediaUpload } from '@/hooks/use-media-upload'
+import { useBackgroundMedia } from '@/hooks/use-background-media'
+import { usePosting } from '@/components/layout/posting-provider'
 import MediaGrid from '@/components/feed/media-grid'
-import { useToast } from '@/components/layout/toast'
 import { useMentionAutocomplete } from '@/hooks/use-mention-autocomplete'
 import MentionSuggestions from '@/components/shared/mention-suggestions'
 import { useTranslation } from '@/lib/i18n/language-context'
@@ -40,17 +38,17 @@ export default function ReplyComposer({
 }: ReplyComposerProps) {
   const router = useRouter()
   const { t } = useTranslation()
-  const { success, error: toastError } = useToast()
+  const posting = usePosting()
 
   const [body, setBody] = useState('')
   const [focused, setFocused] = useState(false)
-  const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
   const [showMedia, setShowMedia] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const anchorRef = useRef<HTMLDivElement>(null)
-  const { media, uploading, progress, error: uploadError, upload, remove, clear } = useMediaUpload()
+  // Uploads start as soon as files are picked and never block Reply.
+  const { media, uploading, error: uploadError, upload, remove, takeForPost } = useBackgroundMedia()
 
   // This bar must always sit at the very bottom of what's actually visible
   // and ride up above the on-screen keyboard - never just wherever it falls
@@ -118,7 +116,7 @@ export default function ReplyComposer({
   const isOverLimit = charsLeft < 0
   const isWarning = charsLeft <= 30
   const hasContent = body.trim().length > 0 || media.length > 0
-  const canPost = hasContent && !isOverLimit && !isPending && !uploading
+  const canPost = hasContent && !isOverLimit
   const isExpanded = focused || body.length > 0 || media.length > 0
 
   const radius = 10
@@ -141,36 +139,21 @@ export default function ReplyComposer({
 
   function handleReply() {
     if (!canPost) return
-    startTransition(async () => {
-      const readyMedia = media.filter(m => m.cloudinary_id)
-      const result = await createPostAction({
-        body: body.trim() || undefined,
-        parent_post_id: parentPostId,
-        media: readyMedia.length > 0 ? readyMedia.map(m => ({
-          url: m.url,
-          thumbnail_url: m.thumbnail_url ?? undefined,
-          media_type: m.media_type as 'image' | 'video',
-          width: m.width ?? undefined,
-          height: m.height ?? undefined,
-          cloudinary_id: m.cloudinary_id!,
-        })) : undefined,
-      })
-      if ('error' in result && result.error) {
-        setError(result.error)
-        toastError(result.error)
-        return
-      }
-      if ('support' in result && result.support) showSupportResources()
-      setBody('')
-      setError('')
-      setShowMedia(false)
-      setFocused(false)
-      clear()
-      if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      success(t('post.reply_posted'))
-      if (onPosted && 'post' in result && result.post) onPosted(result.post)
-      else router.refresh()
+    // Hand the reply to the background and clear the box straight away: the
+    // progress line shows at the top of the screen, and the reply appears in
+    // the thread (with a "Reply sent" toast) once it's live.
+    posting.startPost({
+      body: body.trim() || undefined,
+      parentPostId,
+      media: takeForPost(),
+      viewHref: `/post/${parentPostId}`,
+      onComplete: onPosted ? ({ post }) => { if (post) onPosted(post); else router.refresh() } : undefined,
     })
+    setBody('')
+    setError('')
+    setShowMedia(false)
+    setFocused(false)
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
   const handleUpload = useCallback((files: FileList | File[]) => {
@@ -272,7 +255,7 @@ export default function ReplyComposer({
               <MediaGrid
                 media={media}
                 uploading={uploading}
-                progress={progress}
+                progress={0}
                 error={uploadError}
                 onUpload={handleUpload}
                 onRemove={remove}
@@ -359,10 +342,7 @@ export default function ReplyComposer({
                     minWidth: 70, justifyContent: 'center',
                   }}
                 >
-                  {/* Spinner only while sending - no "Replying…" text. */}
-                  {isPending
-                    ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
-                    : t('composer.reply')}
+                  {t('composer.reply')}
                 </button>
               </div>
             </div>

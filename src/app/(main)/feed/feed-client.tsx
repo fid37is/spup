@@ -10,7 +10,7 @@ import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
 import { NotifAvatar } from '@/components/notifications/avatar'
 import { useNetworkStatus } from '@/lib/network-status'
-import { subscribeFeedEvents } from '@/lib/feed-local-events'
+import { subscribeFeedEvents, takeJustPosted } from '@/lib/feed-local-events'
 import { useOfflinePostSync } from '@/hooks/use-offline-post-sync'
 import { useTranslation } from '@/lib/i18n/language-context'
 
@@ -239,18 +239,29 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
     return () => clearInterval(timer)
   }, [])
 
-  // A post just written on the /compose page: show it at the top right away.
+  // A post that finished sending in the background while no feed was on
+  // screen (see lib/posting/poster): show it at the top as soon as the feed opens.
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem('spup:just-posted')
-      if (!raw) return
-      sessionStorage.removeItem('spup:just-posted')
-      const post = JSON.parse(raw) as FeedPost
-      if (post?.id) {
-        setPosts(prev => (prev.some(p => p.id === post.id) ? prev : [post, ...prev]))
-        window.scrollTo(0, 0)
-      }
-    } catch { /* ignore */ }
+    const post = takeJustPosted()
+    if (post?.id) {
+      setPosts(prev => (prev.some(p => p.id === post.id) ? prev : [post, ...prev]))
+      window.scrollTo(0, 0)
+    }
+  }, [])
+
+  // A post sent in the background finishing while the feed is open: add it at
+  // the top. Scroll up only if the person is already near the top - they may
+  // have scrolled away while it sent, and yanking them back would be rude
+  // (the "Post sent" toast has a View button for that case).
+  useEffect(() => {
+    return subscribeFeedEvents(e => {
+      if (e.type !== 'post-created') return
+      const post = e.post
+      // The Selling tab only lists selling posts.
+      if (tabRef.current === 'selling' && !(post as { is_selling?: boolean }).is_selling) return
+      setPosts(prev => (prev.some(p => p.id === post.id) ? prev : [post, ...prev]))
+      if (window.scrollY < 400) feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
+    })
   }, [])
 
   function switchTab(tab: Tab) {
@@ -480,6 +491,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
   // that repost from the list straight away.
   useEffect(() => {
     return subscribeFeedEvents(e => {
+      if (e.type === 'post-created') return // handled by the listener above
       if (e.type === 'repost-added') {
         if (tabRef.current !== 'for-you') return
         const id = e.post.id

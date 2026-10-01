@@ -1,206 +1,58 @@
 'use client'
 
-import { useState, useRef, useTransition, useEffect } from 'react'
-import { createPortal } from 'react-dom'
-import { X, ImageIcon, Camera, Mic, BarChart2, MapPin, Tag } from 'lucide-react'
-import { createPostAction } from '@/lib/actions'
-import { showSupportResources } from '@/lib/support-resources'
-import { useRouter } from 'next/navigation'
-import { useMediaUpload } from '@/hooks/use-media-upload'
-import MediaGrid from './media-grid'
-import SchedulePicker, { formatScheduled } from './schedule-picker'
-import DraftsPanel from './drafts-panel'
-import { saveDraft, deleteDraft, hasMeaningfulContent, newDraftId, type LocalDraft } from '@/lib/local-drafts'
-import { useToast } from '@/components/layout/toast'
-import { useTranslation } from '@/lib/i18n/language-context'
+// src/components/feed/post-modal.tsx
+//
+// The "new post" dialog opened from the sidebar and the mobile drawer. It used
+// to be a second composer with its own upload and posting code (and its own
+// "wait for uploads, then wait for the spinner" behaviour). It is now just the
+// dialog frame around PostComposer - the same composer the feed button uses -
+// so there is one set of posting behaviour: pick photos and videos in any
+// order, type, tap Post, and the dialog closes while the post is sent in the
+// background (progress line at the top, toast when it's sent).
 
-const MAX_CHARS = 500
+import { useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { X } from 'lucide-react'
+import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-composer'
+import DraftsPanel from './drafts-panel'
+import type { LocalDraft } from '@/lib/local-drafts'
 
 interface PostModalProps {
   onClose: () => void
+  /** Set when replying: the post being replied to. Omit for a new post. */
   parentPostId?: string
   replyTo?: {
     author: { display_name: string; username: string; avatar_url?: string | null }
     body: string | null
   }
+  /** Where the "Reply sent" toast's View button goes (the thread the reply landed in). */
+  viewHref?: string
+  /** Called once the post/reply is live, with the created post (not when it is tapped - sending happens in the background). */
+  onPosted?: (post: unknown) => void
   viewer?: {
     display_name: string
     avatar_url?: string | null
   }
-  // Local drafts are scoped to this id - omitted (no signed-in profile) just
-  // skips autosave. Scheduling and Drafts are only offered for original
-  // posts (no parentPostId) - replies/quotes can't be scheduled (see
-  // createPostSchema) and aren't the kind of thing people draft for later.
+  // Local drafts are scoped to this id - omitted (no signed-in profile) just skips autosave.
   userId?: string
-  // Replies only: hands the new reply to the thread on screen so it shows up in
-  // place. Without it the modal falls back to router.refresh().
-  onPosted?: (post: any) => void
 }
 
-const AvatarCircle = ({ name, url, size = 44 }: { name: string; url?: string | null; size?: number }) => {
-  const colors = ['#1A7A4A', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A1A4A', '#4A7A1A']
-  const bg = colors[name.charCodeAt(0) % colors.length]
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
-      background: url ? 'transparent' : bg,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: "'Syne',sans-serif", fontWeight: 800,
-      fontSize: size * 0.36, color: 'white',
-    }}>
-      {url
-        ? <img src={url} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        : name.slice(0, 2).toUpperCase()
-      }
-    </div>
-  )
-}
-
-export default function PostModal({ onClose, parentPostId, replyTo, viewer, userId, onPosted }: PostModalProps) {
-  const router = useRouter()
-  const { t } = useTranslation()
-  const [body, setBody] = useState('')
-  const [isPending, startTransition] = useTransition()
-  const [error, setError] = useState('')
-  const [showMedia, setShowMedia] = useState(false)
-  const [isSelling, setIsSelling] = useState(false)
-  const [scheduledAt, setScheduledAt] = useState<string | null>(null)
+export default function PostModal({ onClose, parentPostId, replyTo, viewHref, onPosted, viewer, userId }: PostModalProps) {
   const [showDrafts, setShowDrafts] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const mediaInputRef = useRef<HTMLInputElement>(null)
-  const cameraInputRef = useRef<HTMLInputElement>(null)
-  const mediaUpload = useMediaUpload()
-  const { media, uploading, progress, error: uploadError, upload, remove, clear } = mediaUpload
-  const restoreMedia = 'restore' in mediaUpload ? mediaUpload.restore : undefined
-  const { success: toastSuccess } = useToast()
-
-  // Scheduling/drafts only make sense for a genuinely new original post.
-  const canScheduleOrDraft = !parentPostId
-
-  const draftIdRef = useRef<string>(newDraftId())
-  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const charsLeft = MAX_CHARS - body.length
-  const isOverLimit = charsLeft < 0
-  const isWarning = charsLeft <= 30
-  const hasContent = body.trim().length > 0 || media.length > 0
-  const canPost = hasContent && !isOverLimit && !isPending && !uploading && (!isSelling || body.trim().length > 0)
-
-  // Debounced local autosave - see local-drafts.ts. Only saves media that
-  // has actually finished uploading (a real Cloudinary URL survives a
-  // reload; an in-flight blob doesn't).
-  useEffect(() => {
-    if (!userId || !canScheduleOrDraft) return
-    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
-    const uploadedMedia = media.filter(m => m.cloudinary_id)
-    if (!hasMeaningfulContent(body, uploadedMedia.length)) return
-    draftSaveTimer.current = setTimeout(() => {
-      saveDraft(userId, {
-        id: draftIdRef.current,
-        body,
-        media: uploadedMedia.map(m => ({
-          url: m.url, thumbnail_url: m.thumbnail_url, media_type: m.media_type as 'image' | 'video',
-          width: m.width ?? undefined, height: m.height ?? undefined, duration_secs: m.duration_secs ?? undefined,
-          size_bytes: m.size_bytes ?? undefined, cloudinary_id: m.cloudinary_id,
-        })),
-        isSelling,
-        updatedAt: new Date().toISOString(),
-      })
-    }, 800)
-    return () => { if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current) }
-  }, [userId, canScheduleOrDraft, body, media, isSelling])
+  const composerRef = useRef<PostComposerHandle>(null)
 
   function handleEditDraft(draft: LocalDraft) {
-    draftIdRef.current = draft.id
-    setBody(draft.body)
-    setIsSelling(draft.isSelling)
-    restore(draft.media.map(m => ({
-      id: `draft_${draft.id}_${m.url}`,
-      url: m.url,
-      thumbnail_url: m.thumbnail_url ?? null,
-      media_type: m.media_type,
-      cloudinary_id: m.cloudinary_id || '',
-      width: m.width ?? null,
-      height: m.height ?? null,
-      duration_secs: m.duration_secs ?? null,
-      size_bytes: m.size_bytes ?? null,
-    })))
-    setShowMedia(draft.media.length > 0)
     setShowDrafts(false)
-    setError('')
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current
-      if (ta) { ta.focus(); ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
-    })
+    composerRef.current?.loadDraft(draft)
   }
-
-  const radius = 11
-  const circumference = 2 * Math.PI * radius
-  const strokeOffset = circumference - Math.min(body.length / MAX_CHARS, 1) * circumference
-
-  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setBody(e.target.value); setError('')
-    const ta = textareaRef.current
-    if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
-  }
-
-  function handlePost() {
-    if (!canPost) return
-    startTransition(async () => {
-      const readyMedia = media.filter(m => m.cloudinary_id)
-      const result = await createPostAction({
-        body: body.trim() || undefined,
-        parent_post_id: parentPostId,
-        is_selling: isSelling || undefined,
-        scheduled_at: canScheduleOrDraft ? (scheduledAt || undefined) : undefined,
-        media: readyMedia.length > 0 ? readyMedia.map(m => ({
-          url: m.url,
-          thumbnail_url: m.thumbnail_url || undefined,
-          media_type: m.media_type as 'image' | 'video',
-          width: m.width || undefined,
-          height: m.height || undefined,
-          duration_secs: m.duration_secs || undefined,
-          size_bytes: m.size_bytes || undefined,
-          cloudinary_id: m.cloudinary_id!,
-        })) : undefined,
-      })
-      if ('error' in result && result.error) { setError(result.error); return }
-      if ('support' in result && result.support) showSupportResources()
-      if (userId) deleteDraft(userId, draftIdRef.current)
-      const wasScheduled = 'scheduled' in result && result.scheduled
-      const scheduledFor = 'scheduledFor' in result ? result.scheduledFor : undefined
-      clear(); setIsSelling(false); setScheduledAt(null); onClose()
-      if (wasScheduled && scheduledFor) {
-        toastSuccess(`Scheduled for ${formatScheduled(scheduledFor)}`)
-        // Not visible anywhere yet (see createPostAction) - nothing new for
-        // the page to reflect.
-        return
-      }
-      // router.refresh() clears the client cache, so the feed behind this page would
-      // refetch (skeleton) when the person goes back. A reply is put into the thread
-      // directly instead.
-      if (parentPostId && onPosted && 'post' in result && result.post) {
-        onPosted(result.post)
-        return
-      }
-      router.refresh()
-    })
-  }
-
-  const viewerName = viewer?.display_name || 'Me'
 
   return createPortal(
     <>
       {/* Portaled to <body> - globals.css sets `body > * { position: relative;
           z-index: 1 }`, which caps every direct child of body (like the
           .main-layout this modal would otherwise render inside) to its own
-          stacking context. Nested here, this modal's z-index only ever
-          competed against its siblings inside .main-layout, never against
-          other real body-level layers like DraftsPanel - so it could render
-          behind them regardless of its own z-index number. Making this a
-          sibling of .main-layout (same fix already applied to the mobile
-          compose sheet in floating-compose-btn.tsx) lets its z-index (200)
-          actually compare against theirs (DraftsPanel: 400). */}
+          stacking context. As a sibling of .main-layout its z-index (200)
+          actually compares against other body-level layers (DraftsPanel: 400). */}
       <style>{`
         @keyframes modalIn {
           from { opacity: 0; transform: translateY(-12px) scale(0.98); }
@@ -208,7 +60,6 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
         }
       `}</style>
 
-      {/* Backdrop */}
       <div
         onClick={e => e.target === e.currentTarget && onClose()}
         style={{
@@ -228,8 +79,6 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
           display: 'flex', flexDirection: 'column',
           maxHeight: 'calc(100vh - 80px)',
         }}>
-
-          {/* Header: X close, and Drafts for original posts (Post button lives in the toolbar) */}
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '12px 16px',
@@ -238,19 +87,17 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
           }}>
             <button
               onClick={onClose}
+              aria-label="Close"
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--color-text-primary)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 32, height: 32, borderRadius: '50%',
-                transition: 'background 0.12s',
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-surface-2)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'none'}
             >
               <X size={18} />
             </button>
-            {canScheduleOrDraft && userId && (
+            {userId && !parentPostId && (
               <button
                 onClick={() => setShowDrafts(true)}
                 style={{
@@ -264,294 +111,38 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewer, user
             )}
           </div>
 
-          {/* Body - scrollable */}
-          <div style={{ padding: '16px 16px 0', overflowY: 'auto', flex: 1 }}>
-
-            {/* Reply-to preview with thread line */}
-            {replyTo && (
-              <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
-                {/* Avatar + thread line */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                  <AvatarCircle name={replyTo.author.display_name} url={replyTo.author.avatar_url} size={38} />
-                  <div style={{
-                    width: 2, flex: 1, minHeight: 24,
-                    background: 'var(--color-border)',
-                    margin: '6px 0',
-                    borderRadius: 1,
-                  }} />
-                </div>
-                {/* Original post content */}
-                <div style={{ flex: 1, paddingBottom: 8, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 3 }}>
-                    <span style={{
-                      fontWeight: 700, fontSize: 14,
-                      color: 'var(--color-text-primary)',
-                      fontFamily: "'Syne',sans-serif",
-                    }}>
-                      {replyTo.author.display_name}
-                    </span>
-                    <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
-                      @{replyTo.author.username}
-                    </span>
-                  </div>
-                  <p style={{
-                    fontSize: 14, color: 'var(--color-text-secondary)',
-                    lineHeight: 1.5, margin: 0,
-                    overflow: 'hidden', display: '-webkit-box',
-                    WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
-                  }}>
-                    {replyTo.body}
-                  </p>
-                  <p style={{ fontSize: 13, color: 'var(--color-text-faint)', marginTop: 6 }}>
-                    Replying to{' '}
-                    <span style={{ color: 'var(--color-brand)' }}>@{replyTo.author.username}</span>
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Composer row */}
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ flexShrink: 0 }}>
-                <AvatarCircle name={viewerName} url={viewer?.avatar_url} size={38} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <textarea
-                  ref={textareaRef}
-                  value={body}
-                  onChange={handleChange}
-                  onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost() }}
-                  placeholder={parentPostId ? t('composer.post_your_reply') : t('composer.main_placeholder')}
-                  autoFocus
-                  rows={3}
-                  style={{
-                    width: '100%', background: 'none', border: 'none', resize: 'none',
-                    outline: 'none', fontSize: 17,
-                    color: isOverLimit ? 'var(--color-error)' : 'var(--color-text-primary)',
-                    fontFamily: "'DM Sans',sans-serif", lineHeight: 1.55,
-                    caretColor: 'var(--color-brand)',
-                    minHeight: 88, transition: 'color 0.15s',
-                    padding: 0,
-                  }}
-                />
-                {error && (
-                  <p style={{ fontSize: 13, color: 'var(--color-error)', marginBottom: 8 }}>{error}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Media grid */}
-            {showMedia && (
-              <div style={{ marginTop: 8 }}>
-                <MediaGrid
-                  media={media} uploading={uploading} progress={progress}
-                  error={uploadError} onUpload={upload} onRemove={remove}
-                />
-              </div>
-            )}
-
-            {/* Selling toggle - only for original posts, not replies. No
-                separate item field: the post's own text is the description,
-                and it auto-fills the buyer's payment note (still editable
-                by the buyer) - see pay-vendor-button.tsx. */}
-            {!parentPostId && (
-              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Tag size={16} color={isSelling ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                      I&rsquo;m selling something
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsSelling(v => !v)}
-                    aria-pressed={isSelling}
-                    style={{
-                      width: 42, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                      background: isSelling ? 'var(--color-brand)' : 'var(--color-surface-3)',
-                      position: 'relative', transition: 'background 0.15s', flexShrink: 0, padding: 0,
-                    }}
-                  >
-                    <span style={{
-                      position: 'absolute', top: 3, left: isSelling ? 21 : 3,
-                      width: 18, height: 18, borderRadius: '50%', background: 'white',
-                      transition: 'left 0.15s',
-                    }} />
-                  </button>
-                </div>
-
-                {isSelling && (
-                  <p style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: 8 }}>
-                    Buyers will see a Pay button on this post - write what you&rsquo;re selling in your post above, it&rsquo;ll pre-fill their payment note.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {scheduledAt && canScheduleOrDraft && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 6, marginTop: 12,
-                fontSize: 13, color: 'var(--color-brand)', fontWeight: 600,
-              }}>
-                Will post on {formatScheduled(scheduledAt)}
-              </div>
-            )}
+          <div style={{ overflowY: 'auto' }}>
+            <PostComposer
+              ref={composerRef}
+              variant="modal"
+              authorName={viewer?.display_name}
+              authorAvatarUrl={viewer?.avatar_url}
+              userId={userId}
+              replyTo={parentPostId && replyTo ? {
+                id: parentPostId,
+                authorName: replyTo.author.display_name,
+                authorUsername: replyTo.author.username,
+                authorAvatarUrl: replyTo.author.avatar_url ?? null,
+                body: replyTo.body,
+              } : null}
+              viewHref={viewHref}
+              // Handed to the background the moment Post is tapped - close now.
+              onPosted={onClose}
+              onCompleted={onPosted}
+            />
           </div>
-
-          {/* Toolbar */}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '10px 16px 14px',
-            borderTop: '1px solid var(--color-border)',
-            marginTop: 12,
-            flexShrink: 0,
-          }}>
-            <div style={{ display: 'flex', gap: 2, overflowX: 'auto' }}>
-              {/* Media upload - one button, accepts photos and videos together, matching the floating composer */}
-              <input
-                ref={mediaInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/mov,video/avi"
-                multiple
-                style={{ display: 'none' }}
-                onChange={e => { if (e.target.files) { upload(e.target.files); setShowMedia(true); e.target.value = '' } }}
-              />
-              <ToolbarBtn
-                icon={<ImageIcon size={18} />}
-                label={t('composer.add_photo_video')}
-                onClick={() => mediaInputRef.current?.click()}
-              />
-
-              {/* Camera capture */}
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*,video/*"
-                capture="environment"
-                style={{ display: 'none' }}
-                onChange={e => { if (e.target.files) { upload(e.target.files); setShowMedia(true); e.target.value = '' } }}
-              />
-              <ToolbarBtn
-                icon={<Camera size={18} />}
-                label={t('composer.take_photo_video')}
-                onClick={() => cameraInputRef.current?.click()}
-              />
-
-              <ToolbarBtn icon={<Mic size={18} />} label="Voice (coming soon)" onClick={() => {}} disabled />
-              <ToolbarBtn icon={<span style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid currentColor', borderRadius: 4, padding: '1px 3px', lineHeight: 1 }}>GIF</span>} label="Add GIF (coming soon)" onClick={() => {}} disabled />
-              <ToolbarBtn icon={<BarChart2 size={18} />} label="Poll (coming soon)" onClick={() => {}} disabled />
-              <ToolbarBtn icon={<MapPin size={18} />} label="Location (coming soon)" onClick={() => {}} disabled />
-              {canScheduleOrDraft && (
-                <SchedulePicker value={scheduledAt} onChange={setScheduledAt} />
-              )}
-            </div>
-
-            {/* Char counter + Post button */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {body.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <svg width={28} height={28} style={{ transform: 'rotate(-90deg)' }}>
-                    <circle cx={14} cy={14} r={radius} fill="none" stroke="var(--color-border)" strokeWidth={2.5} />
-                    <circle cx={14} cy={14} r={radius} fill="none"
-                      stroke={isOverLimit ? 'var(--color-error)' : isWarning ? 'var(--color-gold)' : 'var(--color-brand)'}
-                      strokeWidth={2.5} strokeDasharray={circumference} strokeDashoffset={strokeOffset}
-                      strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.1s, stroke 0.2s' }}
-                    />
-                  </svg>
-                  {isWarning && (
-                    <span style={{
-                      fontSize: 13, fontWeight: 700, minWidth: 24,
-                      color: isOverLimit ? 'var(--color-error)' : 'var(--color-gold)',
-                    }}>
-                      {charsLeft}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <button
-                onClick={handlePost}
-                disabled={!canPost}
-                style={{
-                  background: canPost ? 'var(--color-brand)' : 'var(--color-surface-3)',
-                  color: canPost ? 'white' : 'var(--color-text-muted)',
-                  border: 'none', borderRadius: 20, padding: '8px 22px',
-                  fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14,
-                  cursor: canPost ? 'pointer' : 'not-allowed',
-                  transition: 'background 0.15s, color 0.15s',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {isPending
-                  ? (parentPostId ? t('composer.replying') : scheduledAt ? t('composer.scheduling') : t('composer.posting'))
-                  : (parentPostId ? t('composer.reply') : scheduledAt ? t('composer.schedule') : t('composer.post'))
-                }
-              </button>
-            </div>
-          </div>
-
         </div>
       </div>
 
-      {showDrafts && canScheduleOrDraft && userId && (
+      {showDrafts && userId && !parentPostId && (
         <DraftsPanel
           userId={userId}
           onClose={() => setShowDrafts(false)}
           onEditDraft={handleEditDraft}
         />
       )}
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </>,
     document.body
   )
-}
-
-function ToolbarBtn({ icon, label, onClick, disabled = false }: {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  disabled?: boolean
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      style={{
-        width: 36, height: 36,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'none', border: 'none',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        color: disabled ? 'var(--color-text-faint)' : 'var(--color-brand)',
-        borderRadius: 8, transition: 'background 0.12s',
-        WebkitTapHighlightColor: 'transparent',
-      }}
-      onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = 'var(--color-brand-muted)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
-    >
-      {icon}
-    </button>
-  )
-}
-
-function restore(items: {
-  id: string
-  url: string
-  thumbnail_url: string | null
-  media_type: 'image' | 'video'
-  cloudinary_id: string
-  width: number | null
-  height: number | null
-  duration_secs: number | null
-  size_bytes: number | null
-}[]) {
-  return items.map(item => ({
-    ...item,
-    thumbnail_url: item.thumbnail_url ?? undefined,
-    width: item.width ?? undefined,
-    height: item.height ?? undefined,
-    duration_secs: item.duration_secs ?? undefined,
-    size_bytes: item.size_bytes ?? undefined,
-  }))
 }
