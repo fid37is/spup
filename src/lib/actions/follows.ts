@@ -9,6 +9,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
+import { getBlockState } from '@/lib/mutuals'
 
 // followers_count / following_count are maintained by the trg_sync_follow_counts
 // trigger on `follows` (migration 042) - never write them from app code.
@@ -92,6 +93,14 @@ export async function toggleFollowAction(targetUserId: string, desired?: boolean
     if (pausedUntil) return followPausedResponse(pausedUntil)
   }
 
+  // Nobody can follow across a block, in either direction. The wording never
+  // reveals that THEY blocked you.
+  if (!isFollowing) {
+    const block = await getBlockState(profile.id, targetUserId)
+    if (block.byMe) return { error: 'Unblock this account to follow them.', code: 'follow_blocked' as const }
+    if (block.byThem) return { error: "You can't follow this account.", code: 'follow_blocked' as const }
+  }
+
   // Only look the username up when something is actually changing
   const { data: targetUser } = await supabase.from('users').select('username').eq('id', targetUserId).single()
   const targetUsername = targetUser?.username ?? targetUserId
@@ -135,6 +144,9 @@ export async function toggleBlockAction(targetUserId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
   if (profile.id === targetUserId) return { error: 'You cannot block yourself' }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetUserId)) {
+    return { error: 'Invalid user' }
+  }
 
   const { data: existing } = await supabase
     .from('user_blocks').select('blocker_id')
@@ -148,8 +160,15 @@ export async function toggleBlockAction(targetUserId: string) {
 
   // Remove follow in both directions when blocking. Counts follow from the
   // deleted rows via the follows trigger (migration 042).
-  await supabase.from('follows').delete()
-    .or(`and(follower_id.eq.${profile.id},following_id.eq.${targetUserId}),and(follower_id.eq.${targetUserId},following_id.eq.${profile.id})`)
+  // RLS only lets a user delete follows where THEY are the follower, so the
+  // other direction needs the admin client. Two exact-match deletes scoped to
+  // this pair (no string-built filter, since targetUserId comes from the browser).
+  const admin = createAdminClient()
+  const [mine, theirs] = await Promise.all([
+    admin.from('follows').delete().match({ follower_id: profile.id, following_id: targetUserId }),
+    admin.from('follows').delete().match({ follower_id: targetUserId, following_id: profile.id }),
+  ])
+  if (mine.error || theirs.error) return { error: 'Could not block this account. Please try again.' }
 
   await supabase.from('user_blocks').insert({ blocker_id: profile.id, blocked_id: targetUserId })
   revalidatePath('/feed')

@@ -3,6 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import BackButton from '@/components/ui/back-button'
 import ConnectionsClient from './connections-client'
+import { getBlockState } from '@/lib/mutuals'
 import type { Metadata } from 'next'
 
 type Tab = 'following' | 'followers' | 'mutuals'
@@ -54,6 +55,13 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
     .from('users').select('id').eq('auth_id', authUser.id).single()
 
   const isOwn = viewer?.id === profile.id
+
+  // Someone who blocked this viewer: send them to the profile page, which
+  // shows the "You're blocked" screen, instead of exposing the follow lists.
+  if (viewer && !isOwn) {
+    const block = await getBlockState(viewer.id, profile.id)
+    if (block.byThem) redirect(`/user/${username}`)
+  }
   const backHref = isOwn ? '/profile' : `/user/${username}`
 
   // Fetch viewer's own follow state (who the logged-in user follows / is followed by)

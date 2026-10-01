@@ -6,19 +6,26 @@ import { CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react'
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning'
 
+/** An optional button on the toast (e.g. "View", "Retry"). Tapping it also dismisses the toast. */
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 interface Toast {
   id: string
   type: ToastType
   message: string
   duration?: number
+  action?: ToastAction
 }
 
 interface ToastContextValue {
-  toast: (message: string, type?: ToastType, duration?: number) => void
-  success: (message: string, duration?: number) => void
-  error: (message: string, duration?: number) => void
-  info: (message: string, duration?: number) => void
-  warning: (message: string, duration?: number) => void
+  toast: (message: string, type?: ToastType, duration?: number, action?: ToastAction) => void
+  success: (message: string, duration?: number, action?: ToastAction) => void
+  error: (message: string, duration?: number, action?: ToastAction) => void
+  info: (message: string, duration?: number, action?: ToastAction) => void
+  warning: (message: string, duration?: number, action?: ToastAction) => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -69,7 +76,8 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
   const [visible, setVisible] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const duration = toast.duration ?? 3000
+  // A toast with a button needs time to be read and tapped.
+  const duration = toast.duration ?? (toast.action ? 6000 : 3000)
   const cfg = STYLES[toast.type]
   const Icon = cfg.icon
 
@@ -93,16 +101,19 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       padding: '10px 18px',
       background: cfg.background,
       border: `1px solid ${cfg.border}`,
-      borderRadius: 100,
+      // Long messages (e.g. an upload error) wrap instead of running off a
+      // narrow phone screen; short ones stay a single-line pill.
+      borderRadius: toast.action || toast.message.length > 40 ? 20 : 100,
+      maxWidth: 'calc(100vw - 32px)',
       backdropFilter: 'blur(24px)',
       WebkitBackdropFilter: 'blur(24px)',
       boxShadow: cfg.shadow,
       opacity: visible && !leaving ? 1 : 0,
       transform: visible && !leaving ? 'translateY(0) scale(1)' : 'translateY(-12px) scale(0.95)',
       transition: 'opacity 0.22s ease, transform 0.22s cubic-bezier(0.34,1.2,0.64,1)',
-      pointerEvents: 'none',
+      // Plain toasts never intercept taps; one with a button has to receive them.
+      pointerEvents: toast.action ? 'auto' : 'none',
       userSelect: 'none',
-      whiteSpace: 'nowrap',
     }}>
       <Icon size={15} color={cfg.iconColor} style={{ flexShrink: 0 }} />
       <span style={{
@@ -111,9 +122,32 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         color: cfg.textColor,
         fontFamily: "'DM Sans', sans-serif",
         letterSpacing: '0.01em',
+        textAlign: 'center',
       }}>
         {toast.message}
       </span>
+      {toast.action && (
+        <button
+          type="button"
+          onClick={() => { toast.action?.onClick(); clearTimeout(timerRef.current); dismiss() }}
+          style={{
+            flexShrink: 0,
+            marginLeft: 4,
+            padding: '4px 12px',
+            borderRadius: 100,
+            border: 'none',
+            background: 'rgba(255,255,255,0.14)',
+            color: cfg.textColor,
+            fontSize: 12.5,
+            fontWeight: 700,
+            fontFamily: "'DM Sans', sans-serif",
+            cursor: 'pointer',
+            WebkitTapHighlightColor: 'transparent',
+          }}
+        >
+          {toast.action.label}
+        </button>
+      )}
     </div>
   )
 }
@@ -151,15 +185,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts(prev => prev.filter(t => t.id !== id))
   }, [])
 
-  const toast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
+  const toast = useCallback((message: string, type: ToastType = 'info', duration?: number, action?: ToastAction) => {
     const id = `toast_${Date.now()}_${Math.random()}`
-    setToasts(prev => [...prev.slice(-4), { id, type, message, duration }])
+    setToasts(prev => [...prev.slice(-4), { id, type, message, duration, action }])
   }, [])
 
-  const success = useCallback((msg: string, dur?: number) => toast(msg, 'success', dur), [toast])
-  const error   = useCallback((msg: string, dur?: number) => toast(msg, 'error', dur), [toast])
-  const info    = useCallback((msg: string, dur?: number) => toast(msg, 'info', dur), [toast])
-  const warning = useCallback((msg: string, dur?: number) => toast(msg, 'warning', dur), [toast])
+  const success = useCallback((msg: string, dur?: number, action?: ToastAction) => toast(msg, 'success', dur, action), [toast])
+  const error   = useCallback((msg: string, dur?: number, action?: ToastAction) => toast(msg, 'error', dur, action), [toast])
+  const info    = useCallback((msg: string, dur?: number, action?: ToastAction) => toast(msg, 'info', dur, action), [toast])
+  const warning = useCallback((msg: string, dur?: number, action?: ToastAction) => toast(msg, 'warning', dur, action), [toast])
 
   return (
     <ToastContext.Provider value={{ toast, success, error, info, warning }}>

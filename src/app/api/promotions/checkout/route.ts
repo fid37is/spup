@@ -107,7 +107,8 @@ export async function POST(request: NextRequest) {
           post_id,
           user_id: profile.id,
           tier: grantedTier,
-          price_kobo: grantedConfig.price_kobo,
+          price_kobo: grantedConfig.price_kobo,   // list price, for reference only
+          amount_paid_kobo: 0,                    // nothing was paid - must not count as revenue
           duration_hours: grantedConfig.duration_hours,
           status: 'active',
           reference,

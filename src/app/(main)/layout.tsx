@@ -12,6 +12,7 @@ import ActivityBeacon from '@/components/layout/activity-beacon'
 import AutoplayPrefSync from '@/components/layout/autoplay-pref-sync'
 import EngagementSyncProvider from '@/components/layout/engagement-sync-provider'
 import SupportResourcesHost from '@/components/layout/support-resources-host'
+import PostingProvider from '@/components/layout/posting-provider'
 import { LanguageProvider } from '@/lib/i18n/language-context'
 import { isLocale, DEFAULT_LOCALE, loadDictionary } from '@/lib/i18n/dictionaries'
 
@@ -64,6 +65,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <AutoplayPrefSync value={profile.autoplay_preference} />
       <EngagementSyncProvider />
       <SupportResourcesHost />
+      <PostingProvider>
       <style>{`
         .main-layout {
           display: flex;
@@ -130,6 +132,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <div className="mobile-nav">
         <MobileBottomNav unreadCount={unreadCount} unreadChat={unreadChat} userId={profile.id} />
       </div>
+      </PostingProvider>
     </LanguageProvider>
   )
 }

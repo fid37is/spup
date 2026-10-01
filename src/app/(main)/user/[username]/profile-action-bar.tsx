@@ -26,7 +26,7 @@ interface ProfileActionBarProps {
   initialFollowing: boolean
   followsMe: boolean
   isPrivate: boolean
-  chatAllowed: boolean        // profile.chat_visibility === 'everyone' or is following
+  chatAllowed: boolean        // true only when the two users follow each other (mutuals)
   initialNotifsEnabled: boolean
   initialMuted: boolean
   initialBlocked: boolean

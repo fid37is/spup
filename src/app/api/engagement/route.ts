@@ -50,6 +50,9 @@ export async function POST(request: NextRequest) {
           { status: 429 },
         )
       }
+      if ('code' in result && result.code === 'follow_blocked') {
+        return NextResponse.json({ ok: false, error: result.error, code: 'follow_blocked' }, { status: 403 })
+      }
       const msg = String(result.error)
       const status =
         msg === 'Not authenticated' ? 401 :

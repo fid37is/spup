@@ -15,14 +15,15 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import BackButton from '@/components/ui/back-button'
 import {
   Send, X, Trash2, CornerUpLeft, Lock, ChevronDown, Loader2, RefreshCw, WifiOff,
-  ImagePlus, Play, AlertCircle,
+  ImagePlus, Play, AlertCircle, MoreVertical, EyeOff, Flag, Ban,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
-  sendMessageAction, deleteMessageAction, loadMessagesAction, markConversationReadAction,
+  sendMessageAction, hideConversationAction, deleteMessageAction, loadMessagesAction, markConversationReadAction,
   uploadPublicKeyAction, getPublicKeyAction, getWrappedKeyAction, uploadWrappedKeyAction,
   type ChatMediaInput,
 } from '@/lib/actions/messages'
@@ -38,6 +39,9 @@ import {
 import type { MessageRow, ReplyRef } from '@/lib/chat-queries'
 import MessageStatusIcon from '@/components/chat/message-status'
 import { useToast } from '@/components/layout/toast'
+import ReportDialog from '@/components/feed/report-dialog'
+import { toggleBlockAction } from '@/lib/actions/follows'
+import { CHAT_LOCK_COPY, type ChatLockReason } from '@/lib/chat-access'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
 import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 import { compressImageForUpload } from '@/lib/media-client'
@@ -72,6 +76,8 @@ interface ChatClientProps {
   initialError: string | null
   currentUserId: string
   otherUser: OtherUser
+  /** Why this thread is read-only right now (null = you can write). */
+  initialLock?: ChatLockReason | null
 }
 
 type CryptoState = 'loading' | 'ready' | 'no-peer-key' | 'unavailable'
@@ -80,9 +86,13 @@ type RealtimeState = 'connecting' | 'live' | 'down'
 const isTouchPrimary = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
 
 export default function ChatClient({
-  conversationId, initialMessages, initialHasMore, initialError, currentUserId, otherUser,
+  conversationId, initialMessages, initialHasMore, initialError, currentUserId, otherUser, initialLock = null,
 }: ChatClientProps) {
   const { t } = useTranslation()
+  const router = useRouter()
+  const [lock, setLock] = useState<ChatLockReason | null>(initialLock)
+  const [showMenu, setShowMenu] = useState(false)
+  const [showReport, setShowReport] = useState(false)
   const { error: toastError, success: toastSuccess } = useToast()
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -154,7 +164,7 @@ export default function ChatClient({
 
   const otherInitials = otherUser.display_name?.slice(0, 2).toUpperCase() ?? '??'
   const otherColor = AVATAR_COLORS[(otherUser.username?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]
-  const canSend = !!otherUser.id
+  const canSend = !!otherUser.id && !lock
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -538,7 +548,20 @@ export default function ChatClient({
         setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, body: wire } : m)))
       }
       const res = await sendMessageAction(conversationId, item.wire ?? '', item.replyId ?? undefined, item.media ?? undefined)
-      if (!('success' in res) || !res.success) throw new Error(('error' in res && res.error) || t('chat.send_failed'))
+      if (!('success' in res) || !res.success) {
+        const code = (res as { code?: string }).code
+        if (code === 'blocked_by_me' || code === 'not_mutual') {
+          // Not a connection problem: this will never succeed, so don't leave
+          // it as "Not sent · Retry" (which the auto-retry would hammer).
+          outboxRef.current.delete(tempId)
+          setMessages(prev => removeMessage(prev, tempId))
+          setTexts(tx => { const { [tempId]: _drop, ...rest } = tx; return rest })
+          setLock(code)
+          toastError(CHAT_LOCK_COPY[code])
+          return
+        }
+        throw new Error(('error' in res && res.error) || t('chat.send_failed'))
+      }
       outboxRef.current.delete(tempId)
       if (item.text) setTexts(t => ({ ...t, [res.messageId]: item.text }))
       setMessages(prev => confirmOptimistic(prev, tempId, { id: res.messageId, created_at: res.createdAt }))
@@ -649,6 +672,23 @@ export default function ChatClient({
     enqueue(tempId)
   }
 
+  async function handleHideChat() {
+    setShowMenu(false)
+    const r = await hideConversationAction(conversationId).catch(() => ({ error: 'network' }))
+    if ('error' in r) { toastError(t('chat.send_failed')); return }
+    toastSuccess('Chat hidden')
+    router.push('/messages')
+  }
+
+  async function handleToggleBlock() {
+    setShowMenu(false)
+    const r = await toggleBlockAction(otherUser.id).catch(() => ({ error: 'network' }))
+    if ('error' in r) { toastError(String(r.error)); return }
+    // Unblocking does not restore follows, so the thread stays read-only until you follow each other again.
+    setLock(r.blocked ? 'blocked_by_me' : 'not_mutual')
+    toastSuccess(r.blocked ? `Blocked @${otherUser.username}` : `Unblocked @${otherUser.username}`)
+  }
+
   function retrySend(id: string) {
     if (!outboxRef.current.has(id)) return
     setMessages(prev => markSending(prev, id))
@@ -755,7 +795,52 @@ export default function ChatClient({
             )}
           </div>
         </Link>
+
+        {otherUser.id && (
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              aria-label="Chat options"
+              onClick={() => setShowMenu(v => !v)}
+              style={{ width: 36, height: 36, borderRadius: '50%', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <MoreVertical size={18} />
+            </button>
+            {showMenu && (
+              <>
+                <div onClick={() => setShowMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                <div style={{
+                  position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, minWidth: 200,
+                  background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)',
+                  borderRadius: 14, padding: 4, boxShadow: '0 8px 28px rgba(0,0,0,0.4)',
+                }}>
+                  {[
+                    { icon: <EyeOff size={16} />, label: 'Hide chat', onClick: handleHideChat, danger: false },
+                    { icon: <Flag size={16} />, label: `Report @${otherUser.username}`, onClick: () => { setShowMenu(false); setShowReport(true) }, danger: true },
+                    { icon: <Ban size={16} />, label: lock === 'blocked_by_me' ? `Unblock @${otherUser.username}` : `Block @${otherUser.username}`, onClick: handleToggleBlock, danger: lock !== 'blocked_by_me' },
+                  ].map(item => (
+                    <button
+                      key={item.label}
+                      onClick={item.onClick}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 16px',
+                        background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, textAlign: 'left',
+                        fontFamily: "'DM Sans', sans-serif",
+                        color: item.danger ? 'var(--color-error)' : 'var(--color-text-primary)',
+                      }}
+                    >
+                      {item.icon} {item.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
+
+      {showReport && (
+        <ReportDialog entityType="user" entityId={otherUser.id} subject={`@${otherUser.username}`} onClose={() => setShowReport(false)} />
+      )}
 
       {/* Messages */}
       <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -1183,6 +1268,27 @@ export default function ChatClient({
           >
             <Send size={17} color={(body.trim() || attachment) && !attachUploading ? 'white' : 'var(--color-text-muted)'} />
           </button>
+        </div>
+      ) : lock ? (
+        <div
+          data-testid="chat-locked"
+          style={{
+            padding: '14px 16px', paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))',
+            textAlign: 'center', fontSize: 13, lineHeight: 1.5, color: 'var(--color-text-secondary)',
+            borderTop: '1px solid var(--color-border)', background: 'var(--nav-bg)', flexShrink: 0,
+          }}
+        >
+          {CHAT_LOCK_COPY[lock]}
+          {lock === 'blocked_by_me' && (
+            <div style={{ marginTop: 8 }}>
+              <button
+                onClick={handleToggleBlock}
+                style={{ background: 'var(--color-brand)', color: 'white', border: 'none', borderRadius: 20, padding: '8px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'Syne', sans-serif" }}
+              >
+                Unblock
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ padding: '14px 16px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-secondary)', borderTop: '1px solid var(--color-border)', flexShrink: 0 }}>

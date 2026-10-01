@@ -72,6 +72,7 @@ export default function ReplyToReply({ reply, viewer, currentUserId, postId, hid
         <PostModal
           onClose={() => setShowModal(false)}
           parentPostId={reply.id}
+          viewHref={`/post/${postId}`}
           replyTo={{
             author: reply.author,
             body: reply.body,

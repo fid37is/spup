@@ -6,6 +6,7 @@ import { fetchMessagePage } from '@/lib/chat-queries'
 import ChatClient from './chat-client'
 import PinGate from '@/components/chat/pin-gate'
 import ChatViewport from '@/components/chat/chat-viewport'
+import { getChatLockReason } from '@/lib/mutuals'
 
 // The other person's account may have been deleted; the thread should still open.
 const DELETED_USER = {
@@ -43,6 +44,8 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
   // read - the chat screen does that once they are really on screen), and if it
   // fails the client shows a retry state and re-fetches by itself.
   const page = await fetchMessagePage(supabase, id)
+  const otherId = (otherUser as any).id as string
+  const lock = otherId ? await getChatLockReason(profile.id, otherId) : null
 
   return (
     <PinGate>
@@ -56,6 +59,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
           initialError={page.error}
           currentUserId={profile.id}
           otherUser={otherUser as any}
+          initialLock={lock}
         />
       </ChatViewport>
     </PinGate>
