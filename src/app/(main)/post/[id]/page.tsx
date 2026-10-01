@@ -61,6 +61,17 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
 
   if (!post) return null
 
+  // A repost (or quote) shows the post it points at. Fetched here because the
+  // detail query only selects the row itself; without it a repost's own page
+  // had nothing to embed and rendered blank.
+  let quotedPost: any = null
+  if (post.quoted_post_id) {
+    const { data: q } = await supabase
+      .from('posts').select(POST_SELECT)
+      .eq('id', post.quoted_post_id).is('deleted_at', null).maybeSingle()
+    quotedPost = q ?? null
+  }
+
   const { data: replies } = await supabase
     .from('posts').select(POST_SELECT)
     .eq('parent_post_id', postId).is('deleted_at', null)
@@ -96,7 +107,9 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
       const [{ data: likes }, { data: bookmarks }, { data: reposts }, { data: promotions }] = await Promise.all([
         supabase.from('likes').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
         supabase.from('bookmarks').select('post_id').eq('user_id', viewer.id).in('post_id', allIds),
-        supabase.from('posts').select('parent_post_id').eq('user_id', viewer.id).eq('post_type', 'repost').in('parent_post_id', allIds),
+        // A repost is a row whose quoted_post_id points at the original (not parent_post_id).
+        // Includes the embedded original so a repost's own page knows if the viewer reposted it.
+        supabase.from('posts').select('quoted_post_id').eq('user_id', viewer.id).eq('post_type', 'repost').is('deleted_at', null).in('quoted_post_id', quotedPost ? [...allIds, quotedPost.id] : allIds),
         // Same "is this post actually promoted" check the feed queries do
         // (see hydrateEngagement in lib/actions/feed.ts) - this page has its
         // own separate hydration path, not that shared one, so it needs its
@@ -110,7 +123,7 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
       ])
       const likedSet = new Set((likes || []).map((l: any) => l.post_id))
       const bookmarkedSet = new Set((bookmarks || []).map((b: any) => b.post_id))
-      const repostedSet = new Set((reposts || []).map((r: any) => r.parent_post_id))
+      const repostedSet = new Set((reposts || []).map((r: any) => r.quoted_post_id))
       const promotedMap = new Map((promotions || []).map((p: any) => [p.post_id, p.id]))
 
       const hydrate = (p: any) => ({
@@ -123,7 +136,7 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
       })
 
       return {
-        post: hydrate(post),
+        post: { ...hydrate(post), quoted_post: quotedPost ? { ...quotedPost, is_reposted: repostedSet.has(quotedPost.id) } : null },
         replies: (replies || []).map((r: any) => attachNested(hydrate(r), Object.fromEntries(
           Object.entries(nestedByParent).map(([k, v]) => [k, (v as any[]).map(hydrate)])
         ))),
@@ -132,7 +145,7 @@ async function getPost(supabase: Awaited<ReturnType<typeof createClient>>, postI
   }
 
   return {
-    post: { ...post, is_liked: false, is_bookmarked: false, is_reposted: false, is_promoted: false },
+    post: { ...post, quoted_post: quotedPost ? { ...quotedPost, is_reposted: false } : null, is_liked: false, is_bookmarked: false, is_reposted: false, is_promoted: false },
     replies: (replies || []).map((r: any) => attachNested(
       { ...r, is_liked: false, is_bookmarked: false, is_reposted: false, is_promoted: false },
       Object.fromEntries(

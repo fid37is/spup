@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
+import BackButton from '@/components/ui/back-button'
 import { getPostReposters } from '@/lib/queries/posts'
 import { formatNumber } from '@/lib/utils'
 import SidebarFollowBtn from '@/components/layout/sidebar-follow-btn'
@@ -55,9 +55,7 @@ export default async function PostRepostsPage({
         padding: '14px 20px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Link href={`/post/${id}/activity`} style={{ color: 'var(--color-text-primary)', display: 'flex' }}>
-            <ArrowLeft size={20} />
-          </Link>
+          <BackButton variant="bare" fallbackHref={`/post/${id}/activity`} />
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
             Reposted by
           </h1>

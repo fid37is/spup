@@ -42,6 +42,22 @@ async function getCallerProfile() {
   return { supabase, profile, failed: false }
 }
 
+// The signed-in person's name + avatar, for UI that only knows their id (e.g. the
+// quote composer on a feed card). Read server-side so it doesn't depend on what
+// the browser client is allowed to select from `users`.
+export async function getViewerIdentityAction(): Promise<{ display_name: string; avatar_url: string | null } | null> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const { data, error } = await supabase
+    .from('users')
+    .select('display_name, avatar_url')
+    .eq('auth_id', user.id)
+    .maybeSingle()
+  if (error || !data) return null
+  return { display_name: data.display_name, avatar_url: data.avatar_url ?? null }
+}
+
 function noProfileError(failed: boolean) {
   return { error: failed ? 'Something went wrong. Please try again.' : 'Not authenticated' }
 }
@@ -166,7 +182,11 @@ export async function createPostAction(data: CreatePostSchema) {
   if (!parent_post_id && !isScheduled) {
     void notifyPostSubscribers(post.id, profile.id)
   }
-  revalidatePath('/feed')
+  // A reply never appears in the feed, and FeedClient keeps its posts in client
+  // state, so revalidating /feed here only made the feed re-render from scratch
+  // when the person pressed back after commenting. Only top-level posts and
+  // quotes need the feed refreshed.
+  if (!parent_post_id) revalidatePath('/feed')
 
   if (isScheduled) {
     // Mentions + new-post alerts for this post go out when it goes live
@@ -356,14 +376,22 @@ export async function toggleRepostAction(postId: string, desired?: boolean) {
   const { data: existing } = await supabase.from('posts').select('id').match({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).maybeSingle()
   if (existing) {
     if (desired === true) return { reposted: true } // already reposted - nothing to do
-    await supabase.from('posts').delete().match({ id: existing.id }).select('id')
+    const { error: delError } = await supabase.from('posts').delete().match({ id: existing.id }).select('id')
+    if (delError) return { error: 'Could not remove repost. Please try again.' }
     return { reposted: false }
   }
   if (desired === false) return { reposted: false } // already not reposted - nothing to do
   const { data: inserted } = await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).select('id')
   if (!inserted || inserted.length === 0) return { reposted: true }
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
-  return { reposted: true }
+  // Hand back the new repost fully hydrated (author, embedded original, counts) so
+  // the feed can queue it behind the "new posts" pill without another round trip.
+  let post: Awaited<ReturnType<typeof import('./feed').getPostsByIdsAction>>[number] | undefined
+  try {
+    const { getPostsByIdsAction } = await import('./feed')
+    post = (await getPostsByIdsAction([inserted[0].id]))[0]
+  } catch { /* the feed's realtime/refresh path still works without it */ }
+  return { reposted: true, post }
 }
 
 export async function toggleBookmarkAction(postId: string) {

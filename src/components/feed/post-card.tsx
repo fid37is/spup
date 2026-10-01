@@ -3,14 +3,15 @@
 
 import { useState, useTransition, useEffect, useRef, useId } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import {
   MessageCircle, Repeat2, Heart, Send, BarChart2,
   Bookmark, MoreHorizontal, Trash2, Quote, Flag, Pin, PinOff, Megaphone, Link2, Tag,
-  Play, Volume2, VolumeX,
+  Play, Volume2, VolumeX, X, ChevronDown, Globe,
 } from 'lucide-react'
 import PromoteModal from './promote-modal'
 import ReportDialog from './report-dialog'
+import DraftsPanel from './drafts-panel'
 import {
   toggleLikeAction,
   toggleRepostAction,
@@ -23,6 +24,7 @@ import {
   recordProfileVisitFromPostAction,
   togglePinPostAction,
   checkHasPinnedPostAction,
+  getViewerIdentityAction,
   recordPromotionImpressionAction,
   recordPromotionClickAction,
 } from '@/lib/actions'
@@ -41,6 +43,8 @@ import MediaViewer from '@/components/feed/media-viewer'
 import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
 import PayVendorButton from '@/components/escrow/pay-vendor-button'
 import { GatedMedia } from '@/components/media/media-gate'
+import { ProgressiveImage } from '@/components/media/progressive-image'
+import { publishFeedEvent } from '@/lib/feed-local-events'
 import { linkifyPostText } from '@/components/shared/linkify'
 import ConfirmModal from '@/components/ui/confirm-modal'
 import VerifiedBadge from '@/components/ui/verified-badge'
@@ -65,10 +69,10 @@ function Avatar({
       onClick={
         clickable && username
           ? e => {
-              e.stopPropagation()
-              if (postId) void recordProfileVisitFromPostAction(postId)
-              router.push(`/user/${username}`)
-            }
+            e.stopPropagation()
+            if (postId) void recordProfileVisitFromPostAction(postId)
+            router.push(`/user/${username}`)
+          }
           : undefined
       }
       style={{
@@ -136,7 +140,7 @@ function TrackedVideo({ src, postId, width, height, registry, index }: {
       video.pause()
     } else if (resumeRef.current) {
       resumeRef.current = false
-      if (inViewRef.current) video.play().catch(() => {})
+      if (inViewRef.current) video.play().catch(() => { })
     }
   }, [suspended])
 
@@ -166,7 +170,7 @@ function TrackedVideo({ src, postId, width, height, registry, index }: {
         // Read the setting each time (not once at mount) so a change in
         // Settings and a switch from Wi-Fi to mobile data both take effect.
         // When it says no, leave the video alone - the play button is there.
-        if (shouldAutoplay()) video.play().catch(() => {})
+        if (shouldAutoplay()) video.play().catch(() => { })
       },
       { threshold: [0, 0.5, 1] }
     )
@@ -178,7 +182,7 @@ function TrackedVideo({ src, postId, width, height, registry, index }: {
     e.stopPropagation()
     const video = videoRef.current
     if (!video) return
-    if (video.paused) video.play().catch(() => {})
+    if (video.paused) video.play().catch(() => { })
     else video.pause()
   }
 
@@ -222,7 +226,7 @@ function TrackedVideo({ src, postId, width, height, registry, index }: {
         onClick={e => {
           e.stopPropagation()
           if (muted) { setMuted(false); claimInlineAudio(audioId) }
-          else       { setMuted(true);  releaseInlineAudio(audioId) }
+          else { setMuted(true); releaseInlineAudio(audioId) }
         }}
         aria-label={muted ? t('post.unmute') : t('post.mute')}
         style={{
@@ -238,15 +242,17 @@ function TrackedVideo({ src, postId, width, height, registry, index }: {
   )
 }
 
-function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['media']; postId: string; post: FeedPost; compact?: boolean }) {
+// `bleed` (quoted-post embed): a single item runs edge to edge across the embed,
+// centred, with no rounding of its own (the embed's border clips the corners).
+function MediaRow({ media, postId, post, compact = false, bleed = false }: { media: FeedPost['media']; postId: string; post: FeedPost; compact?: boolean; bleed?: boolean }) {
   const [viewerIdx, setViewerIdx] = useState<number | null>(null)
   // Where the inline copy of the video was when the viewer opened, so the
   // full-screen player continues from there rather than restarting.
   const [viewerStartTime, setViewerStartTime] = useState(0)
   const inlineVideos = useRef(new Map<number, HTMLVideoElement>())
   const scrollerRef = useRef<HTMLDivElement>(null)
-  const cap = compact ? 260 : 520
-  const radius = compact ? 8 : 14
+  const cap = bleed ? 340 : compact ? 260 : 520
+  const radius = bleed ? 0 : compact ? 8 : 14
 
   if (!media || media.length === 0) return null
   const sorted = [...media].sort((a, b) => a.position - b.position)
@@ -274,8 +280,12 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
     const m = sorted[0]
     const ratio = m.width && m.height ? m.width / m.height : null
     const boxWidth = ratio ? `min(100%, ${Math.round(ratio * cap)}px)` : undefined
+    const bleedWrap: React.CSSProperties = bleed
+      ? { display: 'flex', justifyContent: 'center', width: '100%', background: 'var(--color-surface-2)' }
+      : { display: 'contents' }
     return (
       <>
+        <div style={bleedWrap}>
         <div
           onClick={compact ? undefined : (e => openViewer(0, e))}
           style={{
@@ -296,17 +306,10 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
           }}
         >
           {m.media_type === 'image'
-            ? <GatedMedia render={() => (
-                <img
-                  src={cloudinaryImage(m.url, 900)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(m.url)}
-                  style={ratio
-                    ? { width: '100%', height: '100%', objectFit: 'cover' }
-                    : { display: 'block', width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: cap }
-                  }
-                />
-              )} />
+            ? <ProgressiveImage src={m.url} width={900} fit={ratio ? 'cover' : 'natural'} maxHeight={cap} />
             : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} registry={inlineVideos.current} index={0} />} />
           }
+        </div>
         </div>
         {!compact && viewerIdx !== null && (
           <MediaViewer
@@ -361,7 +364,7 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
             }}
           >
             {m.media_type === 'image'
-              ? <GatedMedia render={() => <img src={cloudinaryImage(m.url, compact ? 480 : 700)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(m.url)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />} />
+              ? <ProgressiveImage src={m.url} width={compact ? 480 : 700} fit="cover" />
               : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} registry={inlineVideos.current} index={i} />} />
             }
           </div>
@@ -384,7 +387,80 @@ function MediaRow({ media, postId, post, compact = false }: { media: FeedPost['m
 }
 
 // ── QuoteModal ────────────────────────────────────────────────────────────────
-function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) {
+// Bordered card for a quoted post: small header, text, then single media running
+// edge to edge and centred. Used in the feed and in the quote modal (no onOpen
+// there, so it is just a preview).
+// `borderColor`: the default border token equals the modal's own surface colour in
+// dark mode (both #1E1E26), so inside the quote composer it is passed a stronger one.
+function QuotedEmbed({ q, onOpen, borderColor = 'var(--color-border)' }: { q: NonNullable<FeedPost['quoted_post']>; onOpen?: () => void; borderColor?: string }) {
+  const single = (q.media?.length ?? 0) === 1
+  return (
+    <div
+      onClick={onOpen ? (e => { e.stopPropagation(); onOpen() }) : undefined}
+      style={{ border: `1px solid ${borderColor}`, borderRadius: 16, marginBottom: 10, cursor: onOpen ? 'pointer' : 'default', overflow: 'hidden', transition: 'background 0.12s' }}
+      onMouseEnter={onOpen ? (e => { e.currentTarget.style.background = 'var(--color-surface-2)' }) : undefined}
+      onMouseLeave={onOpen ? (e => { e.currentTarget.style.background = 'transparent' }) : undefined}
+    >
+      <div style={{ padding: '10px 12px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
+          <Avatar name={q.author?.display_name || 'S'} avatarUrl={q.author?.avatar_url} size={20} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{q.author?.display_name}</span>
+          {q.author?.verification_tier && q.author.verification_tier !== 'none' && (
+            <VerifiedBadge tier={q.author.verification_tier} size={13} />
+          )}
+          <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{q.author?.username}</span>
+          <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(q.created_at)}</span>
+        </div>
+        {q.body?.trim() && <div style={{ paddingBottom: q.media?.length ? 10 : 0 }}><TruncatedBody text={q.body} postId={q.id} fontSize={14} /></div>}
+      </div>
+      {q.media && q.media.length > 0 && (
+        <div style={single ? undefined : { padding: '0 12px' }}>
+          <MediaRow media={q.media} postId={q.id} post={q as unknown as FeedPost} compact bleed={single} />
+        </div>
+      )}
+      {!(single && q.media?.length) && <div style={{ height: 10 }} />}
+    </div>
+  )
+}
+
+const QUOTE_PREVIEW_BORDER = 'color-mix(in srgb, var(--color-text-muted) 45%, transparent)'
+
+// Placeholder for the audience picker ("Everyone" / who can reply). Not wired to
+// anything yet - there is no audience setting on posts - so it is shown but inert.
+function AudiencePill() {
+  return (
+    <span
+      title="Coming soon"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+        padding: '2px 12px', borderRadius: 999, border: '1px solid var(--color-border-light)',
+        color: 'var(--color-brand)', fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
+        cursor: 'default', userSelect: 'none',
+      }}
+    >
+      Everyone <ChevronDown size={14} />
+    </span>
+  )
+}
+
+function ComposerAvatar({ name, url, size }: { name: string; url?: string | null; size: number }) {
+  const colors = ['#1A7A4A', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A1A4A', '#4A7A1A']
+  const bg = colors[name.charCodeAt(0) % colors.length]
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+      background: url ? 'transparent' : bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: size * 0.36, color: 'white',
+    }}>
+      {url ? <img src={url} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : name.slice(0, 2).toUpperCase()}
+    </div>
+  )
+}
+
+let viewerIdentityCache: { display_name: string; avatar_url: string | null } | null = null
+
+function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose: () => void; currentUserId?: string }) {
   const { t } = useTranslation()
   const [body, setBody] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -392,7 +468,35 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
   const { success, error: toastError } = useToast()
   // Portaled to document.body below — see the note on ConfirmModal for why.
   const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const [isMobile, setIsMobile] = useState(false)
+  const [viewer, setViewer] = useState<{ display_name: string; avatar_url: string | null } | null>(null)
+  const [showDrafts, setShowDrafts] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+    const mq = window.matchMedia('(max-width: 767px)')
+    setIsMobile(mq.matches)
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  // On a phone the quote composer is a full page, so the page behind must not scroll.
+  useEffect(() => {
+    if (!isMobile) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [isMobile])
+  // The quoter's own avatar (the feed card only knows their id). Fetched once and
+  // reused, so reopening the composer doesn't flash initials again.
+  useEffect(() => {
+    if (!currentUserId) return
+    if (viewerIdentityCache) { setViewer(viewerIdentityCache); return }
+    let cancelled = false
+    void getViewerIdentityAction()
+      .then(v => { if (v) { viewerIdentityCache = v; if (!cancelled) setViewer(v) } })
+      .catch(() => { /* initials fallback */ })
+    return () => { cancelled = true }
+  }, [currentUserId])
 
   function handleQuote() {
     if (!body.trim()) { setError(t('post.quote_needs_content')); return }
@@ -407,44 +511,135 @@ function QuoteModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
 
   if (!mounted) return null
 
-  return createPortal(
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'var(--overlay-bg)', zIndex: 200 }} />
-      <div style={{
-        position: 'fixed', top: '50%', left: '50%',
-        transform: 'translate(-50%,-50%)', width: 'min(560px, 95vw)',
-        background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)',
-        borderRadius: 20, padding: 20, zIndex: 201, animation: 'modalIn 0.18s ease',
-      }}>
-        <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)', marginBottom: 16 }}>
-          {t('post.quote_post_title')}
-        </h3>
-        <div style={{ border: '1px solid var(--color-border)', borderRadius: 14, padding: '12px 14px', marginBottom: 14, background: 'var(--color-surface-2)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Avatar name={post.author?.display_name || 'S'} avatarUrl={post.author?.avatar_url} size={26} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{post.author?.display_name}</span>
-            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>@{post.author?.username}</span>
-          </div>
-          {post.body && <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.5, wordBreak: 'break-word' }}>{post.body}</p>}
-        </div>
+  const canPost = !!body.trim() && !isPending
+  const viewerName = viewer?.display_name || 'Me'
+  const quoteLabel = isPending ? t('post.quoting') : t('post.quote')
+  const draftsBtn = currentUserId ? (
+    <button
+      onClick={() => setShowDrafts(true)}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-brand)', fontSize: 15, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", padding: '6px 4px' }}
+    >
+      Drafts
+    </button>
+  ) : <span />
+  const closeBtn = (size: number) => (
+    <button
+      onClick={onClose}
+      aria-label={t('common.cancel')}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-primary)', padding: 6, borderRadius: '50%', display: 'flex', marginLeft: -6 }}
+    >
+      <X size={size} />
+    </button>
+  )
+  // Avatar on the left; on the right the comment box with the quoted post
+  // indented underneath it (same left edge as the text).
+  const composer = (avatarSize: number, fontSize: number, showPill: boolean) => (
+    <div style={{ display: 'flex', gap: 12 }}>
+      <ComposerAvatar name={viewerName} url={viewer?.avatar_url} size={avatarSize} />
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        {showPill && <AudiencePill />}
         <textarea
           autoFocus value={body}
           onChange={e => { setBody(e.target.value); setError('') }}
           placeholder={t('post.add_comment_placeholder')} maxLength={500} rows={3}
-          style={{ width: '100%', background: 'var(--color-input-bg)', border: '1px solid var(--color-border)', borderRadius: 12, padding: '12px 14px', fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'DM Sans',sans-serif", resize: 'none', outline: 'none', boxSizing: 'border-box' }}
+          style={{ width: '100%', background: 'transparent', border: 'none', padding: showPill ? '8px 0 12px' : '8px 0 14px', fontSize, color: 'var(--color-text-primary)', fontFamily: "'DM Sans',sans-serif", resize: 'none', outline: 'none', boxSizing: 'border-box' }}
         />
-        {error && <p style={{ fontSize: 13, color: 'var(--color-error)', marginTop: 6 }}>{error}</p>}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('post.chars_left', { count: 500 - body.length })}</span>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 20, border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 14 }}>{t('common.cancel')}</button>
-            <button onClick={handleQuote} disabled={isPending || !body.trim()} style={{ padding: '9px 18px', borderRadius: 20, border: 'none', background: body.trim() ? 'var(--color-brand)' : 'var(--color-surface-2)', color: body.trim() ? 'white' : 'var(--color-text-muted)', cursor: body.trim() ? 'pointer' : 'not-allowed', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14 }}>
-              {isPending ? t('post.quoting') : t('post.quote')}
+        <QuotedEmbed q={post as unknown as NonNullable<FeedPost['quoted_post']>} borderColor={QUOTE_PREVIEW_BORDER} />
+        {error && <p style={{ fontSize: 13, color: 'var(--color-error)', marginTop: 2 }}>{error}</p>}
+      </div>
+    </div>
+  )
+  const draftsPanel = showDrafts && currentUserId && (
+    <DraftsPanel
+      userId={currentUserId}
+      onClose={() => setShowDrafts(false)}
+      // A draft is text (+ media); a quote only takes the text.
+      onEditDraft={draft => { setBody(draft.body.slice(0, 500)); setShowDrafts(false) }}
+    />
+  )
+
+  // Mobile: a standalone full-screen page (above the bottom nav), not a modal.
+  if (isMobile) {
+    return createPortal(
+      <>
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 350, display: 'flex', flexDirection: 'column',
+            background: 'var(--color-bg)', animation: 'quotePageIn 0.18s ease-out',
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+          }}
+        >
+          {/* Top bar: close left, Drafts + Post right */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
+            {closeBtn(24)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {draftsBtn}
+              <button
+                onClick={handleQuote}
+                disabled={!canPost}
+                style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)', color: canPost ? 'white' : 'var(--color-text-muted)', cursor: canPost ? 'pointer' : 'not-allowed', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15 }}
+              >
+                {quoteLabel}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 16px 16px' }}>
+            {composer(40, 19, false)}
+          </div>
+
+          {/* Bottom: audience placeholder + counter */}
+          <div style={{ borderTop: '1px solid var(--color-border-light)', padding: '12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span title="Coming soon" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--color-brand)', fontSize: 14, fontWeight: 600, cursor: 'default' }}>
+              <Globe size={16} /> Everyone can reply
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('post.chars_left', { count: 500 - body.length })}</span>
+          </div>
+          <style>{`@keyframes quotePageIn { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:none; } }`}</style>
+        </div>
+        {draftsPanel}
+      </>,
+      document.body
+    )
+  }
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'var(--overlay-bg)', zIndex: 200 }} />
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          position: 'fixed', top: '50%', left: '50%',
+          transform: 'translate(-50%,-50%)', width: 'min(600px, 95vw)',
+          maxHeight: '90dvh', overflowY: 'auto',
+          background: 'var(--color-surface-raised)', border: '1px solid var(--color-border-light)',
+          borderRadius: 20, padding: '12px 16px 16px', zIndex: 201, animation: 'modalIn 0.18s ease',
+          boxSizing: 'border-box',
+        }}
+      >
+        {/* Header: close left, Drafts right */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          {closeBtn(20)}
+          {draftsBtn}
+        </div>
+
+        {composer(40, 18, true)}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 12, borderTop: '1px solid var(--color-border-light)' }}>
+          <span title="Coming soon" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--color-brand)', fontSize: 14, fontWeight: 600, cursor: 'default' }}>
+            <Globe size={15} /> Everyone can reply
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('post.chars_left', { count: 500 - body.length })}</span>
+            <button onClick={handleQuote} disabled={!canPost} style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)', color: canPost ? 'white' : 'var(--color-text-muted)', cursor: canPost ? 'pointer' : 'not-allowed', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14 }}>
+              {quoteLabel}
             </button>
           </div>
         </div>
       </div>
       <style>{`@keyframes modalIn { from { opacity:0;transform:translateY(-10px) scale(0.98); } to { opacity:1;transform:none; } }`}</style>
+      {draftsPanel}
     </>,
     document.body
   )
@@ -592,14 +787,20 @@ export function PostActions({
   currentUserId,
   onReplyClick,
   isReply = false,
+  repostTarget,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
   isReply?: boolean
+  // Set when `post` is itself a repost row. Like, comment and analytics then
+  // belong to the repost, but the Repost / Quote buttons still act on the
+  // ORIGINAL post (reposting a repost reposts the original, as on X).
+  repostTarget?: FeedPost
 }) {
   const { t } = useTranslation()
   const [, startTransition] = useTransition()
+  const rt = repostTarget ?? post
   const isOwnPost = !!currentUserId && post.author?.id === currentUserId
   // Like / repost state is shared per post (lib/engagement-state), so the feed
   // card and e.g. the full-screen viewer's sidebar always agree, instantly. The
@@ -608,13 +809,17 @@ export function PostActions({
   // stays right whether or not a fresh snapshot has arrived, and live counts from
   // other people (the feed's periodic refresh) flow through without disturbing it.
   const likeOv = useEngagementOverride('like', post.id)
-  const repostOv = useEngagementOverride('repost', post.id)
+  const repostOv = useEngagementOverride('repost', rt.id)
   const liked = likeOv ? likeOv.active : post.is_liked
-  const reposted = repostOv ? repostOv.active : post.is_reposted
+  const reposted = repostOv ? repostOv.active : rt.is_reposted
   const likeCount = Math.max(0, post.likes_count + (liked === post.is_liked ? 0 : liked ? 1 : -1))
-  const repostCount = Math.max(0, post.reposts_count + (reposted === post.is_reposted ? 0 : reposted ? 1 : -1))
+  // On a repost card the number is the REPOST's own count (it is its own post), not
+  // the original's - otherwise both cards read "1" the moment someone reposts.
+  const repostCount = repostTarget
+    ? Math.max(0, post.reposts_count ?? 0)
+    : Math.max(0, (rt.reposts_count ?? 0) + (reposted === rt.is_reposted ? 0 : reposted ? 1 : -1))
   useEffect(() => { settleEngagement('like', post.id, post.is_liked) }, [post.id, post.is_liked, likeOv])
-  useEffect(() => { settleEngagement('repost', post.id, post.is_reposted) }, [post.id, post.is_reposted, repostOv])
+  useEffect(() => { settleEngagement('repost', rt.id, rt.is_reposted ?? false) }, [rt.id, rt.is_reposted, repostOv])
   const [showRepostMenu, setShowRepostMenu] = useState(false)
   const [showQuoteModal, setShowQuoteModal] = useState(false)
   const repostRef = useRef<HTMLDivElement>(null)
@@ -654,16 +859,18 @@ export function PostActions({
     e.stopPropagation()
     const nextReposted = !reposted
     setShowRepostMenu(false)
-    const seq = beginEngagement('repost', post.id, nextReposted, post.is_reposted)
+    const seq = beginEngagement('repost', rt.id, nextReposted, rt.is_reposted ?? false)
     startTransition(async () => {
       let undoTo: boolean | undefined
       try {
-        const r = await toggleRepostAction(post.id, nextReposted)
+        const r = await toggleRepostAction(rt.id, nextReposted)
         if ('error' in r) undoTo = !nextReposted
+        else if (nextReposted && 'post' in r && r.post) publishFeedEvent({ type: 'repost-added', post: r.post })
+        else if (!nextReposted) publishFeedEvent({ type: 'repost-removed', originalId: rt.id })
       } catch {
         undoTo = !nextReposted
       }
-      endEngagement('repost', post.id, seq, undoTo)
+      endEngagement('repost', rt.id, seq, undoTo)
       if (undoTo !== undefined) toastError(t('post.repost_failed'))
       else success(nextReposted ? t('post.reposted') : t('post.repost_removed'))
     })
@@ -673,7 +880,7 @@ export function PostActions({
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4, marginTop: 8 }}>
         <div>
           <ActionBtn
             icon={<MessageCircle size={18} />}
@@ -691,7 +898,7 @@ export function PostActions({
         <div ref={repostRef} style={{ position: 'relative' }}>
           <ActionBtn
             icon={<Repeat2 size={18} />} count={repostCount}
-            active={reposted} activeColor="var(--color-brand)"
+            active={repostTarget ? false : reposted} activeColor="var(--color-brand)"
             onClick={e => { e.stopPropagation(); setShowRepostMenu(v => !v) }}
             label={t('post.repost')}
           />
@@ -749,19 +956,39 @@ export function PostActions({
         )}
       </div>
 
-      {showQuoteModal && <QuoteModal post={post} onClose={() => setShowQuoteModal(false)} />}
+      {showQuoteModal && <QuoteModal post={rt} currentUserId={currentUserId} onClose={() => setShowQuoteModal(false)} />}
     </>
   )
 }
 
 // ── RepostCard ────────────────────────────────────────────────────────────────
-function TruncatedBody({ text, limit = 240, postId }: { text: string; limit?: number; postId: string }) {
+const TRUNCATE_MAX_LINES = 8
+
+// Shortens long text so one post can't fill the whole screen: by characters
+// (cut at a word boundary) and by line count (a post of many short lines is
+// just as tall as one long paragraph).
+function truncateText(text: string, limit: number): string | null {
+  const lines = text.split('\n')
+  const tooManyLines = lines.length > TRUNCATE_MAX_LINES
+  if (!tooManyLines && text.length <= limit) return null
+  let out = tooManyLines ? lines.slice(0, TRUNCATE_MAX_LINES).join('\n') : text
+  if (out.length > limit) {
+    const cut = out.slice(0, limit)
+    const lastSpace = cut.lastIndexOf(' ')
+    out = lastSpace > 0 ? cut.slice(0, lastSpace) : cut
+  }
+  return out.trimEnd()
+}
+
+function TruncatedBody({ text, limit = 240, postId, fontSize = 15 }: { text: string; limit?: number; postId: string; fontSize?: number }) {
   const [expanded, setExpanded] = useState(false)
-  const needsTruncation = text.length > limit
+  const truncated = truncateText(text, limit)
+  const needsTruncation = truncated !== null
+  const pStyle = { fontSize, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word' as const, whiteSpace: 'pre-wrap' as const }
 
   if (!needsTruncation || expanded) {
     return (
-      <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+      <p style={pStyle}>
         {linkifyPostText(text)}
         {needsTruncation && (
           <>
@@ -778,13 +1005,8 @@ function TruncatedBody({ text, limit = 240, postId }: { text: string; limit?: nu
     )
   }
 
-  // Truncate at the last space before the limit so we don't cut mid-word
-  const cut = text.slice(0, limit)
-  const lastSpace = cut.lastIndexOf(' ')
-  const truncated = lastSpace > 0 ? cut.slice(0, lastSpace) : cut
-
   return (
-    <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+    <p style={pStyle}>
       {linkifyPostText(truncated)}
       {'... '}
       <span
@@ -801,30 +1023,38 @@ function TruncatedBody({ text, limit = 240, postId }: { text: string; limit?: nu
   )
 }
 
+// A repost is its own post (its own row): it has its own likes, comments and
+// analytics, and opens its own detail page. The original post is embedded inside
+// it, untouched, and tapping the embedded card goes to the original.
 function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; currentUserId?: string; onReplyClick?: () => void }) {
   const { t } = useTranslation()
   const router = useRouter()
+  const pathname = usePathname()
   const original = post.quoted_post
   if (!original) return null
 
-  // Build a FeedPost-compatible object for the original post so we can reuse PostActions
+  // The original as a FeedPost, so the Repost / Quote buttons (and the media
+  // viewer) can act on it.
   const originalAsPost: FeedPost = {
     ...(original as any),
     is_liked: (original as any).is_liked ?? false,
     is_reposted: (original as any).is_reposted ?? false,
     is_bookmarked: (original as any).is_bookmarked ?? false,
     impressions_count: (original as any).impressions_count ?? 0,
+    likes_count: (original as any).likes_count ?? 0,
+    reposts_count: (original as any).reposts_count ?? 0,
+    comments_count: (original as any).comments_count ?? 0,
   }
 
   return (
     <article
-      onClick={() => router.push(`/post/${original.id}`)}
+      onClick={() => { if (pathname !== `/post/${post.id}`) router.push(`/post/${post.id}`) }}
       onCopy={e => e.preventDefault()}
       style={{
+        padding: '10px 16px 14px',
         borderBottom: '1px solid var(--color-border)',
         cursor: 'pointer',
         transition: 'background 0.12s',
-        padding: '10px 16px 12px',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         WebkitTouchCallout: 'none',
@@ -832,20 +1062,9 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
       onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
     >
-      {/* Repost attribution row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingLeft: 26 }}>
-        <div style={{
-          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-          background: post.author.avatar_url ? 'transparent' : '#1A7A4A',
-          overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 8, color: 'white', fontWeight: 800,
-        }}>
-          {post.author.avatar_url
-            ? <img src={cloudinaryImage(post.author.avatar_url, 128)} alt="" loading="lazy" decoding="async" onError={fallbackToOriginal(post.author.avatar_url)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : post.author.display_name.slice(0, 1).toUpperCase()
-          }
-        </div>
-        <Repeat2 size={13} color="var(--color-text-muted)" />
+      {/* Repost line - the only thing that differs from a normal post */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, paddingLeft: 30 }}>
+        <Repeat2 size={14} color="var(--color-text-muted)" />
         <span style={{ fontSize: 13, color: 'var(--color-text-muted)', fontFamily: "'DM Sans',sans-serif" }}>
           <span
             onClick={e => { e.stopPropagation(); router.push(`/user/${post.author.username}`) }}
@@ -857,13 +1076,15 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
           </span>
           {' '}{t('post.reposted_by_label')}
         </span>
+        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>· {formatRelativeTime(post.created_at)}</span>
       </div>
 
-      {/* Original post content */}
+      {/* Normal post layout, showing the original post */}
       <div style={{ display: 'flex', gap: 12 }}>
-        <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable size={42} postId={original.id} />
+        <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable postId={original.id} />
+
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 3 }}>
             <span
               onClick={e => { e.stopPropagation(); void recordProfileVisitFromPostAction(original.id); router.push(`/user/${original.author.username}`) }}
               style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
@@ -879,18 +1100,20 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
             <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
             <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(original.created_at)}</span>
             {original.is_selling && (
-              <Tag size={13} color="var(--color-brand)" aria-label={t('post.selling')} style={{ marginLeft: 2 }} />
+              <Tag size={14} color="var(--color-brand)" aria-label={t('post.selling')} style={{ marginLeft: 2 }} />
             )}
           </div>
-          {original.body && (
-            <p style={{ fontSize: 15, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap', marginBottom: original.media?.length ? 10 : 0 }}>
-              {linkifyPostText(original.body)}
-            </p>
+
+          {original.body?.trim() && (
+            <div style={{ marginBottom: original.media?.length ? 12 : 10 }}>
+              <TruncatedBody text={original.body} postId={original.id} />
+            </div>
           )}
+
           <MediaRow media={original.media} postId={original.id} post={originalAsPost} />
 
-          {/* Action bar on the original post inside repost */}
-          <PostActions post={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+          {/* Action bar belongs to the repost itself; Repost / Quote target the original */}
+          <PostActions post={post} repostTarget={originalAsPost} currentUserId={currentUserId} onReplyClick={onReplyClick} />
         </div>
       </div>
     </article>
@@ -936,13 +1159,13 @@ export default function PostCard({
   const [, startTransition] = useTransition()
   const [bookmarked, setBookmarked] = useState(post.is_bookmarked)
   const [bookmarkCount, setBookmarkCount] = useState(post.bookmarks_count || 0)
-  const [, startPinT]      = useTransition()
-  const [showMenu,       setShowMenu]       = useState(false)
+  const [, startPinT] = useTransition()
+  const [showMenu, setShowMenu] = useState(false)
   const [isMobile, setIsMobile] = useState(true)
   const [showPromoteModal, setShowPromoteModal] = useState(false)
   const [showReport, setShowReport] = useState(false)
-  const [deleted,        setDeleted]        = useState(false)
-  const [isPinned,       setIsPinned]       = useState(post.is_pinned ?? false)
+  const [deleted, setDeleted] = useState(false)
+  const [isPinned, setIsPinned] = useState(post.is_pinned ?? false)
   const [showPinConfirm, setShowPinConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -969,7 +1192,7 @@ export default function PostCard({
 
   // Fire impression once when post is 50% visible for >= 1 second
   useEffect(() => {
-    if (isRepost || impressionFired.current || isOwnPost) return
+    if (impressionFired.current || isOwnPost) return
     const el = articleRef.current
     if (!el) return
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -991,10 +1214,16 @@ export default function PostCard({
     )
     observer.observe(el)
     return () => { observer.disconnect(); if (timer) clearTimeout(timer) }
-  }, [post.id, isRepost, isOwnPost])
+  }, [post.id, isOwnPost])
 
   if (deleted) return null
-  if (isRepost) return <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+  // A repost counts its own impressions (it has its own analytics), so it gets
+  // the same visibility observer as a normal card via this wrapper.
+  if (isRepost) return (
+    <div ref={articleRef as unknown as React.RefObject<HTMLDivElement>}>
+      <RepostCard post={post} currentUserId={currentUserId} onReplyClick={onReplyClick} />
+    </div>
+  )
 
   function navigate(e: React.MouseEvent) {
     if (isReply) return
@@ -1161,61 +1390,61 @@ export default function PostCard({
                 <Tag size={14} color="var(--color-brand)" aria-label={t('post.selling')} />
               )}
               <div style={{ position: 'relative' }}>
-              <button
-                onClick={e => { e.stopPropagation(); setShowMenu(v => !v) }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '4px 6px', borderRadius: 6 }}
-              >
-                <MoreHorizontal size={16} />
-              </button>
-              {showMenu && (isMobile ? (mounted && createPortal(
-                <>
-                  <div
-                    onClick={e => { e.stopPropagation(); setShowMenu(false) }}
-                    style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.5)' }}
-                  />
-                  <div
-                    onClick={e => e.stopPropagation()}
-                    style={{
-                      position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 201,
-                      background: 'var(--color-surface-raised)',
-                      borderTopLeftRadius: 20, borderTopRightRadius: 20,
-                      padding: '10px 8px calc(env(safe-area-inset-bottom, 0px) + 12px)',
-                      boxShadow: '0 -8px 30px rgba(0,0,0,0.4)',
-                      animation: 'sheetUp 0.18s ease-out',
-                    }}
-                  >
-                    <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)', margin: '2px auto 10px' }} />
-                    <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
-                      onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
-                      onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
-                      onDelete={handleDelete}
-                      onReport={() => { setShowMenu(false); setShowReport(true) }}
-                      size={18} fontSize={15} gap={12} padding="14px 16px" />
-                  </div>
-                  <style>{`@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
-                </>,
-                document.body
-              )) : (
-                <>
-                  <div onClick={e => { e.stopPropagation(); setShowMenu(false) }} style={{ position: 'fixed', inset: 0, zIndex: 200 }} />
-                  <div
-                    onClick={e => e.stopPropagation()}
-                    style={{
-                      position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 201,
-                      background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)',
-                      borderRadius: 14, padding: 6, minWidth: 210,
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-                    }}
-                  >
-                    <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
-                      onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
-                      onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
-                      onDelete={handleDelete}
-                      onReport={() => { setShowMenu(false); setShowReport(true) }}
-                      size={15} fontSize={14} gap={8} padding="9px 12px" />
-                  </div>
-                </>
-              ))}
+                <button
+                  onClick={e => { e.stopPropagation(); setShowMenu(v => !v) }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '4px 6px', borderRadius: 6 }}
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+                {showMenu && (isMobile ? (mounted && createPortal(
+                  <>
+                    <div
+                      onClick={e => { e.stopPropagation(); setShowMenu(false) }}
+                      style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.5)' }}
+                    />
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                        position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 201,
+                        background: 'var(--color-surface-raised)',
+                        borderTopLeftRadius: 20, borderTopRightRadius: 20,
+                        padding: '10px 8px calc(env(safe-area-inset-bottom, 0px) + 12px)',
+                        boxShadow: '0 -8px 30px rgba(0,0,0,0.4)',
+                        animation: 'sheetUp 0.18s ease-out',
+                      }}
+                    >
+                      <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)', margin: '2px auto 10px' }} />
+                      <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
+                        onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
+                        onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
+                        onDelete={handleDelete}
+                        onReport={() => { setShowMenu(false); setShowReport(true) }}
+                        size={18} fontSize={15} gap={12} padding="14px 16px" />
+                    </div>
+                    <style>{`@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+                  </>,
+                  document.body
+                )) : (
+                  <>
+                    <div onClick={e => { e.stopPropagation(); setShowMenu(false) }} style={{ position: 'fixed', inset: 0, zIndex: 200 }} />
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                        position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 201,
+                        background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)',
+                        borderRadius: 14, padding: 6, minWidth: 210,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                      }}
+                    >
+                      <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
+                        onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
+                        onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
+                        onDelete={handleDelete}
+                        onReport={() => { setShowMenu(false); setShowReport(true) }}
+                        size={15} fontSize={14} gap={8} padding="9px 12px" />
+                    </div>
+                  </>
+                ))}
               </div>
             </div>
           </div>
@@ -1235,27 +1464,7 @@ export default function PostCard({
 
           {/* Quoted post embed */}
           {post.quoted_post && (
-            <div
-              onClick={e => { e.stopPropagation(); router.push(`/post/${post.quoted_post!.id}`) }}
-              style={{ border: '1px solid var(--color-border)', borderRadius: 14, padding: '10px 12px', marginBottom: 10, cursor: 'pointer', background: 'var(--color-surface-2)', transition: 'background 0.12s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-surface-3)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'var(--color-surface-2)'}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <Avatar name={post.quoted_post.author?.display_name || 'S'} avatarUrl={post.quoted_post.author?.avatar_url} size={20} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{post.quoted_post.author?.display_name}</span>
-                <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>@{post.quoted_post.author?.username}</span>
-              </div>
-              {post.quoted_post.body && <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: post.quoted_post.media?.length ? 8 : 0 }}>{linkifyPostText(post.quoted_post.body)}</p>}
-              {post.quoted_post.media && post.quoted_post.media.length > 0 && (
-                <MediaRow
-                  media={post.quoted_post.media}
-                  postId={post.quoted_post.id}
-                  post={post.quoted_post as unknown as FeedPost}
-                  compact
-                />
-              )}
-            </div>
+            <QuotedEmbed q={post.quoted_post} onOpen={() => router.push(`/post/${post.quoted_post!.id}`)} />
           )}
 
           {/* Media */}

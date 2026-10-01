@@ -1,10 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import {
-  ArrowLeft, Heart, Repeat2, MessageSquareQuote, ChevronRight,
+  Heart, Repeat2, MessageSquareQuote, ChevronRight,
   Eye, Video, MousePointerClick, Maximize2, UserCircle2, Zap, Bookmark,
 } from 'lucide-react'
 import Link from 'next/link'
+import BackButton from '@/components/ui/back-button'
 import { formatNumber } from '@/lib/utils'
 
 function Avatar({ name, avatarUrl, size = 40 }: { name: string; avatarUrl?: string | null; size?: number }) {
@@ -69,9 +70,7 @@ export default async function PostActivityPage({
         display: 'flex', alignItems: 'center', gap: 16,
         padding: '14px 20px',
       }}>
-        <Link href={`/post/${id}`} style={{ color: 'var(--color-text-primary)', display: 'flex' }}>
-          <ArrowLeft size={20} />
-        </Link>
+        <BackButton variant="bare" fallbackHref={`/post/${id}`} />
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
           Post activity
         </h1>
