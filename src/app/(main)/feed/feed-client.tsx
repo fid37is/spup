@@ -1,18 +1,16 @@
 // src/app/(main)/feed/feed-client.tsx
 'use client'
 
-import { useState, useTransition, useEffect, useRef, useCallback, useMemo } from 'react'
-import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, getSellingFeedAction, markFeedSeenAction, dismissCatchUpAction, getPostsByIdsAction, getFeedAudienceAction, type FeedPost, type CatchUp } from '@/lib/actions'
+import { useState, useTransition, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, getSellingFeedAction, markFeedSeenAction, getPostsByIdsAction, getFeedAudienceAction, type FeedPost } from '@/lib/actions'
 import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import AdSlot from '@/components/feed/ad-card'
-import CatchUpCard from '@/components/feed/catch-up-card'
 import { Loader, Repeat2, Rss, Users, Sparkles, Tag, ArrowUp } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
 import { NotifAvatar } from '@/components/notifications/avatar'
 import { useNetworkStatus } from '@/lib/network-status'
 import { useOfflinePostSync } from '@/hooks/use-offline-post-sync'
-import { WifiOff, Send } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/language-context'
 
 type Tab = 'for-you' | 'following' | 'mutuals' | 'selling'
@@ -37,17 +35,51 @@ const MAX_PENDING_IDS = 40
 const COUNT_POLL_MS = 25_000
 const COUNT_POLL_MAX_IDS = 100
 
-// Feed "seen" heartbeat (drives the While-you-were-away catch-up): count the
-// user as having been on the feed once it's been visible for a few seconds -
-// a bounce straight back out shouldn't swallow the posts they never saw -
-// then keep refreshing it while they stay.
+// Feed "seen" heartbeat: count the user as having been on the feed once it's
+// been visible for a few seconds, then keep refreshing it while they stay.
 const SEEN_AFTER_MS = 15_000
 const HEARTBEAT_MS  = 60_000
+
+// Pick-up-where-you-left-off. The For You feed is saved on this device (posts
+// already loaded + the post that was at the top of the screen). Coming back,
+// the feed reopens at that same post; whatever was posted since is NOT mixed
+// in - it waits behind the pill and is added only when the user taps the pill,
+// scrolls back up to it, or reloads. Nothing is re-downloaded to do this: the
+// first page the server already sent is simply compared against the saved one.
+const SNAPSHOT_VERSION = 1
+const SNAPSHOT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
+const SNAPSHOT_MAX_POSTS = 120
+const snapshotKey = (userId: string) => `spup:feed-snapshot:v${SNAPSHOT_VERSION}:${userId}`
+
+type FeedSnapshot = {
+  posts: FeedPost[]
+  cursor: string | null
+  hasMore: boolean
+  anchor: { id: string; offset: number } | null
+  savedAt: number
+}
+
+function readSnapshot(userId: string): FeedSnapshot | null {
+  try {
+    const raw = localStorage.getItem(snapshotKey(userId))
+    if (!raw) return null
+    const snap = JSON.parse(raw) as FeedSnapshot
+    if (!Array.isArray(snap.posts) || snap.posts.length === 0) return null
+    if (Date.now() - snap.savedAt > SNAPSHOT_MAX_AGE_MS) return null
+    return snap
+  } catch { return null }
+}
+
+function wasPageReload(): boolean {
+  try {
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+    return nav?.type === 'reload'
+  } catch { return false }
+}
 
 interface FeedClientProps {
   initialPosts: FeedPost[]
   initialCursor: string | null
-  initialCatchUp?: CatchUp | null
   currentUserId?: string
   currentUserAvatarUrl?: string | null
   currentUserDisplayName?: string | null
@@ -74,7 +106,7 @@ const EMPTY: Record<Tab, { icon: React.ReactNode; titleKey: string; bodyKey: str
   'selling':   { icon: <Tag size={32} />,      titleKey: 'feed.empty_selling',         bodyKey: 'feed.empty_selling_desc' },
 }
 
-export default function FeedClient({ initialPosts, initialCursor, initialCatchUp = null, currentUserId, currentUserAvatarUrl, currentUserDisplayName }: FeedClientProps) {
+export default function FeedClient({ initialPosts, initialCursor, currentUserId, currentUserAvatarUrl, currentUserDisplayName }: FeedClientProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab]       = useState<Tab>('for-you')
   const [posts, setPosts]               = useState<FeedPost[]>(initialPosts)
@@ -88,7 +120,12 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
   const pendingIdsRef = useRef<string[]>([])            // arrival order, oldest first
   const pendingOverflowRef = useRef(false)              // more arrived than we track
   const audienceRef = useRef<Promise<Audience | null> | null>(null)
-  const [catchUp, setCatchUp]           = useState<CatchUp | null>(initialCatchUp)
+  const pendingPostsRef = useRef<Map<string, FeedPost>>(new Map()) // new posts already in hand (from the server's first page)
+  const restoreAnchorRef = useRef<{ id: string; offset: number } | null>(null)
+  const restoredRef = useRef<{ baseline: string; have: Set<string> } | null>(null)
+  const [restoreTick, setRestoreTick] = useState(0)
+  const [fadeInIds, setFadeInIds] = useState<Set<string>>(new Set()) // posts just revealed - fade in quietly
+  const lastAnchorRef = useRef<{ id: string; offset: number } | null>(null) // last known reading position
   const feedTopRef  = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const tabRef      = useRef<Tab>('for-you')
@@ -98,13 +135,84 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
   const networkStatusRef = useRef(networkStatus)
   networkStatusRef.current = networkStatus
 
-  const { pendingCount, trySync } = useOfflinePostSync()
+  // Queued offline posts still sync on reconnect / reopen (the hook does that
+  // itself) - there is just no banner about it anymore.
+  useOfflinePostSync()
+
+  // Posts that arrived since the saved feed was left. They are NOT mixed into
+  // what's on screen: ids wait behind the pill (the posts themselves are kept
+  // so tapping it needs no second download) and the pill shows who posted.
+  function queueNewFromServer(list: FeedPost[]) {
+    const r = restoredRef.current
+    if (!r) return
+    const fresh = list
+      .filter(p => !p.is_promoted && !r.have.has(p.id) && p.created_at > r.baseline && p.author?.id !== currentUserId)
+      .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0)) // oldest first
+    if (!fresh.length) return
+    const queue = pendingIdsRef.current
+    for (const p of fresh) {
+      if (queue.includes(p.id)) continue
+      if (queue.length >= MAX_PENDING_IDS) pendingOverflowRef.current = true
+      else { queue.push(p.id); pendingPostsRef.current.set(p.id, p) }
+    }
+    const authors: NewAuthor[] = []
+    for (const p of [...fresh].reverse()) { // most recent posters first
+      if (authors.length >= MAX_PILL_AVATARS) break
+      if (!p.author || authors.some(a => a.id === p.author.id)) continue
+      authors.push({ id: p.author.id, display_name: p.author.display_name, avatar_url: p.author.avatar_url })
+      seenAuthorsRef.current.add(p.author.id)
+    }
+    setNewAuthors(authors)
+    setHasNew(true)
+  }
+
+  // Reopen the For You feed where the user stopped reading (see the
+  // SNAPSHOT_* note above). Runs before paint so there is no flash of the
+  // top of the feed. A browser reload deliberately skips this: reloading
+  // means "give me the newest", so it starts fresh from the top.
+  useLayoutEffect(() => {
+    if (!currentUserId) return
+    if (wasPageReload()) {
+      try { localStorage.removeItem(snapshotKey(currentUserId)) } catch { /* ignore */ }
+      return
+    }
+    const snap = readSnapshot(currentUserId)
+    if (!snap) return
+    restoredRef.current = {
+      baseline: snap.posts.reduce((m, p) => (!p.is_promoted && p.created_at > m ? p.created_at : m), ''),
+      have: new Set(snap.posts.map(p => p.id)),
+    }
+    setPosts(snap.posts)
+    setCursor(snap.cursor)
+    setHasMore(snap.hasMore)
+    queueNewFromServer(initialPosts)
+    restoreAnchorRef.current = snap.anchor
+    lastAnchorRef.current = snap.anchor
+    setRestoreTick(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Once the saved posts are rendered, put the saved post back where it was.
+  useLayoutEffect(() => {
+    if (restoreTick === 0) return
+    const a = restoreAnchorRef.current
+    if (!a) return
+    const place = () => {
+      const el = document.querySelector<HTMLElement>(`[data-feed-post="${CSS.escape(a.id)}"]`)
+      if (el) window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + window.scrollY - a.offset))
+      return !!el
+    }
+    place()
+    // Once more next frame - the router can scroll to the top after mounting.
+    requestAnimationFrame(() => { place(); restoreAnchorRef.current = null })
+  }, [restoreTick])
 
   // Initial load if server sends empty
   useEffect(() => {
     if (initialPosts.length === 0) {
       startTransition(async () => {
         const { posts: fresh, nextCursor } = await getForYouFeedAction()
+        if (restoredRef.current) { queueNewFromServer(fresh); return }
         // Keep anything already on screen (e.g. a post just written on /compose)
         setPosts(prev => [...prev.filter(p => !fresh.some(f => f.id === p.id)), ...fresh])
         setCursor(nextCursor)
@@ -129,11 +237,6 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
     }, 5000)
     return () => clearInterval(timer)
   }, [])
-
-  function dismissCatchUp() {
-    setCatchUp(null)
-    dismissCatchUpAction().catch(() => { /* best effort */ })
-  }
 
   // A post just written on the /compose page: show it at the top right away.
   useEffect(() => {
@@ -370,28 +473,6 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
     return () => { supabase.removeChannel(channel) }
   }, [currentUserId])
 
-  // Catch-up only belongs on the For You tab. Posts it already highlights are
-  // pulled out of the stream below so nothing appears twice, and a divider marks
-  // where the stream crosses back to things from before the user's last visit.
-  const showCatchUp = catchUp !== null && activeTab === 'for-you'
-  const highlightIds = useMemo(
-    () => new Set(showCatchUp ? catchUp!.highlights.map(p => p.id) : []),
-    [showCatchUp, catchUp]
-  )
-  const visiblePosts = useMemo(
-    () => (highlightIds.size ? posts.filter(p => !highlightIds.has(p.id)) : posts),
-    [posts, highlightIds]
-  )
-  const dividerPostId = useMemo(() => {
-    if (!showCatchUp) return null
-    const since = catchUp!.since
-    // Promoted posts are spliced in out of order, so they can't mark the boundary.
-    const boundary = visiblePosts.find(p => !p.is_promoted && p.created_at <= since)
-    // Nothing to divide if the whole list is newer than the last visit (the
-    // boundary is further down, not loaded yet) or older (nothing new is shown).
-    return boundary && boundary.id !== visiblePosts[0]?.id ? boundary.id : null
-  }, [showCatchUp, catchUp, visiblePosts])
-
   async function showNewPosts() {
     if (isFetchingNew || networkStatusRef.current !== 'online') return
     const tab = tabRef.current
@@ -408,19 +489,29 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
         // Too many to patch in (or nothing tracked): refresh the top of the feed
         incoming = (await getFeedFn(tab)()).posts
       } else {
-        // Exactly the posts that arrived - not a whole ranked page - newest first
-        incoming = (await getPostsByIdsAction([...ids].reverse()))
+        // Exactly the posts that arrived - not a whole ranked page - newest first.
+        // Ones already in hand (from the server's first page) aren't downloaded again.
+        const inHand = ids.map(id => pendingPostsRef.current.get(id)).filter((p): p is FeedPost => !!p)
+        const missing = ids.filter(id => !pendingPostsRef.current.has(id))
+        const fetched = missing.length ? await getPostsByIdsAction([...missing].reverse()) : []
+        incoming = [...inHand, ...fetched]
           .sort((x, y) => (x.created_at < y.created_at ? 1 : x.created_at > y.created_at ? -1 : 0))
       }
       if (tabRef.current !== tab) return // user switched tabs while loading
+      const onScreen = new Set(postsRef.current.map(p => p.id))
+      const toAdd = incoming.filter(p => !onScreen.has(p.id))
       setPosts(prev => {
         const existingIds = new Set(prev.map(p => p.id))
-        const toAdd = incoming.filter(p => !existingIds.has(p.id))
-        return toAdd.length ? [...toAdd, ...prev] : prev
+        const add = toAdd.filter(p => !existingIds.has(p.id))
+        return add.length ? [...add, ...prev] : prev
       })
+      // No sliding in: jump to the top and let the new posts fade in quietly.
+      setFadeInIds(new Set(toAdd.map(p => p.id)))
+      setTimeout(() => setFadeInIds(new Set()), 900)
       setNewAuthors([])
       seenAuthorsRef.current = new Set()
-      feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
+      pendingPostsRef.current = new Map()
+      window.scrollTo(0, 0)
     } catch {
       // Put them back (ahead of anything that arrived meanwhile) so the pill can retry
       pendingIdsRef.current = [...ids, ...pendingIdsRef.current].slice(0, MAX_PENDING_IDS)
@@ -430,6 +521,89 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
       setIsFetchingNew(false)
     }
   }
+
+  const showNewPostsRef = useRef(showNewPosts)
+  showNewPostsRef.current = showNewPosts
+
+  // Scrolling back up to the top while new posts are waiting loads them (same
+  // as tapping the pill). Only fires on ARRIVING at the top from further down,
+  // so posts never slide in under a reader who is already sitting at the top.
+  useEffect(() => {
+    const el = feedTopRef.current
+    if (!el) return
+    let awayFromTop = false
+    const obs = new IntersectionObserver(entries => {
+      if (!entries[0].isIntersecting) { awayFromTop = true; return }
+      if (!awayFromTop) return
+      awayFromTop = false
+      if (pendingIdsRef.current.length > 0 || pendingOverflowRef.current) void showNewPostsRef.current()
+    }, { rootMargin: '120px 0px 0px 0px' })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  // Remember the For You feed on this device so it can be reopened where the
+  // user stopped (restored in the layout effect near the top).
+  const cursorRef = useRef(cursor)
+  cursorRef.current = cursor
+  const hasMoreRef = useRef(hasMore)
+  hasMoreRef.current = hasMore
+  useEffect(() => {
+    if (!currentUserId) return
+    const userId = currentUserId
+    let anchor = lastAnchorRef.current
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    function measureAnchor() {
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>('[data-feed-post]'))) {
+        const r = el.getBoundingClientRect()
+        if (r.bottom > 60) { anchor = { id: el.dataset.feedPost!, offset: r.top }; return }
+      }
+    }
+    function save() {
+      if (tabRef.current !== 'for-you') return
+      if (restoreAnchorRef.current) return // still putting the saved position back
+      const list = postsRef.current
+      if (!list.length) return
+      let keep = list
+      let cursorOut = cursorRef.current
+      let hasMoreOut = hasMoreRef.current
+      if (list.length > SNAPSHOT_MAX_POSTS) {
+        // Cursor is the created_at of the last post, so a shorter list just
+        // needs the cursor moved back to its own last (non-promoted) post.
+        keep = list.slice(0, SNAPSHOT_MAX_POSTS)
+        cursorOut = [...keep].reverse().find(p => !p.is_promoted)?.created_at ?? null
+        hasMoreOut = true
+      }
+      const a = anchor && keep.some(p => p.id === anchor!.id) ? anchor : null
+      try {
+        const snap: FeedSnapshot = { posts: keep, cursor: cursorOut, hasMore: hasMoreOut, anchor: a, savedAt: Date.now() }
+        localStorage.setItem(snapshotKey(userId), JSON.stringify(snap))
+      } catch {
+        try { localStorage.removeItem(snapshotKey(userId)) } catch { /* ignore */ }
+      }
+    }
+    function onScroll() {
+      if (restoreAnchorRef.current) return
+      measureAnchor()
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(save, 600)
+    }
+    function onHide() {
+      if (document.visibilityState === 'hidden') { if (!restoreAnchorRef.current) measureAnchor(); save() }
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', onHide)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', onHide)
+      if (timer) clearTimeout(timer)
+      save() // leaving the feed (e.g. opening a post) - uses the last measured position
+    }
+  }, [currentUserId])
 
   return (
     <div>
@@ -461,91 +635,49 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
         </div>
       </div>
 
-      {/* Degraded/offline banner - explains why refresh & pagination are paused */}
-      {networkStatus !== 'online' && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px',
-          background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)',
-          fontSize: 13, color: 'var(--color-text-muted)',
-        }}>
-          <WifiOff size={14} />
-          {isOffline
-            ? t('feed.offline_notice')
-            : t('feed.slow_connection')}
-        </div>
-      )}
-
-      {/* Queued offline posts - synced automatically on reconnect, but a
-          manual retry is offered since iOS has no real background sync. */}
-      {pendingCount > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-          padding: '10px 16px', background: 'var(--color-brand-dim)', borderBottom: '1px solid var(--color-border)',
-          fontSize: 13, color: 'var(--color-text-primary)',
-        }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Send size={14} />
-            {t('feed.queued_offline', { count: pendingCount, plural: pendingCount > 1 ? 's' : '' })}
-          </span>
-          {networkStatus === 'online' && (
-            <button
-              type="button"
-              onClick={() => trySync()}
-              style={{ background: 'none', border: 'none', color: 'var(--color-brand)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-            >
-              {t('feed.retry_now')}
-            </button>
-          )}
-        </div>
-      )}
-
       {/* New posts pill */}
-      {(hasNew || isFetchingNew) && (
+      {hasNew && (
+        // Fixed to the very top of the screen like a toast (same centring as
+        // layout/toast.tsx), floating over the header - takes no space in the
+        // page, so nothing is pushed down.
         <div style={{
-          position: 'sticky', top: 57, zIndex: 9,
-          display: 'flex', justifyContent: 'center',
-          pointerEvents: 'none',
+          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 12px)', left: '50%',
+          transform: 'translateX(-50%)', zIndex: 200, pointerEvents: 'none',
         }}>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
           <button
             onClick={showNewPosts}
-            disabled={isFetchingNew}
             style={{
               pointerEvents: 'auto',
-              display: 'flex', alignItems: 'center', gap: 8,
+              display: 'flex', alignItems: 'center', gap: 6,
               background: 'var(--color-brand)', color: 'white',
-              border: 'none', borderRadius: 24,
-              padding: '8px 18px', marginTop: 10,
-              fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
-              cursor: isFetchingNew ? 'default' : 'pointer',
+              border: 'none', borderRadius: 20,
+              padding: '4px 12px',
+              fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 13,
+              cursor: 'pointer',
               boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
               animation: 'pillIn 0.2s cubic-bezier(0.34,1.56,0.64,1)',
             }}
           >
-            {isFetchingNew
-              ? <Loader size={16} style={{ animation: 'spin 0.8s linear infinite' }} />
-              : <ArrowUp size={16} />}
+            <ArrowUp size={14} />
             {newAuthors.length > 0 && (
               <span style={{ display: 'flex', alignItems: 'center' }}>
                 {newAuthors.map((a, i) => (
                   <span key={a.id} style={{
                     display: 'flex', borderRadius: '50%',
                     border: '2px solid var(--color-brand)',
-                    marginLeft: i === 0 ? 0 : -8,
+                    marginLeft: i === 0 ? 0 : -7,
                     position: 'relative', zIndex: newAuthors.length - i,
                   }}>
-                    <NotifAvatar name={a.display_name} url={a.avatar_url} size={24} />
+                    <NotifAvatar name={a.display_name} url={a.avatar_url} size={20} />
                   </span>
                 ))}
               </span>
             )}
-            {isFetchingNew ? t('feed.new_posts_loading') : t('feed.new_posts_posted')}
+            {t('feed.new_posts_posted')}
           </button>
+          </div>
         </div>
-      )}
-
-      {/* While you were away - best posts from what a returning user missed */}
-      {showCatchUp && (
-        <CatchUpCard catchUp={catchUp!} currentUserId={currentUserId} onDismiss={dismissCatchUp} />
       )}
 
       {/* Skeleton */}
@@ -561,17 +693,8 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
       ))}
 
       {/* Posts */}
-      {visiblePosts.map((post, index) => (
-        <div key={post.id}>
-          {post.id === dividerPostId && (
-            <div style={{
-              padding: '10px 16px', fontSize: 12, fontWeight: 600, letterSpacing: 0.3,
-              textTransform: 'uppercase', color: 'var(--color-text-muted)',
-              background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)',
-            }}>
-              {t('feed.from_before_last_visit')}
-            </div>
-          )}
+      {posts.map((post, index) => (
+        <div key={post.id} data-feed-post={post.id} style={fadeInIds.has(post.id) ? { animation: 'feedFadeIn 0.6s ease-out' } : undefined}>
           <PostCardWithAnalytics post={post} currentUserId={currentUserId} />
           {(index + 1) % AD_EVERY === 0 && (
             <AdSlot postId={post.id} position={Math.floor(index / AD_EVERY)} />
@@ -629,6 +752,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialCatchUp
 
       <style>{`
         @keyframes spin   { to { transform: rotate(360deg) } }
+        @keyframes feedFadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes pillIn { from { opacity:0; transform:translateY(-8px) scale(0.95) } to { opacity:1; transform:none } }
       `}</style>
     </div>

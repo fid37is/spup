@@ -56,11 +56,16 @@ const NESTED_AVATAR_CENTER = NESTED_INDENT + PARENT_AVATAR_CENTER // = 85
 // ahead of its next sibling: the flattened list still reads in the order
 // the conversation actually happened, it just never grows a new indent
 // level to show it.
-function flatten(nodes: any[]): any[] {
+//
+// Each reply that answers another NESTED reply (not the top-level comment) is
+// tagged with that reply's author handle as `replyingTo`, so the flat list can
+// still show who it is answering ("Replying to @handle"). Direct replies to the
+// top-level comment (parentUsername undefined) get no tag.
+function flatten(nodes: any[], parentUsername?: string): any[] {
   const out: any[] = []
   for (const n of nodes) {
-    out.push(n)
-    if (n.nested && n.nested.length > 0) out.push(...flatten(n.nested))
+    out.push(parentUsername ? { ...n, replyingTo: parentUsername } : n)
+    if (n.nested && n.nested.length > 0) out.push(...flatten(n.nested, n.author?.username))
   }
   return out
 }
@@ -74,72 +79,83 @@ export default function NestedReplies({ nested, viewer, currentUserId, postId }:
   const [first, ...rest] = flat
   const visible = expanded ? flat : [first]
 
+  // Connector rule (LinkedIn-style): the trunk runs from the parent comment's
+  // avatar down and ends in ONE curved elbow only.
+  //   - exactly one reply  -> the elbow curves into that reply's avatar
+  //   - more than one reply -> the elbow curves into the "Show more / Hide
+  //     replies" toggle; the replies themselves get no elbow of their own
+  const hasToggle = rest.length > 0
+
   return (
     <div style={{ position: 'relative', paddingTop: 2, paddingBottom: 4 }}>
-      {/* Trunk - one continuous line reaching up into the parent comment's
-          own avatar above, running down through every visible reply here.
-          The parent's own border is suppressed (see hideBorder below and
-          in page.tsx) so nothing visually separates the two - they read as
-          one unit, exactly like the prototype's note: "no more line/panel
-          edge between a comment and its own replies." The upward reach is
-          a fixed estimate (same approach the prototype itself uses, not a
-          measured height) since the parent's actual height varies with its
-          content. */}
-      <div style={{
-        position: 'absolute', left: PARENT_AVATAR_CENTER, width: 2,
-        top: -40, bottom: 2,
-        background: 'var(--color-border)',
-      }} />
+      <div style={{ position: 'relative' }}>
+        {/* Trunk - reaches up into the parent comment's own avatar above
+            (fixed estimate, parent height varies). With a toggle it runs
+            to the bottom of the visible replies, where the toggle's elbow
+            picks it up; with a single reply it stops exactly where that
+            reply's elbow begins. */}
+        <div style={hasToggle ? {
+          position: 'absolute', left: PARENT_AVATAR_CENTER, width: 2,
+          top: -42, bottom: 0,
+          background: 'var(--color-border)',
+        } : {
+          position: 'absolute', left: PARENT_AVATAR_CENTER, width: 2,
+          top: -42, height: 56,
+          background: 'var(--color-border)',
+        }} />
 
-      {visible.map(n => (
-        <div key={n.id} style={{ position: 'relative', marginLeft: NESTED_INDENT }}>
-          {/* Elbow - branches off the trunk and stops right at the LEFT
-              EDGE of this reply's avatar (not its center - see
-              NESTED_AVATAR_EDGE above), so it reads as touching the
-              circle's rim rather than cutting across it. Every reply in
-              the flattened list gets the exact same elbow, off the exact
-              same trunk position - whether it was originally a direct
-              reply or three generations deep, it looks identical here. */}
+        {visible.map(n => (
+          <div key={n.id} style={{ position: 'relative', marginLeft: NESTED_INDENT }}>
+            {/* Elbow - only for a lone reply. Stops at the LEFT EDGE of the
+                avatar (see NESTED_AVATAR_EDGE above). */}
+            {!hasToggle && (
+              <div style={{
+                position: 'absolute',
+                left: PARENT_AVATAR_CENTER - NESTED_INDENT, top: 14,
+                width: NESTED_AVATAR_EDGE - PARENT_AVATAR_CENTER, height: 21,
+                borderLeft: '2px solid var(--color-border)',
+                borderBottom: '2px solid var(--color-border)',
+                borderBottomLeftRadius: 14,
+              }} />
+            )}
+            {/* Border always suppressed here: every reply in this flattened
+                block - and the top-level comment above it - reads as one
+                continuous unit joined by the trunk line, not a stack of
+                separate cards. The single divider between this comment's
+                whole thread and the next one is drawn by the wrapping div in
+                replies-panel.tsx, once, after everything nested here.
+                Own stacking layer (zIndex 1) so connectors never paint over
+                the avatar. */}
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <ReplyToReply reply={n} viewer={viewer} currentUserId={currentUserId} postId={postId} hideBorder />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {hasToggle && (
+        <div style={{ position: 'relative', marginBottom: 4 }}>
+          {/* Elbow - continues the trunk and curves into the toggle. */}
           <div style={{
-            position: 'absolute',
-            left: PARENT_AVATAR_CENTER - NESTED_INDENT, top: 14,
-            width: NESTED_AVATAR_EDGE - PARENT_AVATAR_CENTER, height: 21,
+            position: 'absolute', left: PARENT_AVATAR_CENTER, top: 0,
+            width: NESTED_AVATAR_CENTER - 6 - 6 - PARENT_AVATAR_CENTER, height: '50%',
             borderLeft: '2px solid var(--color-border)',
             borderBottom: '2px solid var(--color-border)',
-            borderBottomLeftRadius: 14,
+            borderBottomLeftRadius: 12,
           }} />
-          {/* Border always suppressed here: every reply in this flattened
-              block - and the top-level comment above it - reads as one
-              continuous unit joined by the trunk line, not a stack of
-              separate cards. The single divider between this comment's
-              whole thread and the next one is drawn by the wrapping div in
-              replies-panel.tsx, once, after everything nested here.
-              Wrapped in its own positioned, higher-stacked layer: an
-              absolutely-positioned sibling (the elbow above) paints above
-              a plain static one regardless of DOM order, which is why the
-              connector was drawing over the avatar even where the geometry
-              itself looked right on paper. Giving this row its own
-              stacking order (zIndex 1 vs. the elbow's implicit 0) fixes
-              that for good, independent of any pixel math. */}
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            <ReplyToReply reply={n} viewer={viewer} currentUserId={currentUserId} postId={postId} hideBorder />
-          </div>
+          <button
+            onClick={e => { e.stopPropagation(); setExpanded(v => !v) }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              marginLeft: NESTED_AVATAR_CENTER - 6,
+              background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0',
+              color: 'var(--color-text-muted)', fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+            }}
+          >
+            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {expanded ? 'Hide replies' : `Show ${rest.length} more ${rest.length === 1 ? 'reply' : 'replies'}`}
+          </button>
         </div>
-      ))}
-
-      {rest.length > 0 && (
-        <button
-          onClick={e => { e.stopPropagation(); setExpanded(v => !v) }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            marginLeft: NESTED_AVATAR_CENTER - 6, marginBottom: 4,
-            background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0',
-            color: 'var(--color-text-muted)', fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
-          }}
-        >
-          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          {expanded ? 'Hide replies' : `Show ${rest.length} more ${rest.length === 1 ? 'reply' : 'replies'}`}
-        </button>
       )}
     </div>
   )

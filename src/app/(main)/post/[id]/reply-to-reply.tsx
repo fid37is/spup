@@ -31,6 +31,7 @@ function useIsMobile() {
 }
 
 export default function ReplyToReply({ reply, viewer, currentUserId, postId, hideBorder }: ReplyToReplyProps) {
+  const replyingTo: string | undefined = reply.replyingTo
   const [showModal, setShowModal] = useState(false)
   const isMobile = useIsMobile()
   const router = useRouter()
@@ -61,6 +62,7 @@ export default function ReplyToReply({ reply, viewer, currentUserId, postId, hid
         onReplyClick={handleReplyClick}
         isReply
         hideBorder={hideBorder}
+        replyingTo={replyingTo}
       />
       {showModal && (
         <PostModal
