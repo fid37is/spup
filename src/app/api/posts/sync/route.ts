@@ -42,6 +42,18 @@ export async function POST(request: NextRequest) {
     } as Parameters<typeof createPostAction>[0])
 
     if ('error' in result) {
+      // A word-rule block is a permanent "no": tell the queue so it drops the
+      // post instead of re-sending it (and re-flagging it) on every app open.
+      //
+      // Answered with 200 and NO `error` field on purpose: app builds already in
+      // people's hands treat any error as "retry later" and keep the post queued
+      // forever, but treat a clean 200 as "done" and drop it. Updated builds read
+      // `code` and drop it as rejected. So this stops the retry loop on every
+      // client without waiting for each device to load the new JavaScript.
+      const blocked = (result as { code?: string }).code === 'content_blocked'
+      if (blocked) {
+        return NextResponse.json({ success: false, code: 'content_blocked', message: result.error })
+      }
       return NextResponse.json({ error: result.error }, { status: 400 })
     }
     return NextResponse.json({ success: true, postId: result.postId })

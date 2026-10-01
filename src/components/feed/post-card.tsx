@@ -46,6 +46,7 @@ import { GatedMedia } from '@/components/media/media-gate'
 import { ProgressiveImage } from '@/components/media/progressive-image'
 import { publishFeedEvent } from '@/lib/feed-local-events'
 import { linkifyPostText } from '@/components/shared/linkify'
+import LinkPreviewCard from '@/components/feed/link-preview-card'
 import ConfirmModal from '@/components/ui/confirm-modal'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
@@ -1118,6 +1119,8 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
             </div>
           )}
 
+          {!original.media?.length && <LinkPreviewCard body={original.body} />}
+
           <MediaRow media={original.media} postId={original.id} post={originalAsPost} />
 
           {/* Action bar belongs to the repost itself; Repost / Quote target the original */}
@@ -1473,6 +1476,9 @@ export default function PostCard({
               <TruncatedBody text={post.body} postId={post.id} />
             </div>
           )}
+
+          {/* Link preview: only when the post has no media or quote of its own */}
+          {!post.media?.length && !post.quoted_post && <LinkPreviewCard body={post.body} />}
 
           {/* Quoted post embed */}
           {post.quoted_post && (

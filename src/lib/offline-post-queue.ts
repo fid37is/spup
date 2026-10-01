@@ -101,7 +101,7 @@ export async function markPendingPostFailed(id: string, error: string): Promise<
  * mirrors what the service worker's retryFailedPosts does for real
  * background sync on browsers that support it.
  */
-export async function syncPendingPost(post: PendingPost): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function syncPendingPost(post: PendingPost): Promise<{ ok: true } | { ok: false; error: string; rejected?: boolean }> {
   const form = new FormData()
   if (post.body) form.append('body', post.body)
   form.append('isSelling', String(post.isSelling))
@@ -110,6 +110,8 @@ export async function syncPendingPost(post: PendingPost): Promise<{ ok: true } |
   try {
     const res = await fetch('/api/posts/sync', { method: 'POST', body: form })
     const data = await res.json().catch(() => ({}))
+    // Rejected by the word rules: retrying can never succeed, so the caller drops it.
+    if (data?.code === 'content_blocked') return { ok: false, error: data.message || data.error || 'Blocked by content rules', rejected: true }
     if (!res.ok || data?.error) return { ok: false, error: data?.error || `Sync failed (${res.status})` }
     return { ok: true }
   } catch (err) {
@@ -117,21 +119,40 @@ export async function syncPendingPost(post: PendingPost): Promise<{ ok: true } |
   }
 }
 
-/** Attempts to sync every queued post, removing each on success. */
-export async function syncAllPendingPosts(): Promise<{ synced: number; failed: number }> {
-  const pending = await getPendingPosts()
-  let synced = 0, failed = 0
-  for (const post of pending) {
-    const result = await syncPendingPost(post)
-    if (result.ok) {
-      await removePendingPost(post.id)
-      synced++
-    } else {
-      await markPendingPostFailed(post.id, result.error)
-      failed++
+/**
+ * Attempts to sync every queued post. A post is removed when it is published
+ * OR permanently rejected (blocked by the word rules); only transient
+ * failures (network, server) stay queued for the next attempt.
+ *
+ * The Web Lock stops two tabs / the service worker from syncing the same
+ * queue at once, which is what produced duplicate flags a few seconds apart.
+ */
+export async function syncAllPendingPosts(): Promise<{ synced: number; failed: number; rejected: number }> {
+  const run = async () => {
+    const pending = await getPendingPosts()
+    let synced = 0, failed = 0, rejected = 0
+    for (const post of pending) {
+      const result = await syncPendingPost(post)
+      if (result.ok) {
+        await removePendingPost(post.id)
+        synced++
+      } else if (result.rejected) {
+        await removePendingPost(post.id)
+        rejected++
+      } else {
+        await markPendingPostFailed(post.id, result.error)
+        failed++
+      }
     }
+    return { synced, failed, rejected }
   }
-  return { synced, failed }
+
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  if (!locks) return run()
+  const out = await locks.request('spup-offline-post-sync', { ifAvailable: true }, async lock =>
+    lock ? run() : { synced: 0, failed: 0, rejected: 0 },
+  )
+  return out
 }
 
 export function registerBackgroundSync(): void {

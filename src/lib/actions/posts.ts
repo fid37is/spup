@@ -6,12 +6,15 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
 import { notifyMentions, notifyPostSubscribers, queuePostNotifications } from '@/lib/post-notifications'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
 import { getPostById } from '@/lib/queries/posts'
 import { screenContent, recordContentFlag } from '@/lib/content-rules'
+import { extractFirstUrl } from '@/lib/urls'
+import { getLinkPreview } from '@/lib/link-preview'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Fire-and-forget counter bump that still logs failures instead of swallowing
@@ -77,7 +80,7 @@ export async function createPostAction(data: CreatePostSchema) {
   const screen = await screenContent(body)
   if (screen.blocked) {
     void recordContentFlag({ userId: profile.id, postId: null, outcome: 'blocked', matches: screen.matches, text: body })
-    return { error: "This contains language that isn't allowed on Spup. Please edit it and try again." }
+    return { error: "This contains language that isn't allowed on Spup. Please edit it and try again.", code: 'content_blocked' as const }
   }
 
   // Uploads now go straight from the phone to Cloudinary, so this action no
@@ -130,6 +133,14 @@ export async function createPostAction(data: CreatePostSchema) {
   if (body?.trim()) {
     void supabase.rpc('process_post_hashtags', { p_post_id: post.id, p_body: body })
       .then(({ error }) => { if (error) console.error('process_post_hashtags failed:', error.message) })
+  }
+
+  // Fetch the first link's preview card now, in the background, so it is already
+  // cached by the time anyone opens the post. A failure only means the card is
+  // fetched on first view instead.
+  const firstUrl = extractFirstUrl(body)
+  if (firstUrl) {
+    after(async () => { try { await getLinkPreview(firstUrl) } catch { /* fetched on first view instead */ } })
   }
 
   // Insert post_media rows now that we have a real post_id
