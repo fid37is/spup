@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "332917911029",
+    "project_id": "spup-ng",
+    "storage_bucket": "spup-ng.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:332917911029:android:023720553ee56b2eeb04bc",
+        "android_client_info": {
+          "package_name": "com.spup.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjMLyumZxd6J33UhcxAOhLqS2Qf-iKZ2A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
