@@ -30,6 +30,7 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   const composerRef = useRef<PostComposerHandle>(null)
   const [showDrafts, setShowDrafts] = useState(false)
   const [composerState, setComposerState] = useState({ canPost: false, isScheduled: false })
+  const [closing, setClosing] = useState(false)
 
   function leave() {
     // Back to wherever they came from; if this page was opened directly, the feed.
@@ -43,6 +44,7 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   // for: just leave. The poster also puts the finished post on the feed (or
   // refreshes the thread, for a reply) once it's live.
   function handlePosted() {
+    setClosing(true)
     // A reply: go back to the post detail page you were actually reading -
     // not the replied-to comment's own separate page, which is a different,
     // disorienting destination. Falls back to the reply target itself only for
@@ -51,7 +53,7 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
       router.replace(`/post/${returnTo ?? replyTo.id}`)
       return
     }
-    router.replace('/feed')
+    leave()
   }
 
   function handleEditDraft(draft: LocalDraft) {
@@ -61,6 +63,8 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
 
   const { canPost, isScheduled } = composerState
   const postLabel = replyTo ? 'Reply' : (isScheduled ? 'Schedule' : 'Post')
+
+  if (closing) return null
 
   return (
     <ChatViewport>
