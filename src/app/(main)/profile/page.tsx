@@ -1,7 +1,7 @@
 // src/app/(main)/profile/page.tsx
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { redirect }     from 'next/navigation'
-import { getProfileByAuthId, getUserPosts } from '@/lib/queries'
+import { getProfileByAuthId, getUserPosts, attachQuotedPosts } from '@/lib/queries'
 import { formatNumber } from '@/lib/utils'
 import ProfilePageClient from '@/components/profile/profile-page-client'
 import type { FeedPost } from '@/lib/actions/feed'
@@ -15,7 +15,7 @@ export default async function ProfilePage() {
   if (!profile) redirect('/login')
 
   // Load the initial "Posts" tab data server-side
-  const rawPosts = await getUserPosts(profile.id, 20)
+  const rawPosts = await attachQuotedPosts(await getUserPosts(profile.id, 20))
 
   // Hydrate engagement state (viewer = themselves)
   const postIds = rawPosts.map((p: any) => p.id)

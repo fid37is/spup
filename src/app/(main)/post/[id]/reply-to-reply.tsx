@@ -1,10 +1,13 @@
 // src/app/(main)/post/[id]/reply-to-reply.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, createContext, useContext } from 'react'
 import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import PostModal from '@/components/feed/post-modal'
 import { useRouter } from 'next/navigation'
+
+// Provided by RepliesPanel: puts a freshly posted reply under the comment it answers.
+export const ReplyInsertContext = createContext<((parentId: string, post: any) => void) | null>(null)
 
 interface ReplyToReplyProps {
   reply: any
@@ -35,6 +38,7 @@ export default function ReplyToReply({ reply, viewer, currentUserId, postId, hid
   const [showModal, setShowModal] = useState(false)
   const isMobile = useIsMobile()
   const router = useRouter()
+  const insertReply = useContext(ReplyInsertContext)
 
   function handleReplyClick() {
     if (isMobile) {
@@ -73,6 +77,7 @@ export default function ReplyToReply({ reply, viewer, currentUserId, postId, hid
             body: reply.body,
           }}
           viewer={viewer}
+          onPosted={insertReply ? (post => insertReply(reply.id, post)) : undefined}
         />
       )}
     </>

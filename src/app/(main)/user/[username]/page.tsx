@@ -1,7 +1,7 @@
 // src/app/(main)/user/[username]/page.tsx
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
-import { getProfileByUsername, getUserPosts } from '@/lib/queries'
+import { getProfileByUsername, getUserPosts, attachQuotedPosts } from '@/lib/queries'
 import { formatNumber } from '@/lib/utils'
 import { Lock } from 'lucide-react'
 import Link from 'next/link'
@@ -85,7 +85,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   if (isOwnProfile) redirect('/profile')
 
   const canSeeContent = !profile.is_private || isFollowing
-  const rawPosts      = canSeeContent ? await getUserPosts(profile.id, 20) : []
+  const rawPosts      = canSeeContent ? await attachQuotedPosts(await getUserPosts(profile.id, 20)) : []
 
   // Hydrate engagement for viewer
   const postIds = rawPosts.map((p: any) => p.id)

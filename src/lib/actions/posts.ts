@@ -163,7 +163,10 @@ export async function createPostAction(data: CreatePostSchema) {
   // exactly one place that ever writes those columns.
   if (parent_post_id) {
     void notifyPostAuthor(supabase, parent_post_id, profile.id, 'post_comment', { reply_id: post.id })
-    revalidatePath(`/post/${parent_post_id}`)
+    // No revalidatePath here: called from a Server Action it makes every previously
+    // visited page (the feed included) refetch when navigated back to, so pressing
+    // back after commenting reloaded the feed. Every place that posts a reply
+    // already refreshes the page it is on (router.refresh / onPosted).
   }
   if (quoted_post_id) {
     void notifyPostAuthor(supabase, quoted_post_id, profile.id, 'post_quote', { reply_id: post.id })

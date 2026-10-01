@@ -3,7 +3,7 @@
 
 import { useState, useCallback } from 'react'
 import ReplyComposer from './reply-composer'
-import ReplyToReply from './reply-to-reply'
+import ReplyToReply, { ReplyInsertContext } from './reply-to-reply'
 import NestedReplies from './nested-replies'
 import AdSlot from '@/components/feed/ad-card'
 
@@ -30,8 +30,17 @@ export default function RepliesPanel({
     setReplies(prev => [{ ...post, nested: [] }, ...prev])
   }, [])
 
+  // A reply to a comment (root or nested) goes at the end of that comment's own replies.
+  const insertReply = useCallback((parentId: string, post: any) => {
+    const add = (nodes: any[]): any[] => nodes.map(n => {
+      if (n.id === parentId) return { ...n, nested: [...(n.nested ?? []), { ...post, nested: [] }] }
+      return n.nested?.length ? { ...n, nested: add(n.nested) } : n
+    })
+    setReplies(prev => add(prev))
+  }, [])
+
   return (
-    <>
+    <ReplyInsertContext.Provider value={insertReply}>
       <ReplyComposer
         parentPostId={postId}
         viewerInitial={viewerInitial}
@@ -81,6 +90,6 @@ export default function RepliesPanel({
           </div>
         ))
       )}
-    </>
+    </ReplyInsertContext.Provider>
   )
 }
