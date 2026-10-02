@@ -1,13 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { paymentRedirect } from '@/lib/payment-redirect'
 import { createAdminClient } from '@/lib/supabase/server'
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!
 const PAYSTACK_BASE = 'https://api.paystack.co'
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
 
 export async function GET(request: NextRequest) {
+  const isApp = request.nextUrl.searchParams.get('app') === '1'
   const reference = request.nextUrl.searchParams.get('reference')
-  if (!reference) return NextResponse.redirect(`${BASE_URL}/feed?promoted=failed`)
+  if (!reference) return paymentRedirect(`/feed?promoted=failed`, isApp)
 
   const admin = createAdminClient()
 
@@ -18,11 +19,11 @@ export async function GET(request: NextRequest) {
       .eq('reference', reference)
       .single()
 
-    if (!promotion) return NextResponse.redirect(`${BASE_URL}/feed?promoted=failed`)
+    if (!promotion) return paymentRedirect(`/feed?promoted=failed`, isApp)
 
     // Already processed (avoid double-activation if the user refreshes the callback)
     if (promotion.status === 'active' || promotion.status === 'completed') {
-      return NextResponse.redirect(`${BASE_URL}/post/${promotion.post_id}?promoted=success`)
+      return paymentRedirect(`/post/${promotion.post_id}?promoted=success`, isApp)
     }
 
     const verifyRes = await fetch(`${PAYSTACK_BASE}/transaction/verify/${reference}`, {
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     if (!verifyRes.status || verifyRes.data?.status !== 'success') {
       await admin.from('post_promotions').update({ status: 'failed' }).eq('reference', reference)
-      return NextResponse.redirect(`${BASE_URL}/post/${promotion.post_id}?promoted=failed`)
+      return paymentRedirect(`/post/${promotion.post_id}?promoted=failed`, isApp)
     }
 
     // Revenue is what Paystack actually collected (kobo), not the tier's list price.
@@ -65,12 +66,12 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    return NextResponse.redirect(`${BASE_URL}/post/${promotion.post_id}?promoted=success`)
+    return paymentRedirect(`/post/${promotion.post_id}?promoted=success`, isApp)
 
     
 
   } catch (error) {
     console.error('Promotion verify error:', error)
-    return NextResponse.redirect(`${BASE_URL}/feed?promoted=failed`)
+    return paymentRedirect(`/feed?promoted=failed`, isApp)
   }
 }

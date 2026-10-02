@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/layout/toast'
+import { isNativeApp, openCheckout } from '@/lib/native'
 
 const TIERS = [
   { id: 'boost',     label: 'Boost',     price: '₦500',   duration: '24 hours' },
@@ -31,7 +32,7 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
       const res = await fetch('/api/promotions/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post_id: postId, tier: selected, promo_code: trimmedCode || undefined }),
+        body: JSON.stringify({ post_id: postId, tier: selected, promo_code: trimmedCode || undefined, app: isNativeApp() }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -40,7 +41,10 @@ export default function PromoteModal({ postId, onClose }: { postId: string; onCl
         return
       }
       if (data.authorization_url) {
-        window.location.href = data.authorization_url
+        await openCheckout(data.authorization_url)
+        // In the app the page stays alive behind the browser, so close the modal;
+        // the deep link brings the user back to the post. (The web build navigates away.)
+        if (isNativeApp()) onClose()
         return
       }
       // Activated directly via a redeemed promo code - there's nowhere to

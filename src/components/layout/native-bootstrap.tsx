@@ -11,6 +11,9 @@ const ROOT_TABS = ['/feed', '/explore', '/notifications', '/messages']
 // scheme in AndroidManifest.xml, and Supabase > Auth > Redirect URLs.
 const AUTH_SCHEME = 'com.spup.app:'
 const AUTH_HOST = 'auth'
+// com.spup.app://open?path=/wallet%3Ftopup%3Dsuccess  (payment return trip,
+// built by src/lib/payment-redirect.ts)
+const OPEN_HOST = 'open'
 
 /**
  * Native-only behaviour for the Capacitor app. Renders nothing, and does
@@ -25,6 +28,8 @@ const AUTH_HOST = 'auth'
  *    - com.spup.app://auth/callback?code=...  (Google/Facebook sign-in
  *      returning from the system browser) -> finish sign-in via the
  *      existing /api/auth/callback route
+ *    - com.spup.app://open?path=/some/page    (returning from a Paystack
+ *      payment in the system browser) -> open that page inside the app
  *    - https://spup.live/...                  (App Links, once verified)
  *      -> open that page inside the app
  *
@@ -78,6 +83,14 @@ export default function NativeBootstrap() {
           // page), so this must be a real navigation, not router.push.
           if (u.protocol === AUTH_SCHEME && u.host === AUTH_HOST) {
             window.location.assign(`/api/auth/callback${u.search}`)
+            return
+          }
+
+          // Payment return trip: open the in-app page named in ?path=.
+          // Only accept site-relative paths, never another host.
+          if (u.protocol === AUTH_SCHEME && u.host === OPEN_HOST) {
+            const path = u.searchParams.get('path') ?? ''
+            if (path.startsWith('/') && !path.startsWith('//')) router.push(path)
             return
           }
 

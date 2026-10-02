@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const body = await request.json() as { post_id?: string; tier?: string; promo_code?: string }
+    const body = await request.json() as { post_id?: string; tier?: string; promo_code?: string; app?: boolean }
     const { post_id, tier } = body
     const promoCodeInput = body.promo_code?.trim() || undefined   // '' / whitespace-only counts as "no code"
 
@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
       email: user.email,
       amount: config.price_kobo,
       reference,
-      callback_url: `${BASE_URL}/api/promotions/verify?reference=${reference}`,
+      callback_url: `${BASE_URL}/api/promotions/verify?reference=${reference}${body.app === true ? '&app=1' : ''}`,
       metadata: { post_id, tier, purpose: 'post_promotion' },
     })
 

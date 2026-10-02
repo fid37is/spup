@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { amount_kobo } = await request.json() as { amount_kobo?: number }
+    const { amount_kobo, app } = await request.json() as { amount_kobo?: number; app?: boolean }
 
     if (!amount_kobo || !Number.isInteger(amount_kobo)) {
       return NextResponse.json({ error: 'amount_kobo is required' }, { status: 400 })
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       email: user.email,
       amount: amount_kobo,
       reference,
-      callback_url: `${BASE_URL}/api/wallet/topup/verify?reference=${reference}`,
+      callback_url: `${BASE_URL}/api/wallet/topup/verify?reference=${reference}${app === true ? '&app=1' : ''}`,
       metadata: { user_id: profile.id, purpose: 'wallet_topup' },
     })
 

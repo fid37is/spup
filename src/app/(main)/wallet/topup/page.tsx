@@ -3,6 +3,7 @@
 // src/app/(main)/wallet/topup/page.tsx
 import { useState, useTransition } from 'react'
 import BackButton from '@/components/ui/back-button'
+import { isNativeApp, openCheckout } from '@/lib/native'
 
 import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
@@ -24,12 +25,12 @@ export default function TopUpPage() {
         const res = await fetch('/api/wallet/topup/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount_kobo: amountKobo }),
+          body: JSON.stringify({ amount_kobo: amountKobo, app: isNativeApp() }),
         })
         const data = await res.json()
         if (!res.ok || data.error) { setError(data.error || t('wallet.topup_start_failed')); return }
-        // Hand off to Paystack — same redirect pattern as post promotion checkout.
-        window.location.href = data.authorization_url
+        // Web: full-page redirect to Paystack. App: system browser, then back via deep link.
+        await openCheckout(data.authorization_url)
       } catch {
         setError(t('wallet.network_error_retry'))
       }
