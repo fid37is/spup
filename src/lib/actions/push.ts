@@ -51,6 +51,12 @@ export async function registerFcmTokenAction(token: string, platform: 'android' 
   if (!token) return { error: 'Invalid token' }
 
   const admin = createAdminClient()
+
+  // A device token identifies one physical phone. If someone else was
+  // logged in on this phone before, drop their row so their notifications
+  // stop arriving for the new user.
+  await admin.from('user_devices').delete().eq('fcm_token', token).neq('user_id', userId)
+
   const { error } = await admin.from('user_devices').upsert({
     user_id: userId,
     platform,

@@ -1,90 +1,119 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { registerFcmTokenAction } from '@/lib/actions/push'
+import { useToast } from '@/components/layout/toast'
 
-// Dynamically import Capacitor only in native context
-async function setupPushNotifications(userId: string, navigate: (href: string) => void) {
-  // Only run in Capacitor native environment
-  if (typeof window === 'undefined') return
-  if (!(window as any).Capacitor?.isNativePlatform()) return
-
-  const { PushNotifications } = await import('@capacitor/push-notifications')
-  const { Device } = await import('@capacitor/device')
-
-  const perm = await PushNotifications.requestPermissions()
-  if (perm.receive !== 'granted') return
-
-  await PushNotifications.register()
-
-  PushNotifications.addListener('registration', async token => {
-    // Was previously hardcoded to 'android' regardless of actual platform,
-    // which meant every iOS device silently got mislabeled in user_devices.
-    const info = await Device.getInfo()
-    const platform = info.platform === 'ios' ? 'ios' : 'android'
-    await registerFcmTokenAction(token.value, platform)
-  })
-
-  PushNotifications.addListener('pushNotificationReceived', notification => {
-    console.log('Foreground notification:', notification)
-    // TODO: show in-app toast
-  })
-
-  PushNotifications.addListener('pushNotificationActionPerformed', action => {
-    const data = action.notification.data
-    // Deep-link routing based on notification type. entityId is the field
-    // PushPayload (lib/push/send.ts) actually sends - this previously read
-    // data.postId, which doesn't exist on that payload at all, so
-    // post_like/post_comment taps never routed anywhere.
-    //
-    // navigate() is the App Router's client-side push, not
-    // window.location.href - the app's single Capacitor webview stays alive
-    // for the life of the session, so a raw location assignment here was a
-    // full reload of the whole SPA (re-running every query in the root
-    // layout) every time someone tapped a notification while the app was
-    // already open. router.push keeps that same webview and just swaps the
-    // page segment in, like any other in-app navigation.
-    switch (data?.type) {
-      case 'new_follower':
-        navigate(`/user/${data.actorUsername}`)
-        break
-      case 'post_like':
-      case 'post_comment':
-      case 'post_repost':
-      case 'post_quote':
-      case 'mention':
-      case 'new_post':
-        navigate(`/post/${data.entityId}`)
-        break
-      case 'tip_received':
-      case 'subscription_new':
-      case 'earning_milestone':
-        navigate('/wallet')
-        break
-      case 'new_message':
-        navigate(`/messages/${data.entityId}`)
-        break
-      case 'escrow_hold_received':
-      case 'escrow_delivered':
-      case 'escrow_released':
-      case 'escrow_disputed':
-      case 'escrow_proposal':
-      case 'escrow_escalated':
-        navigate(`/wallet/orders/${data.entityId}`)
-        break
-      case 'monetisation_approved':
-        navigate('/wallet')
-        break
-      default:
-        navigate('/notifications')
-    }
-  })
+/**
+ * Where a tapped notification should take the user. entityId / actorUsername
+ * are the fields PushPayload (lib/push/send.ts) actually sends.
+ */
+function routeFor(data: Record<string, string> | undefined): string {
+  switch (data?.type) {
+    case 'new_follower':
+      return `/user/${data.actorUsername}`
+    case 'post_like':
+    case 'post_comment':
+    case 'post_repost':
+    case 'post_quote':
+    case 'mention':
+    case 'new_post':
+      return `/post/${data.entityId}`
+    case 'tip_received':
+    case 'subscription_new':
+    case 'earning_milestone':
+    case 'monetisation_approved':
+      return '/wallet'
+    case 'new_message':
+      return `/messages/${data.entityId}`
+    case 'escrow_hold_received':
+    case 'escrow_delivered':
+    case 'escrow_released':
+    case 'escrow_disputed':
+    case 'escrow_proposal':
+    case 'escrow_escalated':
+      return `/wallet/orders/${data.entityId}`
+    default:
+      return '/notifications'
+  }
 }
 
+/**
+ * Native push (Capacitor + FCM). Does nothing on the web - use-web-push.ts
+ * covers browsers.
+ *
+ * Fixes vs. the previous version:
+ *  - listeners are attached BEFORE register(), so the first `registration`
+ *    event can't be missed
+ *  - listeners are removed on unmount/user change (no duplicates)
+ *  - foreground notifications show an in-app toast
+ *  - the token is also kept in a cookie so signOutAction can unregister
+ *    this phone on logout
+ */
 export function usePushNotifications(userId: string | undefined) {
   const router = useRouter()
+  const { info } = useToast()
+
+  // Latest callbacks in refs so the listeners are registered once per user.
+  const pushRef = useRef(router.push)
+  const infoRef = useRef(info)
   useEffect(() => {
-    if (userId) setupPushNotifications(userId, router.push)
-  }, [userId, router])
+    pushRef.current = router.push
+    infoRef.current = info
+  })
+
+  useEffect(() => {
+    if (!userId || !Capacitor.isNativePlatform()) return
+
+    let cancelled = false
+    const handles: PluginListenerHandle[] = []
+
+    ;(async () => {
+      const { PushNotifications } = await import('@capacitor/push-notifications')
+      const { Device } = await import('@capacitor/device')
+
+      handles.push(await PushNotifications.addListener('registration', async token => {
+        const device = await Device.getInfo()
+        const platform = device.platform === 'ios' ? 'ios' : 'android'
+        // Read by signOutAction to remove this phone's row on logout.
+        document.cookie = `spup_fcm=${token.value}; path=/; max-age=31536000; SameSite=Lax; Secure`
+        await registerFcmTokenAction(token.value, platform)
+      }))
+
+      handles.push(await PushNotifications.addListener('registrationError', err => {
+        console.error('Push registration failed:', err)
+      }))
+
+      // App is open: Android doesn't show a system notification, so show a toast.
+      handles.push(await PushNotifications.addListener('pushNotificationReceived', notification => {
+        const text = [notification.title, notification.body].filter(Boolean).join(': ')
+        if (text) infoRef.current(text)
+      }))
+
+      // User tapped a notification (app in background, or cold start).
+      handles.push(await PushNotifications.addListener('pushNotificationActionPerformed', action => {
+        pushRef.current(routeFor(action.notification.data))
+      }))
+
+      if (cancelled) {
+        handles.forEach(h => h.remove())
+        return
+      }
+
+      let { receive } = await PushNotifications.checkPermissions()
+      if (receive === 'prompt' || receive === 'prompt-with-rationale') {
+        ;({ receive } = await PushNotifications.requestPermissions())
+      }
+      if (receive !== 'granted' || cancelled) return
+
+      await PushNotifications.register()
+    })().catch(err => console.error('Push setup failed:', err))
+
+    return () => {
+      cancelled = true
+      handles.forEach(h => h.remove())
+    }
+  }, [userId])
 }
