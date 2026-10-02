@@ -3,7 +3,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { generateUniqueUsername, suggestUsernames } from '@/lib/username'
@@ -321,6 +321,26 @@ export async function getOAuthUrlAction(provider: 'google' | 'facebook') {
 
 export async function signOutAction() {
   const supabase = await createClient()
+
+  // Native app: use-push-notifications.ts leaves this phone's FCM token in
+  // a cookie. Remove that device row so a logged-out phone stops receiving
+  // the previous user's notifications. Best-effort - never blocks logout.
+  try {
+    const fcmToken = (await cookies()).get('spup_fcm')?.value
+    if (fcmToken) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const admin = createAdminClient()
+        const { data: profile } = await admin.from('users').select('id').eq('auth_id', user.id).single()
+        if (profile) {
+          await admin.from('user_devices').delete().eq('user_id', profile.id).eq('fcm_token', fcmToken)
+        }
+      }
+    }
+  } catch (err) {
+    console.error('signOutAction: could not remove push device', err)
+  }
+
   await supabase.auth.signOut()
   revalidatePath('/', 'layout')
   redirect('/login')

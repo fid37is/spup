@@ -8,6 +8,7 @@
 // a larger follow-up than this change, but new notification code should
 // use this rather than adding another local duplicate.
 
+import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { sendPushToUser, type PushPayload } from '@/lib/push/send'
 import type { NotificationType } from '@/types'
@@ -214,5 +215,9 @@ export async function createNotification({
 
   // Fire-and-forget - a push failure should never affect the caller, which
   // is why sendPushToUser itself never throws.
-  void sendPushToUser(recipientId, buildPushPayload(type, actorName, pushEntityId))
+  const pushJob = sendPushToUser(recipientId, buildPushPayload(type, actorName, pushEntityId))
+  // after() keeps the serverless worker alive until the push has actually
+  // been sent. A bare un-awaited promise can be cancelled the moment the
+  // response is returned (notably on Cloudflare Workers).
+  try { after(pushJob) } catch { void pushJob }
 }

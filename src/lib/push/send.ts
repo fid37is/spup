@@ -6,6 +6,7 @@
 // is that piece.
 
 import { createAdminClient } from '@/lib/supabase/server'
+import { sendFcm } from '@/lib/push/fcm'
 
 export interface PushPayload {
   title: string
@@ -60,59 +61,18 @@ async function sendWebPush(device: DeviceRow, payload: PushPayload): Promise<'ok
 
 // ─── FCM (native Android/iOS via Capacitor) ────────────────────────────────
 
-// let fcmApp: import('firebase-admin').app.App | null = null
-
-// async function getFcmMessaging() {
-//   const admin = (await import('firebase-admin')).default
-//   if (!fcmApp) {
-//     const key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-//     if (!key) throw new Error('FCM is not configured - missing FIREBASE_SERVICE_ACCOUNT_KEY env var')
-//     fcmApp = admin.apps.length
-//       ? admin.app()
-//       : admin.initializeApp({ credential: admin.credential.cert(JSON.parse(key)) })
-//   }
-//   return admin.messaging(fcmApp)
-// }
-
-// async function sendFcmPush(device: DeviceRow, payload: PushPayload): Promise<'ok' | 'stale'> {
-//   try {
-//     const messaging = await getFcmMessaging()
-//     await messaging.send({
-//       token: device.fcm_token!,
-//       notification: { title: payload.title, body: payload.body },
-//       // FCM data payload values must all be strings.
-//       data: {
-//         type: payload.type,
-//         entityId: payload.entityId || '',
-//         actorUsername: payload.actorUsername || '',
-//       },
-//     })
-//     return 'ok'
-//   } catch (err: any) {
-//     if (err?.code === 'messaging/registration-token-not-registered' || err?.code === 'messaging/invalid-registration-token') {
-//       return 'stale'
-//     }
-//     console.error('FCM push send failed:', err?.message || err)
-//     return 'ok'
-//   }
-// }
-
-// FCM sending isn't implemented yet (see commented block above - needs the
-// firebase-admin package plus a service account key). Previously this
-// wasn't stubbed at all: sendPushToUser called sendFcmPush() for every
-// device with an fcm_token, which doesn't exist as a function, throwing a
-// ReferenceError on every native-app push and silently killing the whole
-// batch send for that user (caught by the outer try/catch, so it never
-// surfaced - pushes to native devices just never arrived). This stub logs
-// once and returns 'ok' (not 'stale') so device rows aren't deleted over a
-// missing feature rather than a genuinely dead token.
-let fcmWarned = false
-async function sendFcmPush(_device: DeviceRow, _payload: PushPayload): Promise<'ok' | 'stale'> {
-  if (!fcmWarned) {
-    console.warn('sendFcmPush: FCM sending is not implemented yet - native push notifications are not being delivered. See src/lib/push/send.ts.')
-    fcmWarned = true
-  }
-  return 'ok'
+/** Returns 'stale' if the device token is dead and the row should be deleted. */
+async function sendFcmPush(device: DeviceRow, payload: PushPayload): Promise<'ok' | 'stale'> {
+  return sendFcm(device.fcm_token!, {
+    title: payload.title,
+    body: payload.body,
+    // FCM data payload values must all be strings.
+    data: {
+      type: payload.type,
+      entityId: payload.entityId || '',
+      actorUsername: payload.actorUsername || '',
+    },
+  })
 }
 
 // ─── Public entry point ────────────────────────────────────────────────────
