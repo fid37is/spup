@@ -40,7 +40,7 @@ import {
 import type { FeedPost } from '@/lib/actions/feed'
 import { useToast } from '@/components/layout/toast'
 import MediaViewer from '@/components/feed/media-viewer'
-import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
+import { cloudinaryImage, fallbackToOriginal, videoPoster } from '@/lib/utils/cloudinary'
 import PayVendorButton from '@/components/escrow/pay-vendor-button'
 import { GatedMedia } from '@/components/media/media-gate'
 import { ProgressiveImage } from '@/components/media/progressive-image'
@@ -103,8 +103,8 @@ function Avatar({
 // `registry` + `index` let the parent MediaRow find this element, so that opening
 // the full-screen viewer can hand over the current playback position (and take it
 // back on close) instead of restarting the video from 0.
-function TrackedVideo({ src, postId, width, height, registry, index }: {
-  src: string; postId: string; width?: number | null; height?: number | null
+function TrackedVideo({ src, poster, postId, width, height, registry, index }: {
+  src: string; poster?: string; postId: string; width?: number | null; height?: number | null
   registry?: Map<number, HTMLVideoElement>; index?: number
 }) {
   const { t } = useTranslation()
@@ -199,7 +199,7 @@ function TrackedVideo({ src, postId, width, height, registry, index }: {
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
       <video
         ref={videoRef}
-        src={src} playsInline loop muted={muted} preload="metadata"
+        src={src} poster={poster} playsInline loop muted={muted} preload="metadata"
         onTimeUpdate={handleTimeUpdate}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -311,7 +311,7 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
         >
           {m.media_type === 'image'
             ? <ProgressiveImage src={m.url} width={900} fit={ratio ? 'cover' : 'natural'} maxHeight={cap} />
-            : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} width={m.width} height={m.height} registry={inlineVideos.current} index={0} />} />
+            : <GatedMedia render={() => <TrackedVideo src={m.url} poster={videoPoster(m.url, m.thumbnail_url)} postId={postId} width={m.width} height={m.height} registry={inlineVideos.current} index={0} />} />
           }
         </div>
         </div>
@@ -369,7 +369,7 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
           >
             {m.media_type === 'image'
               ? <ProgressiveImage src={m.url} width={compact ? 480 : 700} fit="cover" />
-              : <GatedMedia render={() => <TrackedVideo src={m.url} postId={postId} registry={inlineVideos.current} index={i} />} />
+              : <GatedMedia render={() => <TrackedVideo src={m.url} poster={videoPoster(m.url, m.thumbnail_url)} postId={postId} registry={inlineVideos.current} index={i} />} />
             }
           </div>
         ))}
