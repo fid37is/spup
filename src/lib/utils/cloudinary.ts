@@ -33,3 +33,19 @@ export function fallbackToOriginal(original: string) {
     img.src = original
   }
 }
+
+/**
+ * The still frame shown in a <video> before it has loaded (its `poster`).
+ * Uses the stored thumbnail when there is one, otherwise asks Cloudinary for
+ * the video's first frame. Without a poster, Android's WebView paints its own
+ * default placeholder (a grey box with a play button) stretched over the
+ * whole video - desktop browsers just show the first frame, which is why it
+ * only looked broken in the app.
+ */
+export function videoPoster(videoUrl: string, thumbnailUrl?: string | null, width = 720): string | undefined {
+  if (thumbnailUrl) return thumbnailUrl
+  if (!videoUrl.includes('res.cloudinary.com') || !videoUrl.includes('/video/upload/')) return undefined
+  return videoUrl
+    .replace('/video/upload/', `/video/upload/so_0,f_jpg,q_auto,w_${width},c_limit/`)
+    .replace(/\.[a-z0-9]+(\?.*)?$/i, '.jpg')
+}

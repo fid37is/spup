@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { registerFcmTokenAction } from '@/lib/actions/push'
-import { useToast } from '@/components/layout/toast'
 
 /**
  * Where a tapped notification should take the user. entityId / actorUsername
@@ -48,20 +47,16 @@ function routeFor(data: Record<string, string> | undefined): string {
  *  - listeners are attached BEFORE register(), so the first `registration`
  *    event can't be missed
  *  - listeners are removed on unmount/user change (no duplicates)
- *  - foreground notifications show an in-app toast
  *  - the token is also kept in a cookie so signOutAction can unregister
  *    this phone on logout
  */
 export function usePushNotifications(userId: string | undefined) {
   const router = useRouter()
-  const { info } = useToast()
 
-  // Latest callbacks in refs so the listeners are registered once per user.
+  // Latest router in a ref so the listeners are registered once per user.
   const pushRef = useRef(router.push)
-  const infoRef = useRef(info)
   useEffect(() => {
     pushRef.current = router.push
-    infoRef.current = info
   })
 
   useEffect(() => {
@@ -86,11 +81,10 @@ export function usePushNotifications(userId: string | undefined) {
         console.error('Push registration failed:', err)
       }))
 
-      // App is open: Android doesn't show a system notification, so show a toast.
-      handles.push(await PushNotifications.addListener('pushNotificationReceived', notification => {
-        const text = [notification.title, notification.body].filter(Boolean).join(': ')
-        if (text) infoRef.current(text)
-      }))
+      // No handler for 'pushNotificationReceived' on purpose: with
+      // presentationOptions in capacitor.config.ts the system already shows
+      // the heads-up banner while the app is open, so an in-app toast on top
+      // of it would show every notification twice.
 
       // User tapped a notification (app in background, or cold start).
       handles.push(await PushNotifications.addListener('pushNotificationActionPerformed', action => {
