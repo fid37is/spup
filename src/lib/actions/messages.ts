@@ -143,11 +143,8 @@ export async function uploadWrappedKeyAction(wrapped: string, salt: string, iv: 
 export async function getWrappedKeyAction() {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { wrapped: null }
-  const { data } = await supabase
-    .from('users')
-    .select('wrapped_private_key, key_wrap_salt, key_wrap_iv')
-    .eq('id', profile.id)
-    .single()
+  // Private columns: read through the function (the caller's own row only).
+  const { data } = await supabase.rpc('get_my_chat_key')
   if (!data?.wrapped_private_key || !data.key_wrap_salt || !data.key_wrap_iv) return { wrapped: null }
   return { wrapped: { wrapped: data.wrapped_private_key, salt: data.key_wrap_salt, iv: data.key_wrap_iv } }
 }

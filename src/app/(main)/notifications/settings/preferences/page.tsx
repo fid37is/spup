@@ -41,7 +41,8 @@ export default async function NotificationPreferencesPage() {
 
   const [settings, { data: me }] = await Promise.all([
     getNotificationSettingsAction(),
-    supabase.from('users').select('notif_push, notif_email').eq('auth_id', user.id).maybeSingle(),
+    // Private columns: read through the function (returns only the caller's own values).
+    supabase.rpc('get_my_private_profile'),
   ])
 
   const initial: Record<string, boolean> = {

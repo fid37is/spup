@@ -68,8 +68,8 @@ export async function changeChatPinAction(oldPin: string, newPin: string, rewrap
   // Keep the old wrapped key so we can put it back if saving the PIN fails.
   let previous: { wrapped_private_key: string | null; key_wrap_salt: string | null; key_wrap_iv: string | null } | null = null
   if (wrapped) {
-    const { data: prev } = await supabase
-      .from('users').select('wrapped_private_key, key_wrap_salt, key_wrap_iv').eq('id', profile.id).single()
+    // Private columns: read through the function (the caller's own row only).
+    const { data: prev } = await supabase.rpc('get_my_chat_key')
     previous = prev ?? null
     const { error: wrapError } = await supabase
       .from('users')

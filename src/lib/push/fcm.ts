@@ -20,6 +20,14 @@ interface ServiceAccount {
   private_key: string
 }
 
+/**
+ * Android notification channel used for every push. It is created on the
+ * phone with HIGH importance (see use-push-notifications.ts) - that is what
+ * makes notifications slide down as a banner instead of landing silently in
+ * the shade. Keep this id in sync with the hook.
+ */
+export const ANDROID_CHANNEL_ID = 'spup_default'
+
 const enc = new TextEncoder()
 
 let account: ServiceAccount | null = null
@@ -137,7 +145,15 @@ export async function sendFcm(deviceToken: string, message: FcmMessage): Promise
           token: deviceToken,
           notification: { title: message.title, body: message.body },
           data: message.data,
-          android: { priority: 'HIGH' },
+          android: {
+            priority: 'HIGH',
+            notification: {
+              channel_id: ANDROID_CHANNEL_ID,
+              notification_priority: 'PRIORITY_HIGH',
+              default_sound: true,
+              default_vibrate_timings: true,
+            },
+          },
         },
       }),
     })

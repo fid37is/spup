@@ -19,35 +19,56 @@ import {
 
 // Builds the push title/body for a notification type. Kept here (not in
 // lib/push/send.ts) since it's about notification *content*, not delivery.
+//
+// Formatted the way X / Instagram do it: the sender is the title and the
+// action is the body ("@wlaconnect" / "sent you a message"). Types with no
+// human sender (earnings, system, escrow outcomes) use "Spup" as the title.
+type PushCopy = { text: string; withActor: boolean }
+const withActor = (text: string): PushCopy => ({ text, withActor: true })
+const standalone = (text: string): PushCopy => ({ text, withActor: false })
+
 function buildPushPayload(type: NotificationType, actorName: string | null, entityId?: string): PushPayload {
-  const name = actorName || 'Someone'
-  const copy: Record<NotificationType, string> = {
-    new_follower: `${name} started following you`,
-    post_like: `${name} liked your post`,
-    post_comment: `${name} commented on your post`,
-    post_repost: `${name} reposted your post`,
-    post_quote: `${name} quoted your post`,
-    comment_like: `${name} liked your comment`,
-    mention: `${name} mentioned you`,
-    new_post: `${name} just posted`,
-    tip_received: `${name} sent you a tip`,
-    subscription_new: `${name} subscribed to you`,
-    earning_milestone: 'You hit an earnings milestone',
-    monetisation_approved: "You're approved for monetisation",
-    system: 'Spup',
-    new_message: `${name} sent you a message`,
-    wallet_transfer_received: `${name} sent you money`,
-    escrow_hold_received: `${name} paid for your item - funds are held in escrow`,
-    escrow_delivered: `${name} marked your order as delivered`,
-    escrow_released: 'Escrow funds have been released to you',
-    escrow_disputed: `${name} opened a dispute on your order`,
-    escrow_proposal: `${name} proposed a resolution`,
-    escrow_escalated: 'Your dispute was escalated to Spup support',
+  const copy: Record<NotificationType, PushCopy> = {
+    new_follower: withActor('started following you'),
+    post_like: withActor('liked your post'),
+    post_comment: withActor('commented on your post'),
+    post_repost: withActor('reposted your post'),
+    post_quote: withActor('quoted your post'),
+    comment_like: withActor('liked your comment'),
+    mention: withActor('mentioned you'),
+    new_post: withActor('just posted'),
+    tip_received: withActor('sent you a tip'),
+    subscription_new: withActor('subscribed to you'),
+    earning_milestone: standalone('You hit an earnings milestone'),
+    monetisation_approved: standalone("You're approved for monetisation"),
+    system: standalone('You have a new notification'),
+    new_message: withActor('sent you a message'),
+    wallet_transfer_received: withActor('sent you money'),
+    escrow_hold_received: withActor('paid for your item - funds are held in escrow'),
+    escrow_delivered: withActor('marked your order as delivered'),
+    escrow_released: standalone('Escrow funds have been released to you'),
+    escrow_disputed: withActor('opened a dispute on your order'),
+    escrow_proposal: withActor('proposed a resolution'),
+    escrow_escalated: standalone('Your dispute was escalated to Spup support'),
+  }
+
+  const entry = copy[type]
+  let title = 'Spup'
+  let body: string
+  if (!entry) {
+    body = actorName ? `${actorName} sent you a notification` : 'You have a new notification'
+  } else if (entry.withActor && actorName) {
+    title = actorName
+    body = entry.text
+  } else if (entry.withActor) {
+    body = `Someone ${entry.text}`
+  } else {
+    body = entry.text
   }
 
   return {
-    title: 'Spup',
-    body: copy[type] || `${name} sent you a notification`,
+    title,
+    body,
     type,
     entityId,
     actorUsername: actorName || undefined,

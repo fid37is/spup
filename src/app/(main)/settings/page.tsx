@@ -15,19 +15,29 @@ export default async function SettingsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase
+  const { data: baseProfile } = await supabase
     .from('users')
     .select(`
       id, username, display_name,
-      email, phone_number,
       is_private, bvn_verified, nin_verified,
-      language_preference,
-      notif_push, notif_email
+      language_preference
     `)
     .eq('auth_id', user.id)
     .single()
 
-  if (!profile) redirect('/login')
+  if (!baseProfile) redirect('/login')
+
+  // email, phone number and notification flags are private columns: the API
+  // won't return them from the users table, only through this function (it
+  // returns the signed-in user's own values and nothing else).
+  const { data: priv } = await supabase.rpc('get_my_private_profile')
+  const profile = {
+    ...baseProfile,
+    email: (priv?.email ?? null) as string | null,
+    phone_number: (priv?.phone_number ?? null) as string | null,
+    notif_push: priv?.notif_push,
+    notif_email: priv?.notif_email,
+  }
 
   const { data: interestRows } = await supabase
     .from('user_interests')
