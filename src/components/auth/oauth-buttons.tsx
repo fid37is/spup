@@ -36,6 +36,9 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
 
     const supabase = createBrowserClient()
     const scopes = provider === 'google' ? 'email profile' : 'email public_profile'
+    // Always show Google's account chooser instead of silently reusing
+    // whichever account the browser is already signed into.
+    const queryParams = provider === 'google' ? { prompt: 'select_account' } : undefined
 
     // ── Native app (Capacitor) ──────────────────────────────────────────
     // Google refuses OAuth inside an embedded WebView, so open the system
@@ -50,6 +53,7 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
           redirectTo: 'com.spup.app://auth/callback',
           skipBrowserRedirect: true,
           scopes,
+          queryParams,
         },
       })
       if (error || !data?.url) {
@@ -75,6 +79,7 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
       options: {
         redirectTo: `${window.location.origin}/api/auth/callback`,
         scopes,
+        queryParams,
       },
     })
 
