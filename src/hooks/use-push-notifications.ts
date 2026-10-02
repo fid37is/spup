@@ -102,6 +102,21 @@ export function usePushNotifications(userId: string | undefined) {
         return
       }
 
+      // Android only shows a heads-up banner for channels with HIGH
+      // importance. Must match ANDROID_CHANNEL_ID in lib/push/fcm.ts.
+      // (A channel's importance can't be changed from code once it exists,
+      // so changing these values later means choosing a new id.)
+      if (Capacitor.getPlatform() === 'android') {
+        await PushNotifications.createChannel({
+          id: 'spup_default',
+          name: 'Activity',
+          description: 'Messages, likes, follows, payments and other activity',
+          importance: 4,   // 4 = HIGH: sound + heads-up banner
+          visibility: 1,   // 1 = public on the lock screen
+          vibration: true,
+        })
+      }
+
       let { receive } = await PushNotifications.checkPermissions()
       if (receive === 'prompt' || receive === 'prompt-with-rationale') {
         ;({ receive } = await PushNotifications.requestPermissions())

@@ -1,7 +1,7 @@
 // src/lib/actions/phone-kyc.ts
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 
 const nigerianPhoneRegex = /^(\+234|0)[789][01]\d{8}$/
@@ -90,8 +90,10 @@ export async function verifyPhoneOtpAction(phone: string, token: string) {
 
   if (error) return { error: 'Invalid or expired code. Please try again.' }
 
-  // Link verified phone to the user's profile
-  const { error: updateError } = await supabase
+  // Link verified phone to the user's profile. phone_verified is a protected
+  // column, so the server's admin client writes it (the OTP check above is
+  // what authorises this); a user session can no longer set it directly.
+  const { error: updateError } = await createAdminClient()
     .from('users')
     .update({
       phone_number: phone,
