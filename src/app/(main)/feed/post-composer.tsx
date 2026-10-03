@@ -13,8 +13,71 @@ import type { PostJobMedia } from '@/lib/posting/poster'
 import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
 import { useTranslation } from '@/lib/i18n/language-context'
 
-const MAX_CHARS = 500
+const POST_MAX_CHARS = 1000
+const REPLY_MAX_CHARS = 500
 const MAX_MEDIA = MAX_MEDIA_PER_POST
+
+// ── Keeping the line being typed above the keyboard ─────────────────────────
+// The textarea grows with its text and the box around it scrolls. The browser
+// only scrolls to the caret *before* the textarea has grown, so once the text
+// passes the room above the keyboard the new line ended up underneath it. These
+// put the caret's line back in view after every change.
+const CARET_EDGE = 16 // px of breathing room kept between the caret line and the edge
+
+/** Nearest ancestor that actually scrolls (the composer's own box, the pinned reply box, ...). */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  let n = el?.parentElement ?? null
+  while (n && n !== document.body) {
+    const oy = getComputedStyle(n).overflowY
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) return n
+    n = n.parentElement
+  }
+  return null
+}
+
+const MIRRORED_STYLES = [
+  'box-sizing', 'width', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing',
+  'line-height', 'text-transform', 'text-indent', 'word-spacing', 'tab-size',
+  'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+]
+
+/** Where the caret's line is on screen, found by laying the same text out in a hidden copy of the textarea. */
+function caretLine(ta: HTMLTextAreaElement): { top: number; bottom: number } {
+  const cs = getComputedStyle(ta)
+  const mirror = document.createElement('div')
+  for (const prop of MIRRORED_STYLES) mirror.style.setProperty(prop, cs.getPropertyValue(prop))
+  mirror.style.position = 'absolute'
+  mirror.style.left = '-9999px'
+  mirror.style.top = '0'
+  mirror.style.visibility = 'hidden'
+  mirror.style.whiteSpace = 'pre-wrap'
+  mirror.style.overflowWrap = 'break-word'
+  mirror.textContent = ta.value.slice(0, ta.selectionEnd)
+  const marker = document.createElement('span')
+  marker.textContent = '\u200b'
+  mirror.appendChild(marker)
+  document.body.appendChild(mirror)
+  const markerTop = marker.offsetTop
+  document.body.removeChild(mirror)
+  const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
+  const top = ta.getBoundingClientRect().top + markerTop - ta.scrollTop
+  return { top, bottom: top + lineHeight }
+}
+
+/** Scrolls the box around the textarea just enough that the caret's line is fully visible above the keyboard. */
+function keepCaretInView(ta: HTMLTextAreaElement) {
+  if (ta.selectionStart !== ta.selectionEnd) return // selecting text: leave the scroll alone
+  const box = scrollParent(ta)
+  if (!box) return
+  const line = caretLine(ta)
+  const boxRect = box.getBoundingClientRect()
+  const vv = window.visualViewport
+  const visibleBottom = Math.min(boxRect.bottom, vv ? vv.offsetTop + vv.height : Infinity) - CARET_EDGE
+  const visibleTop = boxRect.top + CARET_EDGE
+  if (line.bottom > visibleBottom) box.scrollTop += line.bottom - visibleBottom
+  else if (line.top < visibleTop) box.scrollTop -= visibleTop - line.top
+}
 
 interface MediaItem {
   tempId: string         // local temp key for React list
@@ -119,7 +182,9 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   const networkStatusRef = useRef(networkStatus)
   networkStatusRef.current = networkStatus
 
-  const charsLeft = MAX_CHARS - body.length
+  // New posts take 1,000 characters; replies stay at 500.
+  const maxChars = replyTo ? REPLY_MAX_CHARS : POST_MAX_CHARS
+  const charsLeft = maxChars - body.length
   const isOverLimit = charsLeft < 0
   const isWarning = charsLeft <= 30
   const activeMedia = media.filter(m => !m.error)
@@ -143,6 +208,19 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   useEffect(() => {
     if (variant === 'fullscreen') textareaRef.current?.focus()
   }, [variant])
+
+  // The keyboard sliding up shrinks the visible area - re-check the caret then.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const onResize = () => {
+      const ta = textareaRef.current
+      if (!ta || document.activeElement !== ta) return
+      requestAnimationFrame(() => requestAnimationFrame(() => keepCaretInView(ta)))
+    }
+    vv.addEventListener('resize', onResize)
+    return () => vv.removeEventListener('resize', onResize)
+  }, [])
 
   // Closed without posting: stop uploads still in flight so they don't keep
   // spending data, and release the previews. A post that was sent has already
@@ -210,7 +288,16 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     setBody(e.target.value)
     setError('')
     const ta = textareaRef.current
-    if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
+    if (!ta) return
+    // Shrinking the box to measure it makes the scrolling box around it clamp
+    // its scroll position - remember it and put it back, then keep the line
+    // being typed in view.
+    const keep = scrollParent(ta)?.scrollTop ?? 0
+    ta.style.height = 'auto'
+    ta.style.height = ta.scrollHeight + 'px'
+    const box = scrollParent(ta)
+    if (box) box.scrollTop = keep
+    keepCaretInView(ta)
   }
 
   const uploadFile = useCallback((file: File, type: 'image' | 'video') => {
@@ -392,7 +479,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
   const radius = 10
   const circumference = 2 * Math.PI * radius
-  const strokeOffset = circumference - Math.min(body.length / MAX_CHARS, 1) * circumference
+  const strokeOffset = circumference - Math.min(body.length / maxChars, 1) * circumference
   const isFullscreen = variant === 'fullscreen'
 
   // Mobile reply screen only: thread scrolls, reply box stays pinned above the toolbar.
@@ -426,6 +513,8 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
           value={body}
           onChange={handleTextChange}
           onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handlePost() }}
+          onKeyUp={e => keepCaretInView(e.currentTarget)}
+          onClick={e => keepCaretInView(e.currentTarget)}
           placeholder={replyTo ? t('composer.reply_to_placeholder', { username: replyTo.authorUsername }) : t('composer.main_placeholder')}
           rows={2}
           style={{

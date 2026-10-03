@@ -1,7 +1,10 @@
 // src/app/privacy/page.tsx
 import LegalLayout, { Section, P, UL, Highlight } from '@/components/landing/legal-layout'
 
-export const metadata = { title: 'Privacy Policy' }
+export const metadata = {
+  title: 'Privacy Policy',
+  alternates: { canonical: '/privacy' },
+}
 
 export default function PrivacyPage() {
   return (

@@ -99,7 +99,7 @@ const mediaItemSchema = z.object({
 })
 
 export const createPostSchema = z.object({
-  body: z.string().max(500,'Max 500 characters').optional(),
+  body: z.string().max(1000,'Max 1,000 characters').optional(),
   media: z.array(mediaItemSchema)
     .max(MAX_MEDIA_PER_POST, `You can add up to ${MAX_MEDIA_PER_POST} images per post`)
     .refine(m => m.filter(i => i.media_type === 'video').length <= MAX_VIDEOS_PER_POST, `Only ${MAX_VIDEOS_PER_POST} videos per post`)
@@ -110,6 +110,10 @@ export const createPostSchema = z.object({
   is_selling: z.boolean().optional(),
   scheduled_at: z.string().datetime().optional(),
 }).refine(d=>(d.body&&d.body.trim().length>0)||(d.media&&d.media.length>0),{ message:'Post must have text or media' })
+  // Posts take up to 1,000 characters; replies stay at 500.
+  .refine(d => !d.parent_post_id || !d.body || d.body.length <= 500, {
+    message: 'Max 500 characters', path: ['body'],
+  })
   .refine(d => !d.is_selling || (d.body && d.body.trim().length > 0), {
     message: 'Write a bit about what you\u2019re selling - the post itself is the description', path: ['body'],
   })

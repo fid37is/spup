@@ -74,10 +74,14 @@ export default function PublicPostCard({
   const body = (post.body ?? '').trim()
   const clipped = !full && body.length > 280 ? body.slice(0, 280).trimEnd() + '…' : body
   const media = post.media.slice(0, 4)
-  const href = `/p/${post.id}`
+  // A reply has no page of its own: /p/[replyId] redirects to the parent post.
+  // Linking straight to the redirecting URL made every reply link a "Page with
+  // redirect" in Search Console, so replies link to the parent (with an anchor
+  // back to themselves) instead.
+  const href = post.parent_post_id ? `/p/${post.parent_post_id}#reply-${post.id}` : `/p/${post.id}`
 
   return (
-    <article style={{
+    <article id={post.parent_post_id ? `reply-${post.id}` : undefined} style={{
       background: full ? 'transparent' : 'var(--color-surface)',
       border: full ? 'none' : '1px solid var(--color-border)',
       borderBottom: full ? '1px solid var(--color-border)' : undefined,

@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { Loader2, X } from 'lucide-react'
 import { submitReportAction } from '@/lib/actions/reports'
 import { useToast } from '@/components/layout/toast'
+import { useBackClose } from '@/hooks/use-back-close' 
 
 type Reason = 'spam' | 'harassment' | 'hate_speech' | 'misinformation' | 'nudity' | 'violence' | 'other'
 
@@ -28,6 +29,7 @@ export default function ReportDialog({
   subject: string
   onClose: () => void
 }) {
+  useBackClose(true, onClose)
   const { success, error: toastError, info } = useToast()
   const [reason, setReason] = useState<Reason | null>(null)
   const [details, setDetails] = useState('')

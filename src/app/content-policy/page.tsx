@@ -1,7 +1,10 @@
 // src/app/content-policy/page.tsx
 import LegalLayout, { Section, P, UL, Highlight } from '@/components/landing/legal-layout'
 
-export const metadata = { title: 'Content Policy' }
+export const metadata = {
+  title: 'Content Policy',
+  alternates: { canonical: '/content-policy' },
+}
 
 export default function ContentPolicyPage() {
   return (

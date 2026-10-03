@@ -29,11 +29,12 @@ export const metadata: Metadata = {
   },
   description: 'Where Nigerian conversations happen - and where creators earn from in-app ads. Join Spup, Nigeria\'s social platform.',
 
-  // ── Canonical & alternate languages ────────────────────────────────────
-  alternates: {
-    canonical: '/',
-    languages: { 'en-NG': '/' },
-  },
+  // ── Canonical ───────────────────────────────────────────────────────────
+  // Deliberately NOT set here. A canonical in the root layout is inherited by
+  // every page that doesn't define its own, so /terms, /privacy, /contact etc.
+  // all declared the homepage as their canonical and Search Console reported
+  // them as "Alternative page with proper canonical tag". Each indexable page
+  // sets its own canonical (the homepage does so in src/app/page.tsx).
 
   // ── Indexing ────────────────────────────────────────────────────────────
   robots: {

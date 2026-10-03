@@ -27,7 +27,9 @@ export async function generateMetadata(
   const description = profile.bio
     ? `${profile.bio} — Follow @${profile.username} on Spup`
     : `Follow @${profile.username} on Spup. ${profile.followers_count ?? 0} followers.`
-  const profileUrl  = `${BASE_URL}/user/${profile.username}`
+  // /user/[username] redirects logged-out visitors to /u/[username], so the
+  // public page is the canonical one.
+  const profileUrl  = `${BASE_URL}/u/${profile.username}`
   const preview     = profile.avatar_url ?? `${BASE_URL}/og/default.png`
   return {
     title, description,

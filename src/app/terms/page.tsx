@@ -1,7 +1,10 @@
 // src/app/terms/page.tsx
 import LegalLayout, { Section, P, UL, Highlight } from '@/components/landing/legal-layout'
 
-export const metadata = { title: 'Terms of Service' }
+export const metadata = {
+  title: 'Terms of Service',
+  alternates: { canonical: '/terms' },
+}
 
 export default function TermsPage() {
   return (

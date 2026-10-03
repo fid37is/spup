@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Capacitor } from '@capacitor/core'
+import { runTopBackHandler } from '@/lib/native-back'
 
 const HOME = '/feed'
 const ROOT_TABS = ['/feed', '/explore', '/notifications', '/messages']
@@ -21,6 +22,7 @@ const OPEN_HOST = 'open'
  * nothing on the web.
  *
  * 1. Android back button
+ *    - a popup is open     -> close that popup (see hooks/use-back-close.ts)
  *    - sub-page            -> back one page
  *    - Explore/Alerts/Chat -> Home
  *    - Home                -> send the app to the background
@@ -94,6 +96,9 @@ export default function NativeBootstrap() {
     import('@capacitor/app')
       .then(async ({ App }) => {
         const back = await App.addListener('backButton', () => {
+          // An open popup (compose, media viewer, report...) gets back first.
+          if (runTopBackHandler()) return
+
           const path = pathRef.current
 
           if (path === HOME) {

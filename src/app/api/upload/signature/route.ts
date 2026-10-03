@@ -1,3 +1,4 @@
+// src/app/api/upload/signature/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { v2 as cloudinary } from 'cloudinary'
@@ -34,8 +35,14 @@ type Kind = (typeof KINDS)[number]
 
 // Same intent as the options /api/upload applies through the SDK.
 const TRANSFORMATION: Record<Kind, string> = {
-  image: 'c_limit,w_1200/fl_progressive,q_auto',   // never upscale, max 1200px wide
-  video: 'du_180/q_70,vc_h264',                    // max 3 minutes, h264
+  // Stored copy: never upscale, max 1600px, q_auto:best. The feed never serves this
+  // file as-is - every view goes through f_auto + a per-view width (cloudinary.ts), so
+  // the larger, cleaner master costs storage only, not viewer bandwidth. It replaces
+  // c_limit,w_1200 + q_auto, which re-compressed an already-compressed upload.
+  image: 'c_limit,w_1600/q_auto:best',
+  // max 3 minutes, h264. q_auto:good lets Cloudinary spend bits where the video needs
+  // them; the old fixed q_70 blocked flat areas in busy scenes and wasted bytes on easy ones.
+  video: 'du_180/q_auto:good,vc_h264',
   avatar: 'c_fill,g_face,h_400,w_400/q_80',
   banner: 'c_fill,h_500,w_1500/q_80',
 }

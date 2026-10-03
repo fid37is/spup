@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { TrendingUp, Users, Zap, Shield, Globe, Mic, Lock, MessageCircle } from 'lucide-react'
 import Link from 'next/link'
 import LandingCTA from '@/components/landing/landing-cta'
@@ -17,6 +18,10 @@ import { ReactElement, JSXElementConstructor, ReactNode, ReactPortal, Key } from
 // this page has no other dynamic APIs, so Next would otherwise statically
 // render it once at build time and freeze this number until the next deploy.
 export const revalidate = 60
+
+// The homepage is the one page whose canonical is '/'. It used to come from the
+// root layout, which made every other page claim it too.
+export const metadata: Metadata = { alternates: { canonical: '/' } }
 
 /* ─── Data ─────────────────────────────────────────────────────────────── */
 
@@ -270,7 +275,7 @@ export default async function LandingPage() {
             { value: '123M', label: 'Nigerian internet users' },
             { value: '70%',  label: 'of in-app ad revenue shared with eligible creators' },
             { value: '₦1K',  label: 'Minimum payout' },
-            { value: '500',  label: 'Characters per post' },
+            { value: '1,000', label: 'Characters per post' },
           ].map((s, i) => (
             <div key={i} style={{
               padding: '32px 20px', textAlign: 'center',

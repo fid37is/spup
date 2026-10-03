@@ -4,6 +4,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { X, ZoomIn, ZoomOut, Check } from 'lucide-react'
+import { useBackClose } from '@/hooks/use-back-close' 
 
 interface CropModalProps {
   file: File
@@ -20,6 +21,7 @@ const OUTPUT = {
 const MAX_CANVAS_W = 480
 
 export default function CropModal({ file, aspect, onCancel, onDone }: CropModalProps) {
+  useBackClose(true, onCancel)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imgRef    = useRef<HTMLImageElement | null>(null)
   const dragging  = useRef(false)

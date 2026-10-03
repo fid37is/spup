@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/layout/toast'
 import { isNativeApp, openCheckout } from '@/lib/native'
+import { useBackClose } from '@/hooks/use-back-close'
 
 const TIERS = [
   { id: 'boost',     label: 'Boost',     price: '₦500',   duration: '24 hours' },
@@ -13,6 +14,7 @@ const TIERS = [
 ] as const
 
 export default function PromoteModal({ postId, onClose }: { postId: string; onClose: () => void }) {
+  useBackClose(true, onClose)
   const [selected, setSelected] = useState<typeof TIERS[number]['id']>('boost')
   const [promoCode, setPromoCode] = useState('')
   const [showCodeInput, setShowCodeInput] = useState(false)

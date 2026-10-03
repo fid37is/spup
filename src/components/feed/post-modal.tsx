@@ -16,6 +16,7 @@ import { X } from 'lucide-react'
 import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-composer'
 import DraftsPanel from './drafts-panel'
 import type { LocalDraft } from '@/lib/local-drafts'
+import { useBackClose } from '@/hooks/use-back-close'
 
 interface PostModalProps {
   onClose: () => void
@@ -37,7 +38,9 @@ interface PostModalProps {
   userId?: string
 }
 
-export default function PostModal({ onClose, parentPostId, replyTo, viewHref, onPosted, viewer, userId }: PostModalProps) {
+
+export default function PostModal({ onClose, parentPostId, replyTo, viewHref, onPosted, viewer, userId }: PostModalProps) 
+{ useBackClose(true, onClose)
   const [showDrafts, setShowDrafts] = useState(false)
   const composerRef = useRef<PostComposerHandle>(null)
 

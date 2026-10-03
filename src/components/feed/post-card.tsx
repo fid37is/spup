@@ -45,7 +45,7 @@ import PayVendorButton from '@/components/escrow/pay-vendor-button'
 import { GatedMedia } from '@/components/media/media-gate'
 import { ProgressiveImage } from '@/components/media/progressive-image'
 import { publishFeedEvent } from '@/lib/feed-local-events'
-import { linkifyPostText } from '@/components/shared/linkify'
+import { linkifyPostText, closeCutBold } from '@/components/shared/linkify'
 import LinkPreviewCard from '@/components/feed/link-preview-card'
 import ConfirmModal from '@/components/ui/confirm-modal'
 import VerifiedBadge from '@/components/ui/verified-badge'
@@ -1011,7 +1011,7 @@ function TruncatedBody({ text, limit = 240, postId, fontSize = 15 }: { text: str
 
   return (
     <p style={pStyle}>
-      {linkifyPostText(truncated)}
+      {linkifyPostText(closeCutBold(truncated))}
       {'... '}
       <span
         onClick={e => {
