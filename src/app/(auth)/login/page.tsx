@@ -18,11 +18,11 @@ const ENABLE_LOGIN = process.env.NEXT_PUBLIC_ENABLE_LOGIN === 'true'
 
 const inp = (err?: string): React.CSSProperties => ({
   width: '100%',
-  background: '#131318',
-  border: `1px solid ${err ? '#E53935' : '#1E1E26'}`,
+  background: 'var(--input-bg)',
+  border: `1px solid ${err ? 'var(--color-error)' : 'var(--color-border)'}`,
   borderRadius: 10,
   padding: '11px 14px',
-  color: '#F0F0EC',
+  color: 'var(--color-text-primary)',
   fontSize: 15,
   outline: 'none',
   fontFamily: "'DM Sans', sans-serif",
@@ -30,7 +30,7 @@ const inp = (err?: string): React.CSSProperties => ({
 
 const lbl: React.CSSProperties = {
   fontSize: 12,
-  color: '#8A8A85',
+  color: 'var(--color-text-secondary)',
   display: 'block',
   marginBottom: 6,
   fontWeight: 500,
@@ -98,7 +98,7 @@ function LoginForm() {
             style={inp(errors.identifier?.message)}
           />
           {errors.identifier && (
-            <p style={{ fontSize: 12, color: '#E53935', marginTop: 5 }}>
+            <p style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 5 }}>
               {tv(t, errors.identifier.message)}
             </p>
           )}
@@ -119,7 +119,7 @@ function LoginForm() {
               href="/forgot-password"
               style={{
                 fontSize: 12,
-                color: '#1A9E5F',
+                color: 'var(--color-brand)',
                 textDecoration: 'none',
                 fontWeight: 500,
               }}
@@ -146,7 +146,7 @@ function LoginForm() {
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                color: '#44444A',
+                color: 'var(--color-text-muted)',
                 padding: 4,
               }}
             >
@@ -179,7 +179,7 @@ function LoginForm() {
             </button>
           </div>
           {errors.password && (
-            <p style={{ fontSize: 12, color: '#E53935', marginTop: 5 }}>
+            <p style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 5 }}>
               {tv(t, errors.password.message)}
             </p>
           )}
@@ -194,14 +194,14 @@ function LoginForm() {
         style={{
           textAlign: 'center',
           fontSize: 14,
-          color: '#44444A',
+          color: 'var(--color-text-secondary)',
           marginTop: 20,
         }}
       >
         {t('auth.new_to_spup')}{' '}
         <Link
           href="/signup"
-          style={{ color: '#1A9E5F', fontWeight: 600, textDecoration: 'none' }}
+          style={{ color: 'var(--color-brand)', fontWeight: 600, textDecoration: 'none' }}
         >
           {t('auth.create_account')}
         </Link>
@@ -234,7 +234,7 @@ function LoginPageInner() {
       >
         <div>
           <h1 style={{ fontSize: 24, marginBottom: 12 }}>{t('auth.beta_title')}</h1>
-          <p style={{ fontSize: 15, color: '#8A8A85', maxWidth: 420, margin: '0 auto' }}>
+          <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', maxWidth: 420, margin: '0 auto' }}>
             {t('auth.beta_desc')}
           </p>
         </div>
