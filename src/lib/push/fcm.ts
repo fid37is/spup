@@ -20,14 +20,6 @@ interface ServiceAccount {
   private_key: string
 }
 
-/**
- * Android notification channel used for every push. It is created on the
- * phone with HIGH importance (see use-push-notifications.ts) - that is what
- * makes notifications slide down as a banner instead of landing silently in
- * the shade. Keep this id in sync with the hook.
- */
-export const ANDROID_CHANNEL_ID = 'spup_default'
-
 const enc = new TextEncoder()
 
 let account: ServiceAccount | null = null
@@ -118,13 +110,18 @@ async function getAccessToken(): Promise<string> {
 }
 
 export interface FcmMessage {
-  title: string
-  body: string
   /** FCM requires every data value to be a string. */
   data: Record<string, string>
 }
 
 /**
+ * Sends a DATA-ONLY message. There is deliberately no `notification` block:
+ * when FCM carries one, Android draws the notification itself (plain title +
+ * text, no avatar) whenever the app is in the background, and our code never
+ * runs. With data only, SpupMessagingService.java (android/) always gets the
+ * message and builds the notification itself - sender avatar, post preview,
+ * tap-to-open.
+ *
  * Returns 'stale' if the device token is dead and its row should be deleted,
  * 'ok' otherwise (including transient failures - a network blip or a
  * misconfiguration must never delete a valid device).
@@ -143,17 +140,10 @@ export async function sendFcm(deviceToken: string, message: FcmMessage): Promise
       body: JSON.stringify({
         message: {
           token: deviceToken,
-          notification: { title: message.title, body: message.body },
           data: message.data,
-          android: {
-            priority: 'HIGH',
-            notification: {
-              channel_id: ANDROID_CHANNEL_ID,
-              notification_priority: 'PRIORITY_HIGH',
-              default_sound: true,
-              default_vibrate_timings: true,
-            },
-          },
+          // HIGH wakes a sleeping phone for a chat/social alert; a day-old
+          // "new post" is noise, so let FCM drop it after 24h.
+          android: { priority: 'HIGH', ttl: '86400s' },
         },
       }),
     })

@@ -1,6 +1,6 @@
 // src/lib/admin/user-data-export.ts
 // Assembles everything Spup holds about one user into a single JSON document,
-// for data-access requests (privacy@spup.ng - see /privacy, "Your Rights").
+// for data-access requests (privacy@spup.live - see /privacy, "Your Rights").
 //
 // Server-only. Callers MUST have already checked the viewer is an admin.
 //

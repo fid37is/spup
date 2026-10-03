@@ -11,7 +11,7 @@ export default function TermsPage() {
       lastUpdated="April 23, 2026"
     >
       <Highlight>
-        By using Spup — including signing up for the waitlist — you agree to these terms. They are governed by the laws of the Federal Republic of Nigeria.
+        By using Spup - including signing up for the waitlist - you agree to these terms. They are governed by the laws of the Federal Republic of Nigeria.
       </Highlight>
 
       <Section title="1. Who Can Use Spup">
@@ -25,7 +25,7 @@ export default function TermsPage() {
       </Section>
 
       <Section title="2. Your Account">
-        <P>You are responsible for all activity that occurs under your account. Keep your login credentials secure. If you suspect unauthorised access, notify us immediately at support@spup.ng.</P>
+        <P>You are responsible for all activity that occurs under your account. Keep your login credentials secure. If you suspect unauthorised access, notify us immediately at support@spup.live.</P>
         <P>You may not create multiple accounts to circumvent suspensions or bans. Spup reserves the right to terminate accounts that violate these terms.</P>
       </Section>
 
@@ -76,7 +76,7 @@ export default function TermsPage() {
 
       <Section title="10. Changes to These Terms">
         <P>We may update these terms. Continued use of Spup after changes take effect constitutes your acceptance. We will notify you of material changes at least 14 days in advance.</P>
-        <P>Questions? Contact us at <strong style={{ color: 'var(--color-text-primary)' }}>legal@spup.ng</strong></P>
+        <P>Questions? Contact us at <strong style={{ color: 'var(--color-text-primary)' }}>legal@spup.live</strong></P>
       </Section>
     </LegalLayout>
   )

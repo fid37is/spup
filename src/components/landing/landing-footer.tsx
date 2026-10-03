@@ -2,6 +2,8 @@
 import Link from 'next/link'
 
 const LINKS = [
+  { label: 'About',          href: '/about' },
+  { label: 'Discover',       href: '/discover' },
   { label: 'Privacy',        href: '/privacy' },
   { label: 'Terms',          href: '/terms' },
   { label: 'Content Policy', href: '/content-policy' },
@@ -60,7 +62,7 @@ export default function LandingFooter() {
 
         {/* Copyright */}
         <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-          © 2026 Spup Technologies Limited
+          © 2026 WLA Entertainment Limited
         </span>
 
       </div>

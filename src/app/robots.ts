@@ -1,5 +1,9 @@
 // src/app/robots.ts
 // Next.js generates /robots.txt from this file automatically.
+//
+// NOTE: this file must be named robots.ts (plural). The old file was called
+// robot.ts, which Next.js ignores - so no robots.txt (and no Sitemap: line)
+// was ever being served. Delete src/app/robot.ts when you add this one.
 
 import type { MetadataRoute } from 'next'
 
@@ -10,13 +14,18 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: ['/', '/user/', '/post/', '/explore', '/terms', '/privacy', '/contact', '/content-policy'],
+        allow: ['/', '/p/', '/u/', '/discover', '/about', '/terms', '/privacy', '/contact', '/content-policy', '/reviews'],
         disallow: [
-          '/feed',         // auth-gated
+          '/feed',         // auth-gated app screens
+          '/post/',        // in-app version; logged-out visitors are sent to /p/
+          '/user/',        // in-app version; logged-out visitors are sent to /u/
+          '/explore',
+          '/messages',
           '/notifications',
           '/profile',
           '/wallet',
           '/settings',
+          '/compose',
           '/admin',
           '/api/',
           '/onboarding',
@@ -25,6 +34,8 @@ export default function robots(): MetadataRoute.Robots {
           '/verify-email',
         ],
       },
+      // The AdSense reviewer. Explicitly allowed so it can see the public pages.
+      { userAgent: 'Mediapartners-Google', allow: ['/'], disallow: ['/api/', '/feed', '/wallet', '/settings'] },
       // Block AI training crawlers
       { userAgent: 'GPTBot', disallow: ['/'] },
       { userAgent: 'CCBot', disallow: ['/'] },

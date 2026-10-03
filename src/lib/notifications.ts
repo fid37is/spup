@@ -17,6 +17,82 @@ import {
   type NotificationSettings,
 } from '@/lib/notification-settings'
 
+// ─── Push content helpers ────────────────────────────────────────────────────
+
+/** Where tapping the notification should land. Mirrors the old client-side routing. */
+function pushPathFor(type: NotificationType, entityId?: string, actorUsername?: string): string {
+  switch (type) {
+    case 'new_follower':
+      return actorUsername ? `/user/${actorUsername}` : '/notifications'
+    case 'post_like':
+    case 'comment_like':
+    case 'post_comment':
+    case 'post_repost':
+    case 'post_quote':
+    case 'mention':
+    case 'new_post':
+      return entityId ? `/post/${entityId}` : '/notifications'
+    case 'tip_received':
+    case 'subscription_new':
+    case 'earning_milestone':
+    case 'monetisation_approved':
+    case 'wallet_transfer_received':
+      return '/wallet'
+    case 'new_message':
+      return entityId ? `/messages/${entityId}` : '/messages'
+    case 'escrow_hold_received':
+    case 'escrow_delivered':
+    case 'escrow_released':
+    case 'escrow_disputed':
+    case 'escrow_proposal':
+    case 'escrow_escalated':
+      return entityId ? `/wallet/orders/${entityId}` : '/wallet'
+    default:
+      return '/notifications'
+  }
+}
+
+/** Small square avatar for the notification's large icon. */
+function pushAvatarUrl(url?: string | null): string | undefined {
+  if (!url || !url.startsWith('https://')) return undefined
+  if (url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
+    return url.replace('/image/upload/', '/image/upload/w_160,h_160,c_fill,g_face,f_jpg/')
+  }
+  return url // e.g. Google profile pictures - already small
+}
+
+// Types whose push shows a preview of the post text, and which post it comes from.
+const PREVIEW_TYPES = new Set<NotificationType>(['new_post', 'mention', 'post_comment', 'post_quote'])
+
+/**
+ * A short text preview for the notification, X-style. Never previews chat
+ * messages (encrypted) or sensitive-flagged / deleted posts.
+ */
+async function pushSnippet(
+  admin: ReturnType<typeof createAdminClient>,
+  type: NotificationType,
+  entityId: string | undefined,
+  metadata: Record<string, unknown>,
+): Promise<string | undefined> {
+  if (!PREVIEW_TYPES.has(type)) return undefined
+  // A reply / quote notification previews the reply itself, not the parent.
+  const postId = (type === 'post_comment' || type === 'post_quote')
+    ? (metadata as { reply_id?: string }).reply_id
+    : entityId
+  if (!postId) return undefined
+
+  const { data } = await admin
+    .from('posts')
+    .select('body, is_sensitive, deleted_at')
+    .eq('id', postId)
+    .maybeSingle()
+  if (!data || data.deleted_at || data.is_sensitive || !data.body) return undefined
+
+  const text = String(data.body).replace(/\s+/g, ' ').trim()
+  if (!text) return undefined
+  return text.length > 140 ? `${text.slice(0, 139).trimEnd()}…` : text
+}
+
 // Builds the push title/body for a notification type. Kept here (not in
 // lib/push/send.ts) since it's about notification *content*, not delivery.
 //
@@ -27,7 +103,12 @@ type PushCopy = { text: string; withActor: boolean }
 const withActor = (text: string): PushCopy => ({ text, withActor: true })
 const standalone = (text: string): PushCopy => ({ text, withActor: false })
 
-function buildPushPayload(type: NotificationType, actorName: string | null, entityId?: string): PushPayload {
+function buildPushPayload(
+  type: NotificationType,
+  actorName: string | null,   // the sender's display name (falls back to @username)
+  entityId: string | undefined,
+  extras: { snippet?: string; avatarUrl?: string; actorUsername?: string } = {},
+): PushPayload {
   const copy: Record<NotificationType, PushCopy> = {
     new_follower: withActor('started following you'),
     post_like: withActor('liked your post'),
@@ -66,12 +147,22 @@ function buildPushPayload(type: NotificationType, actorName: string | null, enti
     body = entry.text
   }
 
+  // X-style: where the content is the point, show it instead of a generic line.
+  if (extras.snippet && entry?.withActor && actorName) {
+    if (type === 'new_post') body = extras.snippet
+    else if (type === 'mention') body = `mentioned you: ${extras.snippet}`
+    else if (type === 'post_comment') body = `replied: ${extras.snippet}`
+    else if (type === 'post_quote') body = `quoted your post: ${extras.snippet}`
+  }
+
   return {
     title,
     body,
     type,
     entityId,
-    actorUsername: actorName || undefined,
+    actorUsername: extras.actorUsername,
+    avatarUrl: extras.avatarUrl,
+    path: pushPathFor(type, entityId, extras.actorUsername),
   }
 }
 
@@ -222,10 +313,15 @@ export async function createNotification({
     }
   }
 
-  let actorName: string | null = null
+  let actorLabel: string | null = null   // display name, else @username
+  let actorUsername: string | undefined
+  let avatarUrl: string | undefined
   if (actorId) {
-    const { data: actor } = await admin.from('users').select('username').eq('id', actorId).single()
-    actorName = actor?.username ? `@${actor.username}` : null
+    const { data: actor } = await admin
+      .from('users').select('username, display_name, avatar_url').eq('id', actorId).single()
+    actorUsername = actor?.username || undefined
+    actorLabel = actor?.display_name?.trim() || (actor?.username ? `@${actor.username}` : null)
+    avatarUrl = pushAvatarUrl(actor?.avatar_url)
   }
 
   // Master "Push notifications" switch (Notification settings > Preferences).
@@ -236,7 +332,11 @@ export async function createNotification({
 
   // Fire-and-forget - a push failure should never affect the caller, which
   // is why sendPushToUser itself never throws.
-  const pushJob = sendPushToUser(recipientId, buildPushPayload(type, actorName, pushEntityId))
+  const snippet = await pushSnippet(admin, type, entityId, metadata)
+  const pushJob = sendPushToUser(
+    recipientId,
+    buildPushPayload(type, actorLabel, pushEntityId, { snippet, avatarUrl, actorUsername }),
+  )
   // after() keeps the serverless worker alive until the push has actually
   // been sent. A bare un-awaited promise can be cancelled the moment the
   // response is returned (notably on Cloudflare Workers).
