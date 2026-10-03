@@ -11,6 +11,7 @@ import PushNotificationsProvider from '@/components/layout/push-notifications-pr
 import ActivityBeacon from '@/components/layout/activity-beacon' 
 import AutoplayPrefSync from '@/components/layout/autoplay-pref-sync'
 import EngagementSyncProvider from '@/components/layout/engagement-sync-provider'
+import NativePullToRefresh from '@/components/layout/native-pull-to-refresh'
 import SupportResourcesHost from '@/components/layout/support-resources-host'
 import PostingProvider from '@/components/layout/posting-provider'
 import { LanguageProvider } from '@/lib/i18n/language-context'
@@ -64,6 +65,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <ActivityBeacon />
       <AutoplayPrefSync value={profile.autoplay_preference} />
       <EngagementSyncProvider />
+      <NativePullToRefresh />
       <SupportResourcesHost />
       <PostingProvider>
       <style>{`
