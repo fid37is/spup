@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, FileText, Megaphone,
   Flag, ShieldAlert, LogOut, Activity, Radio,
-  Wallet, BadgeCheck, UserPlus, Menu, Ticket, X, Quote,BarChart2, Scale, Ban, AlertTriangle,
+  Wallet, BadgeCheck, UserPlus, Menu, Ticket, X, Quote,BarChart2, Scale, Ban, AlertTriangle, BellRing,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { cn } from '@/lib/utils'
@@ -40,6 +40,7 @@ const NAV_GROUPS = [
       { href: '/ads',          icon: Megaphone, label: 'Ads' },
       { href: '/promotions',   icon: Megaphone, label: 'Promotions' },
       { href: '/promo-codes',  icon: Ticket,    label: 'Promo codes' },
+      { href: '/announcements', icon: BellRing, label: 'Announcements' },
       { href: '/testimonials', icon: Quote,     label: 'Testimonials' },
     ],
   },

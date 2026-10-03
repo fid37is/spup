@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { Suspense } from 'react'
-import { getAuthUser, createAdminClient } from '@/lib/supabase/server'
+import { getAuthUser, createAdminClient, createClient } from '@/lib/supabase/server'
 import { getProfileByAuthId, getOnboardingProgress, getUnreadNotificationCount } from '@/lib/queries'
 import { getUnreadChatCount } from '@/lib/queries/chat'
 import SidebarNav from '@/components/layout/sidebar-nav'
@@ -14,6 +15,8 @@ import EngagementSyncProvider from '@/components/layout/engagement-sync-provider
 import NativePullToRefresh from '@/components/layout/native-pull-to-refresh'
 import SupportResourcesHost from '@/components/layout/support-resources-host'
 import PostingProvider from '@/components/layout/posting-provider'
+import AnnouncementProvider from '@/components/layout/announcement-provider'
+import { DISMISSED_COOKIE, parseDismissed, type FeedAnnouncement } from '@/lib/announcements'
 import { LanguageProvider } from '@/lib/i18n/language-context'
 import { isLocale, DEFAULT_LOCALE, loadDictionary } from '@/lib/i18n/dictionaries'
 
@@ -41,14 +44,28 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
   // ── Step 2: onboarding + sidebar data all in parallel ──────────────────────
   const admin = createAdminClient()
-  const [onboardingProgress, unreadCount, unreadChat, youFollow, followYou, initialMessages] = await Promise.all([
+  // Live announcement banners. Uses the person's own client so RLS decides what is
+  // live. Any failure - including the table not existing yet - means "no banner";
+  // it must never take the app down.
+  const userClient = await createClient()
+  const liveAnnouncements = Promise.resolve(
+    userClient
+      .from('announcements')
+      .select('id, kind, title, body, cta_label, cta_url, ends_at, remind_after_hours')
+      .order('created_at', { ascending: false })
+      .limit(5)
+  ).then(r => (r.data ?? []) as FeedAnnouncement[], () => [] as FeedAnnouncement[])
+
+  const [onboardingProgress, unreadCount, unreadChat, youFollow, followYou, initialMessages, announcementRows] = await Promise.all([
     getOnboardingProgress(profile.id),
     getUnreadNotificationCount(profile.id),
     getUnreadChatCount(profile.id),
     admin.from('follows').select('following_id').eq('follower_id', profile.id),
     admin.from('follows').select('follower_id').eq('following_id', profile.id),
     loadDictionary(locale),
+    liveAnnouncements,
   ])
+  const dismissedAnnouncements = parseDismissed((await cookies()).get(DISMISSED_COOKIE)?.value)
 
   if (!onboardingProgress?.completed_at) redirect('/onboarding')
 
@@ -68,6 +85,9 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <NativePullToRefresh />
       <SupportResourcesHost />
       <PostingProvider>
+      {/* eslint-disable-next-line react-hooks/purity -- server component: the server's clock is handed to the
+          provider on purpose so the first client render matches what the server rendered */}
+      <AnnouncementProvider initialRows={announcementRows} initialDismissed={dismissedAnnouncements} initialNow={Date.now()}>
       <style>{`
         .main-layout {
           display: flex;
@@ -110,6 +130,11 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           .sidebar-right { display: none; }
           .main-content  { border-right: none; }
         }
+        /* Announcements: in the feed on phones and tablets; at the top of the right
+           column on desktop, which is where the in-feed copy steps aside. */
+        @media (min-width: 1101px) {
+          .announcement-in-feed { display: none; }
+        }
       `}</style>
 
       <div className="main-layout">
@@ -134,6 +159,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <div className="mobile-nav">
         <MobileBottomNav unreadCount={unreadCount} unreadChat={unreadChat} userId={profile.id} />
       </div>
+      </AnnouncementProvider>
       </PostingProvider>
     </LanguageProvider>
   )

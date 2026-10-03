@@ -5,6 +5,7 @@ import { useState, useTransition, useEffect, useLayoutEffect, useRef, useCallbac
 import { getForYouFeedAction, getFollowingFeedAction, getMutualsFeedAction, getSellingFeedAction, markFeedSeenAction, getPostsByIdsAction, getFeedAudienceAction, type FeedPost } from '@/lib/actions'
 import PostCardWithAnalytics from '@/components/feed/post-card-with-analytics'
 import AdSlot from '@/components/feed/ad-card'
+import { FeedAnnouncementBanner, FeedAnnouncementStrip } from '@/components/feed/announcement-slots'
 import { Loader, Repeat2, Rss, Users, Sparkles, Tag, ArrowUp } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
@@ -675,7 +676,12 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
             </button>
           ))}
         </div>
+        {/* Urgent maintenance notice: pinned with the tabs so it stays in view while scrolling */}
+        <FeedAnnouncementStrip />
       </div>
+
+      {/* New-feature announcement: in the page flow under the tabs, scrolls away with the posts */}
+      <FeedAnnouncementBanner />
 
       {/* New posts pill */}
       {hasNew && (
