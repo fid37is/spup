@@ -38,11 +38,11 @@ const STEP_KEYS = [
 
 const BASE: React.CSSProperties = {
   width: '100%',
-  background: '#131318',
-  border: '1px solid #1E1E26',
+  background: 'var(--input-bg)',
+  border: '1px solid var(--color-border)',
   borderRadius: 10,
   padding: '11px 14px',
-  color: '#F0F0EC',
+  color: 'var(--color-text-primary)',
   fontSize: 15,
   outline: 'none',
   fontFamily: "'DM Sans', sans-serif",
@@ -50,7 +50,7 @@ const BASE: React.CSSProperties = {
 
 const LBL: React.CSSProperties = {
   fontSize: 12,
-  color: '#8A8A85',
+  color: 'var(--color-text-secondary)',
   display: 'block',
   marginBottom: 6,
   fontWeight: 500,
@@ -58,7 +58,7 @@ const LBL: React.CSSProperties = {
 
 const BTN: React.CSSProperties = {
   width: '100%',
-  background: '#1A9E5F',
+  background: 'var(--color-brand)',
   color: 'white',
   border: 'none',
   borderRadius: 10,
@@ -76,7 +76,7 @@ const SKIP_BTN: React.CSSProperties = {
   background: 'none',
   border: 'none',
   fontSize: 13,
-  color: '#44444A',
+  color: 'var(--color-text-muted)',
   cursor: 'pointer',
   fontFamily: "'DM Sans', sans-serif",
   padding: '8px 0',
@@ -448,17 +448,17 @@ export default function OnboardingPage() {
                     borderRadius: '50%',
                     background:
                       isCompleted || isCurrent
-                        ? '#1A9E5F'
-                        : '#1E1E26',
+                        ? 'var(--color-brand)'
+                        : 'var(--color-border)',
                     border: `2px solid ${
-                      i <= step ? '#1A9E5F' : '#2A2A2A'
+                      i <= step ? 'var(--color-brand)' : 'var(--color-border-light)'
                     }`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     transition: 'all 0.3s',
                     boxShadow: isReachable
-                      ? '0 0 0 2px rgba(26,158,95,0.25)'
+                      ? '0 0 0 2px var(--color-brand-border)'
                       : 'none',
                   }}
                 >
@@ -469,7 +469,7 @@ export default function OnboardingPage() {
                       style={{
                         fontSize: 11,
                         fontWeight: 700,
-                        color: isCurrent ? 'white' : '#444',
+                        color: isCurrent ? 'white' : 'var(--color-text-muted)',
                         fontFamily: "'Syne', sans-serif",
                       }}
                     >
@@ -483,10 +483,10 @@ export default function OnboardingPage() {
                     fontSize: 10,
                     fontWeight: isCurrent ? 700 : 400,
                     color: isCurrent
-                      ? '#F0F0EC'
+                      ? 'var(--color-text-primary)'
                       : isCompleted
-                        ? '#6A9E8A'
-                        : '#44444A',
+                        ? 'var(--color-brand)'
+                        : 'var(--color-text-muted)',
                     textDecoration: isReachable
                       ? 'underline'
                       : 'none',
@@ -503,14 +503,14 @@ export default function OnboardingPage() {
         <div
           style={{
             height: 3,
-            background: '#1E1E26',
+            background: 'var(--color-border)',
             borderRadius: 2,
           }}
         >
           <div
             style={{
               height: '100%',
-              background: '#1A9E5F',
+              background: 'var(--color-brand)',
               borderRadius: 2,
               width: `${pct}%`,
               transition: 'width 0.4s ease',
@@ -536,7 +536,7 @@ export default function OnboardingPage() {
                 fontFamily: "'Syne', sans-serif",
                 fontWeight: 800,
                 fontSize: 24,
-                color: '#F0F0EC',
+                color: 'var(--color-text-primary)',
                 letterSpacing: '-0.02em',
                 marginBottom: 6,
               }}
@@ -547,7 +547,7 @@ export default function OnboardingPage() {
             <p
               style={{
                 fontSize: 14,
-                color: '#6A6A60',
+                color: 'var(--color-text-secondary)',
               }}
             >
               {t('onboarding.username_subtitle')}
@@ -564,7 +564,7 @@ export default function OnboardingPage() {
                   left: 14,
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  color: '#44444A',
+                  color: 'var(--color-text-muted)',
                   fontSize: 15,
                 }}
               >
@@ -584,10 +584,10 @@ export default function OnboardingPage() {
                   paddingRight: 40,
                   borderColor:
                     usernameStatus === 'taken'
-                      ? '#E53935'
+                      ? 'var(--color-error)'
                       : usernameStatus === 'ok'
-                        ? '#1A9E5F'
-                        : '#1E1E26',
+                        ? 'var(--color-brand)'
+                        : 'var(--color-border)',
                 }}
               />
 
@@ -602,8 +602,8 @@ export default function OnboardingPage() {
                 {usernameStatus === 'checking' && (
                   <Loader
                     size={16}
-                    color="#44444A"
                     style={{
+                      color: 'var(--color-text-muted)',
                       animation:
                         'spin 0.8s linear infinite',
                     }}
@@ -613,14 +613,14 @@ export default function OnboardingPage() {
                 {usernameStatus === 'ok' && (
                   <CheckCircle
                     size={16}
-                    color="#1A9E5F"
+                    style={{ color: 'var(--color-brand)' }}
                   />
                 )}
 
                 {usernameStatus === 'taken' && (
                   <XCircle
                     size={16}
-                    color="#E53935"
+                    style={{ color: 'var(--color-error)' }}
                   />
                 )}
               </div>
@@ -633,19 +633,19 @@ export default function OnboardingPage() {
               }}
             >
               {usernameStatus === 'taken' && (
-                <span style={{ color: '#E53935' }}>
+                <span style={{ color: 'var(--color-error)' }}>
                   {t('onboarding.username_taken')}
                 </span>
               )}
 
               {usernameStatus === 'ok' && (
-                <span style={{ color: '#1A9E5F' }}>
+                <span style={{ color: 'var(--color-brand)' }}>
                   {t('onboarding.username_available')}
                 </span>
               )}
 
               {usernameStatus === 'idle' && (
-                <span style={{ color: '#44444A' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>
                   {t('onboarding.username_rules')}
                 </span>
               )}
@@ -666,11 +666,11 @@ export default function OnboardingPage() {
                     type="button"
                     onClick={() => handleUsernameChange(s)}
                     style={{
-                      background: username === s ? 'rgba(26,158,95,0.12)' : '#131318',
-                      border: `1px solid ${username === s ? '#1A9E5F' : '#1E1E26'}`,
+                      background: username === s ? 'var(--color-brand-muted)' : 'var(--input-bg)',
+                      border: `1px solid ${username === s ? 'var(--color-brand)' : 'var(--color-border)'}`,
                       borderRadius: 20,
                       padding: '6px 12px',
-                      color: username === s ? '#1A9E5F' : '#9A9A90',
+                      color: username === s ? 'var(--color-brand)' : 'var(--color-text-secondary)',
                       fontSize: 13,
                       fontFamily: "'DM Sans', sans-serif",
                       cursor: 'pointer',
@@ -721,7 +721,7 @@ export default function OnboardingPage() {
               alignItems: 'center',
               gap: 4,
               marginBottom: 16,
-              color: '#6A6A60',
+              color: 'var(--color-text-secondary)',
             }}
           >
             <ChevronLeft size={15} />
@@ -739,7 +739,7 @@ export default function OnboardingPage() {
                 fontFamily: "'Syne', sans-serif",
                 fontWeight: 800,
                 fontSize: 24,
-                color: '#F0F0EC',
+                color: 'var(--color-text-primary)',
                 letterSpacing: '-0.02em',
                 marginBottom: 6,
               }}
@@ -750,7 +750,7 @@ export default function OnboardingPage() {
             <p
               style={{
                 fontSize: 14,
-                color: '#6A6A60',
+                color: 'var(--color-text-secondary)',
               }}
             >
               {t('onboarding.avatar_subtitle')}
@@ -778,7 +778,7 @@ export default function OnboardingPage() {
                 background: avatarPreview
                   ? 'transparent'
                   : 'linear-gradient(135deg, #1A9E5F, #D4A017)',
-                border: '3px solid #1E1E26',
+                border: '3px solid var(--color-border)',
                 position: 'relative',
                 overflow: 'hidden',
                 display: 'flex',
@@ -858,7 +858,7 @@ export default function OnboardingPage() {
               style={{
                 textAlign: 'center',
                 fontSize: 13,
-                color: '#E57373',
+                color: 'var(--color-error)',
                 marginBottom: 12,
               }}
             >
@@ -871,7 +871,7 @@ export default function OnboardingPage() {
               style={{
                 textAlign: 'center',
                 fontSize: 13,
-                color: '#1A9E5F',
+                color: 'var(--color-brand)',
                 marginBottom: 12,
               }}
             >
@@ -925,7 +925,7 @@ export default function OnboardingPage() {
               alignItems: 'center',
               gap: 4,
               marginBottom: 16,
-              color: '#6A6A60',
+              color: 'var(--color-text-secondary)',
             }}
           >
             <ChevronLeft size={15} />
@@ -943,7 +943,7 @@ export default function OnboardingPage() {
                 fontFamily: "'Syne', sans-serif",
                 fontWeight: 800,
                 fontSize: 24,
-                color: '#F0F0EC',
+                color: 'var(--color-text-primary)',
                 letterSpacing: '-0.02em',
                 marginBottom: 6,
               }}
@@ -954,7 +954,7 @@ export default function OnboardingPage() {
             <p
               style={{
                 fontSize: 14,
-                color: '#6A6A60',
+                color: 'var(--color-text-secondary)',
               }}
             >
               {t('onboarding.bio_subtitle')}
@@ -976,8 +976,8 @@ export default function OnboardingPage() {
                   fontSize: 11,
                   color:
                     bio.length > 140
-                      ? '#E53935'
-                      : '#44444A',
+                      ? 'var(--color-error)'
+                      : 'var(--color-text-muted)',
                 }}
               >
                 {bio.length}/160
@@ -1037,7 +1037,7 @@ export default function OnboardingPage() {
               alignItems: 'center',
               gap: 4,
               marginBottom: 16,
-              color: '#6A6A60',
+              color: 'var(--color-text-secondary)',
             }}
           >
             <ChevronLeft size={15} />
@@ -1055,7 +1055,7 @@ export default function OnboardingPage() {
                 fontFamily: "'Syne', sans-serif",
                 fontWeight: 800,
                 fontSize: 24,
-                color: '#F0F0EC',
+                color: 'var(--color-text-primary)',
                 letterSpacing: '-0.02em',
                 marginBottom: 6,
               }}
@@ -1066,7 +1066,7 @@ export default function OnboardingPage() {
             <p
               style={{
                 fontSize: 14,
-                color: '#6A6A60',
+                color: 'var(--color-text-secondary)',
               }}
             >
               {t('onboarding.interests_subtitle')}
@@ -1075,8 +1075,8 @@ export default function OnboardingPage() {
                 style={{
                   color:
                     interests.length >= 3
-                      ? '#1A9E5F'
-                      : '#44444A',
+                      ? 'var(--color-brand)'
+                      : 'var(--color-text-muted)',
                 }}
               >
                 {t('onboarding.interests_selected', { count: interests.length })}
@@ -1108,14 +1108,14 @@ export default function OnboardingPage() {
                     padding: '8px 14px',
                     borderRadius: 100,
                     border: `1.5px solid ${
-                      sel ? '#1A9E5F' : '#1E1E26'
+                      sel ? 'var(--color-brand)' : 'var(--color-border)'
                     }`,
                     background: sel
-                      ? 'rgba(26,158,95,0.12)'
-                      : '#131318',
+                      ? 'var(--color-brand-muted)'
+                      : 'var(--input-bg)',
                     color: sel
-                      ? '#1A9E5F'
-                      : '#8A8A85',
+                      ? 'var(--color-brand)'
+                      : 'var(--color-text-secondary)',
                     fontSize: 13,
                     fontWeight: sel ? 600 : 400,
                     cursor: 'pointer',
@@ -1173,7 +1173,7 @@ export default function OnboardingPage() {
               alignItems: 'center',
               gap: 4,
               marginBottom: 16,
-              color: '#6A6A60',
+              color: 'var(--color-text-secondary)',
             }}
           >
             <ChevronLeft size={15} />
@@ -1191,7 +1191,7 @@ export default function OnboardingPage() {
                 fontFamily: "'Syne', sans-serif",
                 fontWeight: 800,
                 fontSize: 24,
-                color: '#F0F0EC',
+                color: 'var(--color-text-primary)',
                 letterSpacing: '-0.02em',
                 marginBottom: 6,
               }}
@@ -1202,7 +1202,7 @@ export default function OnboardingPage() {
             <p
               style={{
                 fontSize: 14,
-                color: '#6A6A60',
+                color: 'var(--color-text-secondary)',
               }}
             >
               {t('onboarding.follow_subtitle')}
@@ -1215,7 +1215,7 @@ export default function OnboardingPage() {
                 style={{
                   textAlign: 'center',
                   padding: '32px 0',
-                  color: '#6A6A60',
+                  color: 'var(--color-text-secondary)',
                   fontSize: 14,
                 }}
               >
@@ -1236,7 +1236,7 @@ export default function OnboardingPage() {
               <p
                 style={{
                   textAlign: 'center',
-                  color: '#6A6A60',
+                  color: 'var(--color-text-secondary)',
                   fontSize: 14,
                   padding: '24px 0',
                 }}
@@ -1274,7 +1274,7 @@ export default function OnboardingPage() {
                       gap: 14,
                       padding: '14px 0',
                       borderBottom:
-                        '1px solid #1A1A20',
+                        '1px solid var(--color-border)',
                     }}
                   >
                     <div
@@ -1322,7 +1322,7 @@ export default function OnboardingPage() {
                         style={{
                           fontSize: 14,
                           fontWeight: 600,
-                          color: '#F0F0EC',
+                          color: 'var(--color-text-primary)',
                           fontFamily:
                             "'Syne', sans-serif",
                           display: 'flex',
@@ -1337,7 +1337,7 @@ export default function OnboardingPage() {
                           <span
                             style={{
                               fontSize: 9,
-                              background: '#1A9E5F',
+                              background: 'var(--color-brand)',
                               color: 'white',
                               padding: '1px 5px',
                               borderRadius: 4,
@@ -1352,7 +1352,7 @@ export default function OnboardingPage() {
                       <div
                         style={{
                           fontSize: 12,
-                          color: '#44444A',
+                          color: 'var(--color-text-muted)',
                         }}
                       >
                         @{acc.username} ·{' '}
@@ -1363,7 +1363,7 @@ export default function OnboardingPage() {
                         <div
                           style={{
                             fontSize: 12,
-                            color: '#6A6A60',
+                            color: 'var(--color-text-secondary)',
                             marginTop: 2,
                             overflow: 'hidden',
                             whiteSpace: 'nowrap',
@@ -1388,14 +1388,14 @@ export default function OnboardingPage() {
                         flexShrink: 0,
                         border: `1.5px solid ${
                           isFollowed
-                            ? '#2A2A2A'
-                            : '#1A9E5F'
+                            ? 'var(--color-border-light)'
+                            : 'var(--color-brand)'
                         }`,
                         background: isFollowed
                           ? 'transparent'
-                          : '#1A9E5F',
+                          : 'var(--color-brand)',
                         color: isFollowed
-                          ? '#6A6A60'
+                          ? 'var(--color-text-secondary)'
                           : 'white',
                         fontSize: 13,
                         fontWeight: 600,

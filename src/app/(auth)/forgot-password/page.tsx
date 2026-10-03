@@ -10,8 +10,8 @@ import { useTranslation } from '@/lib/i18n/language-context'
 import { tRich } from '@/lib/i18n/rich'
 
 const inp: React.CSSProperties = {
-  width:'100%', background:'#131318', border:'1px solid #1E1E26',
-  borderRadius:10, padding:'11px 14px', color:'#F0F0EC', fontSize:15,
+  width:'100%', background:'var(--input-bg)', border:'1px solid var(--color-border)',
+  borderRadius:10, padding:'11px 14px', color:'var(--color-text-primary)', fontSize:15,
   outline:'none', fontFamily:"'DM Sans', sans-serif",
 }
 
@@ -40,13 +40,13 @@ export default function ForgotPasswordPage() {
     return (
       <AuthCard title={t('auth.check_inbox_title')}>
         <div style={{ textAlign:'center', padding:'8px 0' }}>
-          <div style={{ width:60, height:60, borderRadius:'50%', background:'rgba(26,158,95,0.1)', border:'2px solid rgba(26,158,95,0.2)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px' }}>
-            <CheckCircle size={26} color="#1A9E5F" />
+          <div style={{ width:60, height:60, borderRadius:'50%', background:'var(--color-brand-muted)', border:'2px solid var(--color-brand-border)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px' }}>
+            <CheckCircle size={26} style={{ color: 'var(--color-brand)' }} />
           </div>
-          <p style={{ fontSize:15, color:'#6A6A60', lineHeight:1.6, marginBottom:24 }}>
-            {tRich(t('auth.reset_link_sent'), { email: <strong style={{ color:'#F0F0EC' }}>{email}</strong> })}
+          <p style={{ fontSize:15, color:'var(--color-text-secondary)', lineHeight:1.6, marginBottom:24 }}>
+            {tRich(t('auth.reset_link_sent'), { email: <strong style={{ color:'var(--color-text-primary)' }}>{email}</strong> })}
           </p>
-          <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:14, color:'#1A9E5F', textDecoration:'none', fontWeight:600 }}>
+          <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:14, color:'var(--color-brand)', textDecoration:'none', fontWeight:600 }}>
             <ArrowLeft size={14}/> {t('auth.back_to_signin')}
           </Link>
         </div>
@@ -59,7 +59,7 @@ export default function ForgotPasswordPage() {
       {error && <Alert type="error" message={error} />}
       <form onSubmit={handleSubmit} noValidate>
         <div style={{ marginBottom:20 }}>
-          <label style={{ fontSize:12, color:'#8A8A85', display:'block', marginBottom:6, fontWeight:500 }}>{t('auth.email_address')}</label>
+          <label style={{ fontSize:12, color:'var(--color-text-secondary)', display:'block', marginBottom:6, fontWeight:500 }}>{t('auth.email_address')}</label>
           <input type="email" placeholder="you@email.com" value={email} onChange={e=>setEmail(e.target.value)} autoFocus autoComplete="email" inputMode="email" style={inp} />
         </div>
         <button type="submit" disabled={isPending} className="para-btn-primary">
@@ -67,7 +67,7 @@ export default function ForgotPasswordPage() {
         </button>
       </form>
       <div style={{ textAlign:'center', marginTop:20 }}>
-        <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:14, color:'#44444A', textDecoration:'none' }}>
+        <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:14, color:'var(--color-text-secondary)', textDecoration:'none' }}>
           <ArrowLeft size={14}/> {t('auth.back_to_signin')}
         </Link>
       </div>

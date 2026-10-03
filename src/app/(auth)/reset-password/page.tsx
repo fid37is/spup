@@ -21,8 +21,8 @@ import { ArrowLeft, CheckCircle, Eye, EyeOff } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/language-context'
 
 const inp: React.CSSProperties = {
-  width: '100%', background: '#131318', border: '1px solid #1E1E26',
-  borderRadius: 10, padding: '11px 14px', color: '#F0F0EC', fontSize: 15,
+  width: '100%', background: 'var(--input-bg)', border: '1px solid var(--color-border)',
+  borderRadius: 10, padding: '11px 14px', color: 'var(--color-text-primary)', fontSize: 15,
   outline: 'none', fontFamily: "'DM Sans', sans-serif",
 }
 
@@ -79,7 +79,7 @@ function ResetPasswordForm() {
   if (status === 'exchanging') {
     return (
       <AuthCard title={t('auth.reset_password_title')}>
-        <p style={{ fontSize: 15, color: '#6A6A60', textAlign: 'center' }}>{t('auth.verifying_link')}</p>
+        <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', textAlign: 'center' }}>{t('auth.verifying_link')}</p>
       </AuthCard>
     )
   }
@@ -87,7 +87,7 @@ function ResetPasswordForm() {
   if (status === 'invalid') {
     return (
       <AuthCard title={t('auth.link_expired')}>
-        <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, textAlign: 'center', marginBottom: 24 }}>
+        <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', lineHeight: 1.6, textAlign: 'center', marginBottom: 24 }}>
           {t('auth.link_expired_body')}
         </p>
         <Link href="/forgot-password" className="para-btn-primary" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>
@@ -101,13 +101,13 @@ function ResetPasswordForm() {
     return (
       <AuthCard title={t('auth.password_updated')}>
         <div style={{ textAlign: 'center', padding: '8px 0' }}>
-          <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(26,158,95,0.1)', border: '2px solid rgba(26,158,95,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-            <CheckCircle size={26} color="#1A9E5F" />
+          <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'var(--color-brand-muted)', border: '2px solid var(--color-brand-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+            <CheckCircle size={26} style={{ color: 'var(--color-brand)' }} />
           </div>
-          <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, marginBottom: 24 }}>
+          <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
             {t('auth.password_changed_body')}
           </p>
-          <Link href="/login" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: '#1A9E5F', textDecoration: 'none', fontWeight: 600 }}>
+          <Link href="/login" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--color-brand)', textDecoration: 'none', fontWeight: 600 }}>
             <ArrowLeft size={14} /> {t('auth.back_to_signin')}
           </Link>
         </div>
@@ -120,7 +120,7 @@ function ResetPasswordForm() {
       {error && <Alert type="error" message={error} />}
       <form onSubmit={handleSubmit} noValidate>
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>{t('auth.new_password')}</label>
+          <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 6, fontWeight: 500 }}>{t('auth.new_password')}</label>
           <div style={{ position: 'relative' }}>
             <input
               value={password}
@@ -134,14 +134,14 @@ function ResetPasswordForm() {
             <button
               type="button"
               onClick={() => setShowPw(v => !v)}
-              style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#44444A', padding: 4 }}
+              style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}
             >
               {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
         </div>
         <div style={{ marginBottom: 22 }}>
-          <label style={{ fontSize: 12, color: '#8A8A85', display: 'block', marginBottom: 6, fontWeight: 500 }}>{t('auth.confirm_password')}</label>
+          <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 6, fontWeight: 500 }}>{t('auth.confirm_password')}</label>
           <input
             value={confirm}
             onChange={e => setConfirm(e.target.value)}

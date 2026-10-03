@@ -93,9 +93,9 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
   const btnBase: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
     width: '100%', padding: '12px 20px', borderRadius: 10,
-    border: '1px solid #1E1E26', background: '#0D0D12',
+    border: '1px solid var(--color-border)', background: 'var(--color-surface)',
     fontSize: 14, fontWeight: 600, cursor: 'pointer',
-    fontFamily: "'DM Sans', sans-serif", color: '#F0F0EC',
+    fontFamily: "'DM Sans', sans-serif", color: 'var(--color-text-primary)',
     transition: 'background 0.15s, border-color 0.15s',
     marginBottom: 10,
   }
@@ -129,7 +129,7 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
       </button>
 
       {error && (
-        <p style={{ fontSize: 13, color: '#E53935', marginTop: 10, textAlign: 'center' }}>{error}</p>
+        <p style={{ fontSize: 13, color: 'var(--color-error)', marginTop: 10, textAlign: 'center' }}>{error}</p>
       )}
     </div>
   )
@@ -137,7 +137,7 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
 
 function Spinner() {
   return (
-    <span style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#F0F0EC', display: 'inline-block', animation: 'spin 0.7s linear infinite' }}>
+    <span style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid var(--color-border-light)', borderTopColor: 'var(--color-text-primary)', display: 'inline-block', animation: 'spin 0.7s linear infinite' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </span>
   )
@@ -147,9 +147,9 @@ export function AuthDivider() {
   const { t } = useTranslation()
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
-      <div style={{ flex: 1, height: 1, background: '#1E1E26' }} />
-      <span style={{ fontSize: 12, color: '#3A3A40', fontWeight: 500, letterSpacing: '0.06em' }}>{t('auth.or')}</span>
-      <div style={{ flex: 1, height: 1, background: '#1E1E26' }} />
+      <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+      <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 500, letterSpacing: '0.06em' }}>{t('auth.or')}</span>
+      <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
     </div>
   )
 }
