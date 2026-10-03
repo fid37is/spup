@@ -9,6 +9,7 @@ import { formatNaira, formatNumber } from '@/lib/utils'
 import { createAdminClient } from '@/lib/supabase/server'
 import { getSuggestedUsers } from '@/lib/queries/users'
 import SidebarFollowBtn from './sidebar-follow-btn'
+import { SidebarAnnouncementCard } from '@/components/feed/announcement-slots'
 import type { User } from '@/types'
 
 // ─── Monetisation thresholds from env (never hardcoded in UI) ─────────────────
@@ -437,6 +438,9 @@ export default async function RightSidebar({ profile }: RightSidebarProps) {
           Search Spup
         </span>
       </Link>
+
+      {/* Announcement (new feature / maintenance heads-up) - desktop version */}
+      <SidebarAnnouncementCard />
 
       {profile.is_monetised && wallet && <CreatorWallet wallet={wallet} />}
       {!profile.is_monetised && <MonetisationProgress profile={profile} />}

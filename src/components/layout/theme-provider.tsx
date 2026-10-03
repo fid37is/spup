@@ -60,6 +60,19 @@ const STYLE = `
     from { clip-path: inset(0 0 0 0); }
     to   { clip-path: inset(100% 0 0 0); }
   }
+
+  /* While the transition runs, switch off every CSS transition (e.g. the
+     body's 0.2s background/color fade). Otherwise the "new theme" snapshot
+     is captured at the START of those fades and still looks like the old
+     theme - you see a flash, then the curtain, then the real colors arrive. */
+  html.theme-switching,
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after { transition: none !important; }
+
+  /* Fills any transparent frame behind the snapshots (seen in Android's
+     WebView) with the page background instead of the native view. */
+  ::view-transition { background: var(--color-bg); }
 `
 
 export function AppThemeProvider({ children }: { children: React.ReactNode }) {
@@ -148,6 +161,7 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
     }
 
     animatingRef.current = true
+    document.documentElement.classList.add('theme-switching')
     // dark→light: old (dark) view curtains UP, revealing light beneath
     // light→dark: old (light) view curtains DOWN, revealing dark beneath
     document.documentElement.setAttribute('data-theme-direction', next === 'light' ? 'up' : 'down')
@@ -159,6 +173,7 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 
       const reset = () => {
         document.documentElement.removeAttribute('data-theme-direction')
+        document.documentElement.classList.remove('theme-switching')
         animatingRef.current = false
       }
 
@@ -173,6 +188,7 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
       // button silently no-ops until a full page refresh — which is exactly
       // the "toggle works inconsistently" symptom.
       document.documentElement.removeAttribute('data-theme-direction')
+      document.documentElement.classList.remove('theme-switching')
       animatingRef.current = false
       setPreference(next)
     }
