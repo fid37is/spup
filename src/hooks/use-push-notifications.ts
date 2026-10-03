@@ -97,7 +97,7 @@ export function usePushNotifications(userId: string | undefined) {
       }
 
       // Android only shows a heads-up banner for channels with HIGH
-      // importance. Must match ANDROID_CHANNEL_ID in lib/push/fcm.ts.
+      // importance. Must match CHANNEL_ID in SpupMessagingService.java.
       // (A channel's importance can't be changed from code once it exists,
       // so changing these values later means choosing a new id.)
       if (Capacitor.getPlatform() === 'android') {

@@ -4,6 +4,7 @@
 import { useState, useTransition } from 'react'
 import LegalLayout, { Section } from '@/components/landing/legal-layout'
 import { CheckCircle } from 'lucide-react'
+import { sendContactMessageAction } from '@/lib/actions/contact'
 
 const G = 'var(--color-brand)'
 const BORDER = 'var(--color-border)'
@@ -21,11 +22,11 @@ const TOPICS = [
 
 // responsive handled via inline style
 const CONTACTS = [
-  { label: 'General', email: 'hello@spup.ng' },
-  { label: 'Creator Support', email: 'creators@spup.ng' },
-  { label: 'Press & Media', email: 'press@spup.ng' },
-  { label: 'Legal & Privacy', email: 'legal@spup.ng' },
-  { label: 'Trust & Safety', email: 'safety@spup.ng' },
+  { label: 'General', email: 'hello@spup.live' },
+  { label: 'Creator Support', email: 'creators@spup.live' },
+  { label: 'Press & Media', email: 'press@spup.live' },
+  { label: 'Legal & Privacy', email: 'legal@spup.live' },
+  { label: 'Trust & Safety', email: 'safety@spup.live' },
 ]
 
 export default function ContactPage() {
@@ -33,6 +34,7 @@ export default function ContactPage() {
   const [email, setEmail] = useState('')
   const [topic, setTopic] = useState(TOPICS[0])
   const [message, setMessage] = useState('')
+  const [website, setWebsite] = useState('') // honeypot - stays empty for real visitors
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -45,8 +47,8 @@ export default function ContactPage() {
     if (!message.trim() || message.trim().length < 10) { setError('Message must be at least 10 characters'); return }
 
     startTransition(async () => {
-      // Simulate send — wire up to your email/form API
-      await new Promise(r => setTimeout(r, 900))
+      const res = await sendContactMessageAction({ name, email, topic, message, website })
+      if ('error' in res) { setError(res.error); return }
       setSent(true)
     })
   }
@@ -173,8 +175,12 @@ export default function ContactPage() {
               />
             </div>
 
-            {error && (
-              <div style={{
+            {/* Honeypot: hidden from people and screen readers, tempting to bots */}
+            <div aria-hidden style={{ position: 'absolute', left: -9999, width: 1, height: 1, overflow: 'hidden' }}>
+              <label>Website<input type="text" tabIndex={-1} autoComplete="off" value={website} onChange={e => setWebsite(e.target.value)} /></label>
+            </div>
+
+            {error && (              <div style={{
                 fontSize: 13, color: 'var(--color-error)',
                 background: 'var(--color-error-muted)',
                 border: '1px solid var(--color-error-border)',
@@ -202,7 +208,7 @@ export default function ContactPage() {
             </button>
 
             <p style={{ fontSize: 12, color: 'var(--color-text-faint)', lineHeight: 1.6 }}>
-              We typically respond within 2 business days. For urgent issues, email safety@spup.ng directly.
+              We typically respond within 2 business days. For urgent issues, email safety@spup.live directly.
             </p>
           </form>
         )}

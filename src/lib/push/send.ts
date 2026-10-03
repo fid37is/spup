@@ -14,6 +14,10 @@ export interface PushPayload {
   type: string
   entityId?: string
   actorUsername?: string
+  /** Sender's profile picture (small, square) - shown as the large icon. */
+  avatarUrl?: string
+  /** In-app route to open when the notification is tapped, e.g. /post/<id>. */
+  path?: string
 }
 
 interface DeviceRow {
@@ -64,13 +68,17 @@ async function sendWebPush(device: DeviceRow, payload: PushPayload): Promise<'ok
 /** Returns 'stale' if the device token is dead and the row should be deleted. */
 async function sendFcmPush(device: DeviceRow, payload: PushPayload): Promise<'ok' | 'stale'> {
   return sendFcm(device.fcm_token!, {
-    title: payload.title,
-    body: payload.body,
-    // FCM data payload values must all be strings.
+    // Every value must be a string. `spup: '1'` tells SpupMessagingService.java
+    // this is one of ours and it should build the notification itself.
     data: {
+      spup: '1',
+      title: payload.title,
+      body: payload.body,
       type: payload.type,
       entityId: payload.entityId || '',
       actorUsername: payload.actorUsername || '',
+      avatarUrl: payload.avatarUrl || '',
+      path: payload.path || '/notifications',
     },
   })
 }

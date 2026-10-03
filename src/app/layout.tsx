@@ -8,7 +8,6 @@ import { GoogleAnalytics } from '@next/third-parties/google'
 import { ToastProvider } from '@/components/layout/toast'
 import { NetworkStatusProvider } from '@/lib/network-status'
 import NativeSplashHider from '@/components/layout/native-splash-hider'
-import NativeBootstrap from '@/components/layout/native-bootstrap'
 import { AppThemeProvider } from '@/components/layout/theme-provider'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
@@ -28,7 +27,7 @@ export const metadata: Metadata = {
     default: 'Spup - Speak Up. Be Heard.',
     template: '%s | Spup',
   },
-  description: 'Where Nigerian conversations happen - and where the people having them get paid. Join Spup: Nigeria\'s social platform with 70% ad revenue sharing.',
+  description: 'Where Nigerian conversations happen - and where creators earn from in-app ads. Join Spup, Nigeria\'s social platform.',
 
   // ── Canonical & alternate languages ────────────────────────────────────
   alternates: {
@@ -54,7 +53,7 @@ export const metadata: Metadata = {
     type: 'website',
     siteName: 'Spup',
     title: 'Spup - Speak Up. Be Heard.',
-    description: 'Nigeria\'s social platform where creators earn 70% of ad revenue. Join the conversation.',
+    description: 'Nigeria\'s social platform where creators earn from in-app ads. Join the conversation.',
     url: BASE_URL,
     locale: 'en_NG',
     images: [
@@ -72,7 +71,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'Spup - Speak Up. Be Heard.',
-    description: 'Nigeria\'s social platform where creators earn 70% of ad revenue.',
+    description: 'Nigeria\'s social platform where creators earn from in-app ads.',
     images: ['/og/default.png'],
   },
 
@@ -120,7 +119,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     '@type': 'WebSite',
     name: 'Spup',
     url: BASE_URL,
-    description: 'Nigerian social media platform with creator revenue sharing.',
+    description: 'Nigerian social media platform where creators earn from in-app ads.',
     potentialAction: {
       '@type': 'SearchAction',
       target: {
@@ -180,7 +179,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   // browser that paints before the attribute is applied.
                   document.documentElement.setAttribute('data-theme', resolved);
                   // Hint the browser's native UI (scrollbars, form controls)
-                  // to match immediately — reduces residual chrome flashes.
+                  // to match immediately - reduces residual chrome flashes.
                   document.documentElement.style.colorScheme = resolved;
                   // Unlock transitions only after the correct theme is set.
                   // Paired with html:not(.theme-ready) body { transition: none }
@@ -195,7 +194,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <PWAProvider />
         <NativeSplashHider />
-        <NativeBootstrap />
         <AppThemeProvider>
           <NetworkStatusProvider>
             <ToastProvider>

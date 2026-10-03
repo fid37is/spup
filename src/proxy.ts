@@ -164,6 +164,28 @@ export async function proxy(request: NextRequest) {
     return new NextResponse(null, { status: 404 })
   }
 
+  // Logged-out visitors (and crawlers) opening an in-app post, profile or explore
+  // link get the public, readable version instead of a login wall. The public
+  // pages live at /p/[id], /u/[username] and /discover.
+  if (!user) {
+    const publicUrl = request.nextUrl.clone()
+    publicUrl.search = ''
+    const postMatch = pathname.match(/^\/post\/([^/]+)\/?$/)
+    const userMatch = pathname.match(/^\/user\/([^/]+)\/?$/)
+    if (postMatch) {
+      publicUrl.pathname = `/p/${postMatch[1]}`
+      return withRefreshedCookies(NextResponse.redirect(publicUrl))
+    }
+    if (userMatch) {
+      publicUrl.pathname = `/u/${userMatch[1]}`
+      return withRefreshedCookies(NextResponse.redirect(publicUrl))
+    }
+    if (pathname === '/explore') {
+      publicUrl.pathname = '/discover'
+      return withRefreshedCookies(NextResponse.redirect(publicUrl))
+    }
+  }
+
   if (!user && PROTECTED_ROUTES.some(route => pathname.startsWith(route))) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = '/login'

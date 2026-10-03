@@ -5,8 +5,8 @@
 import { toBase64 } from '@/lib/admin/export'
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY!
-const FROM_EMAIL     = process.env.EMAIL_FROM || 'Spup <noreply@spup.ng>'
-const APP_URL        = process.env.NEXT_PUBLIC_APP_URL || 'https://spup.ng'
+const FROM_EMAIL     = process.env.EMAIL_FROM || 'Spup <noreply@spup.live>'
+const APP_URL        = process.env.NEXT_PUBLIC_APP_URL || 'https://spup.live'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +38,7 @@ async function sendEmail(
   subject: string,
   html: string,
   attachments?: EmailAttachment[],
+  replyTo?: string,
 ): Promise<{ id?: string; error?: string }> {
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -49,6 +50,7 @@ async function sendEmail(
       body: JSON.stringify({
         from: FROM_EMAIL, to, subject, html,
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     })
 
@@ -306,4 +308,29 @@ export async function sendNotificationEmail(opts: SendEmailOptions): Promise<{ i
   }
 
   return sendEmail(to, template.subject, template.html)
+}
+
+// ─── Contact form → Spup inbox ────────────────────────────────────────────────
+// Sends a message from the public /contact form to the right Spup inbox.
+// Reply-To is the visitor's address, so hitting Reply in your mail app answers
+// them directly. Every user-supplied value is HTML-escaped.
+export async function sendContactMessageEmail(
+  to: string,
+  data: { name: string; email: string; topic: string; message: string },
+): Promise<{ id?: string; error?: string }> {
+  const name    = escapeHtml(data.name)
+  const email   = escapeHtml(data.email)
+  const topic   = escapeHtml(data.topic)
+  const message = escapeHtml(data.message).replace(/\n/g, '<br />')
+  const html = wrap(
+    `
+      <h1>New contact message</h1>
+      <p class="pill">${topic}</p>
+      <p><strong style="color:#F0F0EC">${name}</strong><br /><a href="mailto:${email}">${email}</a></p>
+      <p style="color:#F0F0EC">${message}</p>
+      <p class="muted">Reply to this email to answer ${name} directly.</p>
+    `,
+    'Sent from the contact form at spup.live/contact.',
+  )
+  return sendEmail(to, `[Contact] ${data.topic} - ${data.name}`.replace(/[\r\n]+/g, ' ').slice(0, 150), html, undefined, data.email)
 }

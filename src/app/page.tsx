@@ -1,4 +1,5 @@
 import { TrendingUp, Users, Zap, Shield, Globe, Mic, Lock, MessageCircle } from 'lucide-react'
+import Link from 'next/link'
 import LandingCTA from '@/components/landing/landing-cta'
 import LandingFooter from '@/components/landing/landing-footer'
 import LandingNav from '@/components/landing/landing-nav'
@@ -8,6 +9,8 @@ import { getApprovedTestimonials } from '@/lib/actions/testimonials'
 import LandingMobileSection from '@/components/landing/landing-mobile-section'
 import OrbitSection from '@/components/landing/orbit-section'
 import { formatCreatorCount } from '@/lib/utils/format-creator-count'
+import PublicPostCard from '@/components/public/public-post-card'
+import { getLatestPublicPosts } from '@/lib/public-data'
 import { ReactElement, JSXElementConstructor, ReactNode, ReactPortal, Key } from 'react'
 
 // The active-creator count needs to be fresh, not baked into a static build -
@@ -20,8 +23,8 @@ export const revalidate = 60
 const FEATURES = [
   {
     icon: TrendingUp,
-    title: 'Earn from every post',
-    body: '70% of ad revenue goes directly to you, paid in Naira to your bank. No middlemen.',
+    title: 'Earn as your audience grows',
+    body: "Eligible creators receive 70% of the revenue from Spup's in-app ads, paid in Naira to your bank.",
     wide: true,
   },
   {
@@ -67,6 +70,8 @@ const FEATURES = [
 export default async function LandingPage() {
   const activeCreatorCount = await getActiveCreatorCountAction()
   const testimonials = await getApprovedTestimonials()
+  // Real, public, non-sensitive posts. Never lets a data hiccup break the home page.
+  const livePosts = await getLatestPublicPosts(6).catch(() => [])
 
   return (
     <div style={{
@@ -89,6 +94,7 @@ export default async function LandingPage() {
         .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
         .paid-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
         .testimonials-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .live-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
         .section-pad   { position: relative; z-index: 1; padding: 100px 40px; }
         .section-pad-b { position: relative; z-index: 1; padding: 0 40px 100px; }
         .section-inner { max-width: 1100px; margin: 0 auto; }
@@ -102,6 +108,7 @@ export default async function LandingPage() {
           .hero-right { flex: 0 0 52%; }
           .hero-left  { flex: 0 0 48%; padding-right: 32px; }
           .testimonials-grid { grid-template-columns: repeat(2,1fr); }
+          .live-grid { grid-template-columns: repeat(2,1fr); }
         }
         @media (max-width: 767px) {
           .hero-section {
@@ -120,6 +127,7 @@ export default async function LandingPage() {
           }
           .paid-grid { grid-template-columns: repeat(2,1fr); gap: 12px; }
           .testimonials-grid { grid-template-columns: 1fr; }
+          .live-grid { grid-template-columns: 1fr; }
           .section-pad   { padding: 60px 20px; }
           .section-pad-b { padding: 0 20px 60px; }
           .cta-box { padding: 48px 24px; border-radius: 20px; }
@@ -188,7 +196,7 @@ export default async function LandingPage() {
             marginBottom: 24, color: 'var(--color-text-primary)',
           }}>
             Speak up.<br />
-            <span style={{ color: 'var(--color-brand)' }}>Get paid.</span>
+            <span style={{ color: 'var(--color-brand)' }}>Get rewarded.</span>
           </h1>
 
           <p style={{
@@ -196,12 +204,12 @@ export default async function LandingPage() {
             color: 'var(--color-text-secondary)',
             lineHeight: 1.7, maxWidth: 440, marginBottom: 24,
           }}>
-            Nigeria&apos;s social platform where your voice earns real money - 70% of ad revenue paid directly to your bank account in Naira.
+            Nigeria&apos;s social platform where creators earn from the ads Spup sells, paid in Naira to your bank account.
           </p>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 40 }}>
             {[
-              { icon: TrendingUp, label: '70% ad revenue' },
+              { icon: TrendingUp, label: '70% in-app ad share' },
               { icon: Lock,       label: 'Built-in escrow' },
               { icon: Users,      label: 'Naira payouts' },
             ].map((item, i) => (
@@ -260,7 +268,7 @@ export default async function LandingPage() {
         <div className="stats-grid">
           {[
             { value: '123M', label: 'Nigerian internet users' },
-            { value: '70%',  label: 'Ad revenue to creators' },
+            { value: '70%',  label: 'of in-app ad revenue shared with eligible creators' },
             { value: '₦1K',  label: 'Minimum payout' },
             { value: '500',  label: 'Characters per post' },
           ].map((s, i) => (
@@ -281,6 +289,34 @@ export default async function LandingPage() {
           ))}
         </div>
       </div>
+
+      {/* ── LIVE ON SPUP (real public posts - crawlable, links to /p/[id]) ── */}
+      {livePosts.length >= 3 && (
+        <section className="section-pad-b" style={{ paddingTop: 80 }}>
+          <div className="section-inner">
+            <div style={{ marginBottom: 40 }}>
+              <p style={{ fontSize: 12, color: 'var(--color-brand)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: 10 }}>
+                LIVE ON SPUP
+              </p>
+              <h2 style={{
+                fontFamily: "'Syne', sans-serif", fontWeight: 800,
+                fontSize: 'clamp(34px, 4.5vw, 54px)', letterSpacing: '-0.03em', lineHeight: 1.0,
+                color: 'var(--color-text-primary)',
+              }}>
+                What Nigeria is saying
+              </h2>
+            </div>
+            <div className="live-grid">
+              {livePosts.map(p => <PublicPostCard key={p.id} post={p} variant="feed" />)}
+            </div>
+            <div style={{ marginTop: 32 }}>
+              <Link href="/discover" style={{ color: 'var(--color-brand)', fontWeight: 700, fontSize: 15, textDecoration: 'none' }}>
+                Browse all posts &rarr;
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── FEATURES ── */}
       <section id="features" className="section-pad">
@@ -330,8 +366,8 @@ export default async function LandingPage() {
           <div className="paid-grid">
             {[
               { step: '01', title: 'Post content',      desc: 'Share your thoughts, videos, hot takes - anything you want. In Pidgin, Yoruba, Igbo, Hausa, or English.' },
-              { step: '02', title: 'Build followers',   desc: "Reach 500 followers in 90 days to unlock earnings. We'll help you grow with smart analytics." },
-              { step: '03', title: 'Ads run nearby',    desc: 'We sell ads to Nigerian brands. You keep 70% of what they pay - no hidden cuts, no surprises.' },
+              { step: '02', title: 'Build your audience', desc: 'Reach 500 followers within 90 days to become eligible for earnings.' },
+              { step: '03', title: 'Ads run on Spup',    desc: 'Nigerian brands promote their posts on Spup. Eligible creators receive 70% of the in-app ad revenue their audience helps generate.' },
               { step: '04', title: 'Withdraw in Naira', desc: 'Hit ₦1,000 minimum? Transfer straight to your bank. Your money, your bank, no stress.' },
             ].map((s, i) => (
               <div key={i} style={{
@@ -358,6 +394,10 @@ export default async function LandingPage() {
               </div>
             ))}
           </div>
+          <p style={{ marginTop: 20, fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
+            Earnings depend on eligibility, in-app ad activity, and Spup&apos;s{' '}
+            <Link href="/terms" style={{ color: 'var(--color-text-secondary)' }}>creator terms</Link>. Minimum payout ₦1,000.
+          </p>
         </div>
       </section>
 

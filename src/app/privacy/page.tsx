@@ -19,7 +19,7 @@ export default function PrivacyPage() {
         <UL items={[
           'Full name and email address (for waitlist registration)',
           'Nigerian phone number (used for account verification)',
-          'Bank account details (for Naira payouts — stored securely via our payment partners)',
+          'Bank account details (for Naira payouts - stored securely via our payment partners)',
           'Content you post, including text, images, and audio',
           'Usage data: pages visited, features used, time spent on the platform',
           'Device and browser information for security and performance purposes',
@@ -46,11 +46,11 @@ export default function PrivacyPage() {
           'Law enforcement, when required by Nigerian law',
           'With your explicit consent, for any other purpose',
         ]} />
-        <P>Advertisers see aggregated, anonymised audience data — never your personal identity.</P>
+        <P>Advertisers see aggregated, anonymised audience data - never your personal identity.</P>
       </Section>
 
       <Section title="4. Data Storage & Security">
-        <P>Your data is stored on secure servers. We use industry-standard encryption for data in transit (TLS) and at rest. Bank details are processed by PCI-compliant payment partners — we do not store raw bank credentials ourselves.</P>
+        <P>Your data is stored on secure servers. We use industry-standard encryption for data in transit (TLS) and at rest. Bank details are processed by PCI-compliant payment partners - we do not store raw bank credentials ourselves.</P>
         <P>Access to personal data within Spup is restricted to authorised personnel only, on a need-to-know basis.</P>
       </Section>
 
@@ -70,7 +70,7 @@ export default function PrivacyPage() {
       </Section>
 
       <Section title="7. Children">
-        <P>Spup is not intended for users under 16 years of age. If we discover an account belongs to someone under 16, we will delete it promptly. If you believe a minor has registered, contact us at privacy@spup.ng.</P>
+        <P>Spup is not intended for users under 16 years of age. If we discover an account belongs to someone under 16, we will delete it promptly. If you believe a minor has registered, contact us at privacy@spup.live.</P>
       </Section>
 
       <Section title="8. Changes to This Policy">
@@ -78,7 +78,7 @@ export default function PrivacyPage() {
       </Section>
 
       <Section title="9. Contact">
-        <P>For privacy-related questions or data requests, email us at <strong style={{ color: 'var(--color-text-primary)' }}>privacy@spup.ng</strong> or visit our <a href="/contact" style={{ color: 'var(--color-brand)', textDecoration: 'none' }}>Contact page</a>.</P>
+        <P>For privacy-related questions or data requests, email us at <strong style={{ color: 'var(--color-text-primary)' }}>privacy@spup.live</strong> or visit our <a href="/contact" style={{ color: 'var(--color-brand)', textDecoration: 'none' }}>Contact page</a>.</P>
       </Section>
     </LegalLayout>
   )
