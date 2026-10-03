@@ -105,7 +105,7 @@ export default async function PublicPostPage({ params }: { params: Promise<{ id:
             Message @{post.author.username} to agree the details. Pay through Spup and your money is held
             in escrow until you confirm delivery.
           </p>
-          <Link href={`/login?redirectTo=/post/${post.id}`} style={{
+          <Link href={`/login?redirectTo=/post/${post.id}`} rel="nofollow" style={{
             display: 'inline-block', background: 'var(--color-brand)', color: 'white', textDecoration: 'none',
             fontWeight: 700, fontSize: 14, padding: '9px 18px', borderRadius: 100,
           }}>

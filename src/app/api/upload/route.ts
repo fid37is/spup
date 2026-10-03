@@ -1,3 +1,4 @@
+// src/app/api/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { v2 as cloudinary } from 'cloudinary'
@@ -95,8 +96,8 @@ export async function POST(request: NextRequest) {
     } else if (isImage) {
       Object.assign(uploadOptions, {
         transformation: [
-          { width: 1200, crop: 'limit' },  // Never upscale, max 1200px wide
-          { quality: 'auto' },
+          { width: 1600, crop: 'limit' },  // Never upscale, max 1600px wide
+          { quality: 'auto:best' },        // clean master; delivery re-encodes per view
         ],
       })
     } else if (isVideo) {

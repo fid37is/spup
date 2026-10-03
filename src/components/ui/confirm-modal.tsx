@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useBackClose } from '@/hooks/use-back-close'
 
 // ── ConfirmModal ──────────────────────────────────────────────────────────────
 // Shared confirmation dialog: centered card + backdrop, used for anything that
@@ -41,6 +42,7 @@ export default function ConfirmModal({
   onConfirm: () => void
   onCancel: () => void
 }) {
+  useBackClose(open, onCancel)
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 

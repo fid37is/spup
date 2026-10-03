@@ -83,7 +83,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
           <div style={{ border: '4px solid var(--color-bg)', borderRadius: '50%', display: 'flex' }}>
             <PublicAvatar name={profile.display_name} src={profile.avatar_url} size={80} />
           </div>
-          <Link href={`/login?redirectTo=/user/${profile.username}`} style={{
+          <Link href={`/login?redirectTo=/user/${profile.username}`} rel="nofollow" style={{
             background: 'var(--color-brand)', color: 'white', textDecoration: 'none',
             fontWeight: 700, fontSize: 14, padding: '9px 20px', borderRadius: 100,
           }}>

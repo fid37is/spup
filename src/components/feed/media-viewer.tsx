@@ -18,6 +18,8 @@ import { useToast } from '@/components/layout/toast'
 import { PostActions } from '@/components/feed/post-card'
 import { linkifyPostText } from '@/components/shared/linkify'
 import { acquireFullscreenVideoFocus } from '@/lib/video-focus'
+import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
+import { useBackClose } from '@/hooks/use-back-close'
 
 interface MediaItem {
   id: string
@@ -299,6 +301,7 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose, in
   // Portaled to document.body below — see the note on ConfirmModal for why.
   const [mounted,  setMounted]  = useState(false)
   useEffect(() => setMounted(true), [])
+  useBackClose(true, onClose)
 
   // While this is open, every inline feed video is paused and stays paused (see
   // lib/video-focus). Registered for the viewer's whole lifetime, independent of
@@ -425,7 +428,8 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose, in
                 isMobile={isMobile} onTime={onVideoTime}
               />
             ) : (
-              <img src={current.url} alt=""
+              <img src={cloudinaryImage(current.url, 1600)} alt=""
+                decoding="async" onError={fallbackToOriginal(current.url)}
                 style={{
                   maxWidth: '100%',
                   maxHeight: isMobile ? '100vh' : 'calc(100vh - 96px)',
