@@ -35,10 +35,19 @@ export async function suspensionBlock(profile: {
   let until = profile.suspended_until
 
   if (status === undefined || until === undefined) {
-    const { data } = await createAdminClient()
+    const db = createAdminClient()
+    const { data, error } = await db
       .from('users').select('status, suspended_until').eq('id', profile.id).maybeSingle()
-    status = data?.status
-    until = data?.suspended_until
+    if (!error && data) {
+      status = data.status
+      until = data.suspended_until
+    } else if (status === undefined) {
+      // Most likely the suspended_until column doesn't exist yet (migration 052 not
+      // run). Fall back to the status alone so a suspended account is still blocked
+      // (with no end date) instead of silently allowed through.
+      const { data: bare } = await db.from('users').select('status').eq('id', profile.id).maybeSingle()
+      status = bare?.status
+    }
   }
 
   if (status !== 'suspended') return null

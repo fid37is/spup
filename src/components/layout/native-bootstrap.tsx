@@ -105,6 +105,8 @@ export default function NativeBootstrap() {
       } catch {
         return
       }
+      // TEMPORARY diagnostics: never logs the query string (it holds the sign-in code).
+      console.log('[spup-auth] link received:', u.protocol + '//' + u.host + u.pathname)
 
       if (u.protocol === APP_SCHEME && u.host === AUTH_HOST) {
         // OAuth return trip. /api/auth/callback is a route handler (not a
@@ -155,9 +157,11 @@ export default function NativeBootstrap() {
           return
         }
         removers.push(() => back.remove(), () => links.remove())
+        console.log('[spup-auth] listeners ready')
 
         // Cold start: the app was closed and a notification tap launched it.
         const launch = await App.getLaunchUrl()
+        console.log('[spup-auth] launch url present:', !!launch?.url)
         if (launch?.url && !cancelled && consumeLaunchUrl(launch.url)) handleUrl(launch.url)
       })
       .catch(() => {})

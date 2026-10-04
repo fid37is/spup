@@ -10,6 +10,16 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/feed'
 
+  // TEMPORARY diagnostics - cookie NAMES only, never values or the code.
+  const cookieNames = request.cookies.getAll().map(c => c.name)
+  console.log('[auth-callback] hit', {
+    hasCode: !!code,
+    hasVerifierCookie: cookieNames.some(n => n.endsWith('-code-verifier')),
+    hasSessionCookie: cookieNames.some(n => /-auth-token(\.\d+)?$/.test(n)),
+    cookieCount: cookieNames.length,
+    inAppWebView: /\bwv\b/.test(request.headers.get('user-agent') ?? ''),
+  })
+
   if (!code) {
     // Google/Supabase send ?error=...&error_description=... when sign-in is cancelled or refused.
     const providerReason = searchParams.get('error_description') || searchParams.get('error') || ''
@@ -37,7 +47,11 @@ export async function GET(request: NextRequest) {
 
   // Check if this is a new OAuth user (no profile yet)
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.redirect(`${origin}/login`)
+  if (!user) {
+    console.error('[auth-callback] exchange ok but getUser() returned no user')
+    return NextResponse.redirect(`${origin}/login?error=auth_failed&reason=${encodeURIComponent('Session was not saved')}`)
+  }
+  console.log('[auth-callback] signed in, checking profile')
 
   const { data: profile } = await supabase
     .from('users')
@@ -79,5 +93,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/onboarding`)
   }
 
+  console.log('[auth-callback] done ->', next)
   return NextResponse.redirect(`${origin}${next}`)
 }
