@@ -134,7 +134,7 @@ async function send(kind: EngagementKind, id: string, desired: boolean): Promise
     if ([400, 401, 403, 404].includes(res.status)) {
       // A blocked follow is refused for good; its message is safe to show.
       const data = await res.json().catch(() => null)
-      return { outcome: 'fatal', message: data?.code === 'follow_blocked' ? data.error : undefined }
+      return { outcome: 'fatal', message: data?.code === 'follow_blocked' || data?.code === 'suspended' ? data.error : undefined }
     }
     return { outcome: 'server' }  // 5xx / gateway timeout on a weak link
   } catch {

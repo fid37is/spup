@@ -5,12 +5,38 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createAnnouncementAction, endAnnouncementAction } from '@/lib/actions/announcements'
+import { createBrowserClient } from '@/lib/supabase/client'
 import {
   ANNOUNCEMENT_KINDS, ANNOUNCEMENT_LIMITS, KIND_LABELS, REMIND_CHOICES,
   validateAnnouncementInput, type AnnouncementKind,
 } from '@/lib/announcements'
 import AnnouncementBanner from '@/components/feed/announcement-banner'
 import AnnouncementStrip from '@/components/feed/announcement-strip'
+
+
+const SESSION_EXPIRED = 'Your admin session expired - please sign in again, then publish.'
+
+/**
+ * Runs a server action; if it says "Not authenticated" (the session cookie went
+ * stale while this page sat open, e.g. while writing a long message), refreshes the
+ * session from the browser and tries once more. The form keeps everything typed, so
+ * the admin never has to hurry or retype. Only if the refresh itself fails do they
+ * see a sign-in message.
+ */
+async function withSessionRetry<T extends object>(run: () => Promise<T>): Promise<T | { error: string }> {
+  const notSignedIn = (r: object) => 'error' in r && (r as { error?: string }).error === 'Not authenticated'
+
+  const first = await run()
+  if (!notSignedIn(first)) return first
+  try {
+    const { error } = await createBrowserClient().auth.refreshSession()
+    if (error) return { error: SESSION_EXPIRED }
+  } catch {
+    return { error: SESSION_EXPIRED }
+  }
+  const second = await run()
+  return notSignedIn(second) ? { error: SESSION_EXPIRED } : second
+}
 
 const FIELD = 'rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-primary'
 
@@ -60,7 +86,7 @@ export function CreateAnnouncementForm() {
     if (problem) { setError(problem); return }
 
     startTransition(async () => {
-      const result = await createAnnouncementAction(input)
+      const result = await withSessionRetry(() => createAnnouncementAction(input))
       if ('error' in result && result.error) { setError(result.error); return }
       setTitle(''); setBody(''); setCtaLabel(''); setCtaUrl(''); setStartsAt(''); setEndsAt('')
       setRemindTouched(false); setRemind(kind === 'maintenance' ? 6 : null)
@@ -222,7 +248,7 @@ export function EndAnnouncementButton({ id }: { id: string }) {
   function end() {
     setError(null)
     startTransition(async () => {
-      const result = await endAnnouncementAction(id)
+      const result = await withSessionRetry(() => endAnnouncementAction(id))
       if ('error' in result && result.error) { setError(result.error); return }
       router.refresh()
     })
