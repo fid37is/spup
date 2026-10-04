@@ -179,7 +179,8 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
       stopTrickle()
 
       if ('error' in result && result.error) {
-        fail(job, result.error)
+        // A suspension isn't something a second attempt can change, so no Retry button.
+        fail(job, result.error, (result as { code?: string }).code !== 'suspended')
         return
       }
       succeed(job, {
@@ -298,8 +299,10 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
     }
   }
 
-  function fail(job: PostJob, detail: string) {
+  function fail(job: PostJob, detail: string, retryable = true) {
     const { input } = job
+    // An upload refused for a suspension arrives as plain text; treat it the same way.
+    if (/^Your account is suspended/.test(detail)) retryable = false
     const t = deps.t()
     job.status = 'failed'
     store.touch()
@@ -330,7 +333,12 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
     }
 
     const fallback = input.parentPostId ? t('composer.reply_failed') : t('composer.post_failed')
-    deps.toast().error(detail || fallback, FAILED_TOAST_MS, { label: t('composer.retry'), onClick: () => retry(job.id) })
+    if (retryable) {
+      deps.toast().error(detail || fallback, FAILED_TOAST_MS, { label: t('composer.retry'), onClick: () => retry(job.id) })
+    } else {
+      // Nothing to retry: just say why, and until when. Long enough to read the date.
+      deps.toast().error(detail || fallback, 6000)
+    }
 
     // After the toast is gone there's no way to retry, so stop holding the files.
     setTimeout(() => { if (job.status === 'failed') store.remove(job.id) }, FAILED_TOAST_MS + 500)

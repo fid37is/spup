@@ -853,7 +853,7 @@ export function PostActions({
         const r = await toggleLikeAction(post.id, nextLiked)
         if ('error' in r) {
           undoTo = !nextLiked
-          if ('code' in r && r.code === 'suspended') refusal = r.error
+          if ((r as { code?: string }).code === 'suspended') refusal = r.error
         }
       } catch {
         undoTo = !nextLiked // network/server failure: never leave a phantom like
@@ -875,7 +875,7 @@ export function PostActions({
         const r = await toggleRepostAction(rt.id, nextReposted)
         if ('error' in r) {
           undoTo = !nextReposted
-          if ('code' in r && r.code === 'suspended') refusal = r.error
+          if ((r as { code?: string }).code === 'suspended') refusal = r.error
         }
         else if (nextReposted && 'post' in r && r.post) publishFeedEvent({ type: 'repost-added', post: r.post })
         else if (!nextReposted) publishFeedEvent({ type: 'repost-removed', originalId: rt.id })
