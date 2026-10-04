@@ -8,6 +8,7 @@
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { suspensionBlock } from '@/lib/suspension-server'
 import { createNotification } from '@/lib/notifications'
 import { notifyMentions, notifyPostSubscribers, queuePostNotifications } from '@/lib/post-notifications'
 import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schemas'
@@ -70,7 +71,9 @@ export async function createPostAction(data: CreatePostSchema) {
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const { supabase, profile, failed } = await getCallerProfile()
   if (!profile) return noProfileError(failed)
-  if (profile.status === 'suspended' || profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
+  if (profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
+  const suspended = await suspensionBlock(profile)
+  if (suspended) return suspended
   const { body, parent_post_id, quoted_post_id, media, scheduled_at, is_selling } = parsed.data
 
   // Word rules (admin panel -> Trust & safety -> Word rules). A "block" match
@@ -346,6 +349,12 @@ export async function toggleLikeAction(postId: string, desired?: boolean) {
   const target = desired ?? !isLiked
   if (target === isLiked) return { liked: isLiked, changed: false }
 
+  // Suspended accounts can take a like back, but not give one.
+  if (target) {
+    const suspended = await suspensionBlock(profile)
+    if (suspended) return suspended
+  }
+
   if (!target) {
     // Unlike. likes_count is not decremented here - trg_sync_like_count
     // fires on this DELETE and recomputes it as COUNT(*) FROM likes, so it
@@ -395,6 +404,8 @@ export async function toggleRepostAction(postId: string, desired?: boolean) {
     return { reposted: false }
   }
   if (desired === false) return { reposted: false } // already not reposted - nothing to do
+  const suspended = await suspensionBlock(profile)
+  if (suspended) return suspended
   const { data: inserted } = await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).select('id')
   if (!inserted || inserted.length === 0) return { reposted: true }
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')

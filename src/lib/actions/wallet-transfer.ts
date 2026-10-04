@@ -4,6 +4,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { createNotification } from '@/lib/notifications'
+import { suspensionBlock } from '@/lib/suspension-server'
 
 // ============================================================
 // Direct wallet-to-wallet transfer between two Spup users. Unlike
@@ -36,9 +37,11 @@ async function getCallerProfile() {
     .single()
 
   if (!profile) return { error: 'Profile not found', profile: null }
-  if (profile.status === 'banned' || profile.status === 'suspended') {
+  if (profile.status === 'banned') {
     return { error: 'Your account is not eligible for this action', profile: null }
   }
+  const suspended = await suspensionBlock(profile)
+  if (suspended) return { error: suspended.error, code: suspended.code, profile: null }
   return { error: null, profile }
 }
 

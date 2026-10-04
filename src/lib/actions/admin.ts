@@ -9,6 +9,7 @@ import { checkRateLimit } from '@/lib/rate-limit'
 import { fetchAllRows, maskEmail } from '@/lib/admin/export'
 import { buildUserDataExport } from '@/lib/admin/user-data-export'
 import { invalidateContentRulesCache } from '@/lib/content-rules'
+import { suspendedMessage } from '@/lib/suspension'
 
 // ─── Guard: caller must be admin or moderator ─────────────────────────────────
 
@@ -52,9 +53,9 @@ export async function adminUpdateUserAction({ userId, action }: { userId: string
   const SUSPEND_UNTIL = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
   const updates: Record<UserAction, Record<string, unknown>> = {
-    suspend:              { status: 'suspended' },
-    unsuspend:            { status: 'active' },
-    ban:                  { status: 'banned', deleted_at: new Date().toISOString() },
+    suspend:              { status: 'suspended', suspended_until: SUSPEND_UNTIL },
+    unsuspend:            { status: 'active', suspended_until: null },
+    ban:                  { status: 'banned', suspended_until: null, deleted_at: new Date().toISOString() },
     unban:                { status: 'active', deleted_at: null },
     make_moderator:       { role: 'moderator' },
     revoke_moderator:     { role: 'user' },
@@ -73,7 +74,7 @@ export async function adminUpdateUserAction({ userId, action }: { userId: string
     await admin.from('notifications').insert({
       recipient_id: userId,
       type: 'system',
-      metadata: { message: 'Your account has been suspended for 7 days due to a policy violation.' },
+      metadata: { message: `${suspendedMessage(SUSPEND_UNTIL).replace(/\.$/, '')} due to a policy violation. You can browse, but you can't post, like, repost, follow, message or use your wallet until then.` },
     })
   }
 

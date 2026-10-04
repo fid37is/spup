@@ -97,12 +97,23 @@ export default function AnnouncementProvider({
     const onForeground = () => {
       if (document.visibilityState === 'visible' && Date.now() - lastCheck.current > MIN_GAP_MS) refresh()
     }
+    // The layout (and so the rows it rendered) can be many minutes old on a phone: an
+    // installed app or a restored tab never reloads, and some mobile webviews do not
+    // fire visibilitychange on resume. So also check once on mount, and on focus /
+    // pageshow (back-forward cache restore). All are rate-limited by MIN_GAP_MS, which
+    // is measured from the server render, so a snapshot older than that is re-checked
+    // straight away.
+    onForeground()
     document.addEventListener('visibilitychange', onForeground)
+    window.addEventListener('focus', onForeground)
+    window.addEventListener('pageshow', onForeground)
     window.addEventListener('online', onForeground)
     return () => {
       stopped = true
       clearInterval(poll)
       document.removeEventListener('visibilitychange', onForeground)
+      window.removeEventListener('focus', onForeground)
+      window.removeEventListener('pageshow', onForeground)
       window.removeEventListener('online', onForeground)
     }
   }, [])

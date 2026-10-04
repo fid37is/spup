@@ -560,6 +560,15 @@ export default function ChatClient({
           toastError(CHAT_LOCK_COPY[code])
           return
         }
+        if (code === 'suspended') {
+          // Suspended accounts can read chats but not send: drop it (a retry would
+          // be refused too) and say until when.
+          outboxRef.current.delete(tempId)
+          setMessages(prev => removeMessage(prev, tempId))
+          setTexts(tx => { const { [tempId]: _drop, ...rest } = tx; return rest })
+          toastError(('error' in res && res.error) || 'Your account is suspended.')
+          return
+        }
         throw new Error(('error' in res && res.error) || t('chat.send_failed'))
       }
       outboxRef.current.delete(tempId)

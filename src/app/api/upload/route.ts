@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { v2 as cloudinary } from 'cloudinary'
+import { suspensionBlock } from '@/lib/suspension-server'
 import {
   ALLOWED_IMAGE_TYPES, ALLOWED_VIDEO_TYPES,
   MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MAX_IMAGE_LABEL, MAX_VIDEO_LABEL,
@@ -33,9 +34,11 @@ export async function POST(request: NextRequest) {
       .eq('auth_id', user.id)
       .single()
 
-    if (!profile || profile.status === 'banned' || profile.status === 'suspended') {
+    if (!profile || profile.status === 'banned') {
       return NextResponse.json({ error: 'Account not eligible for uploads' }, { status: 403 })
     }
+    const suspended = await suspensionBlock(profile)
+    if (suspended) return NextResponse.json(suspended, { status: 403 })
 
     const formData = await request.formData()
     const file = formData.get('file') as File | null

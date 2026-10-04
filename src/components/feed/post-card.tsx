@@ -846,16 +846,20 @@ export function PostActions({
     const seq = beginEngagement('like', post.id, nextLiked, post.is_liked)
     startTransition(async () => {
       let undoTo: boolean | undefined
+      let refusal: string | undefined // the server's own words, e.g. "Your account is suspended until..."
       try {
         // Ask for the state the person wants, not a blind flip: a double tap, a
         // stale screen or a second device can no longer bounce the like back.
         const r = await toggleLikeAction(post.id, nextLiked)
-        if ('error' in r) undoTo = !nextLiked
+        if ('error' in r) {
+          undoTo = !nextLiked
+          if ('code' in r && r.code === 'suspended') refusal = r.error
+        }
       } catch {
         undoTo = !nextLiked // network/server failure: never leave a phantom like
       }
       endEngagement('like', post.id, seq, undoTo)
-      if (undoTo !== undefined) toastError(t('post.update_failed'))
+      if (undoTo !== undefined) toastError(refusal ?? t('post.update_failed'))
     })
   }
 
@@ -866,16 +870,20 @@ export function PostActions({
     const seq = beginEngagement('repost', rt.id, nextReposted, rt.is_reposted ?? false)
     startTransition(async () => {
       let undoTo: boolean | undefined
+      let refusal: string | undefined
       try {
         const r = await toggleRepostAction(rt.id, nextReposted)
-        if ('error' in r) undoTo = !nextReposted
+        if ('error' in r) {
+          undoTo = !nextReposted
+          if ('code' in r && r.code === 'suspended') refusal = r.error
+        }
         else if (nextReposted && 'post' in r && r.post) publishFeedEvent({ type: 'repost-added', post: r.post })
         else if (!nextReposted) publishFeedEvent({ type: 'repost-removed', originalId: rt.id })
       } catch {
         undoTo = !nextReposted
       }
       endEngagement('repost', rt.id, seq, undoTo)
-      if (undoTo !== undefined) toastError(t('post.repost_failed'))
+      if (undoTo !== undefined) toastError(refusal ?? t('post.repost_failed'))
       else success(nextReposted ? t('post.reposted') : t('post.repost_removed'))
     })
   }

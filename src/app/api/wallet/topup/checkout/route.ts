@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { suspensionBlock } from '@/lib/suspension-server'
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!
 const PAYSTACK_BASE = 'https://api.paystack.co'
@@ -45,9 +46,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-    if (profile.status === 'banned' || profile.status === 'suspended') {
+    if (profile.status === 'banned') {
       return NextResponse.json({ error: 'Account not eligible for wallet top-up' }, { status: 403 })
     }
+    const suspended = await suspensionBlock(profile)
+    if (suspended) return NextResponse.json(suspended, { status: 403 })
 
     const { data: wallet } = await supabase
       .from('wallets')

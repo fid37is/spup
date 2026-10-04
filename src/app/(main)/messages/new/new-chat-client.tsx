@@ -9,6 +9,7 @@ import { ArrowLeft, Search, Loader2, UserPlus } from 'lucide-react'
 import Link from 'next/link'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { useToast } from '@/components/layout/toast'
 
 const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
 
@@ -22,6 +23,7 @@ interface FollowUser {
 
 export default function NewChatClient({ following }: { following: FollowUser[] }) {
   const { t } = useTranslation()
+  const { error: toastError } = useToast()
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -38,6 +40,9 @@ export default function NewChatClient({ following }: { following: FollowUser[] }
       const result = await getOrCreateConversationAction(userId)
       if ('conversationId' in result) {
         router.push(`/messages/${result.conversationId}`)
+      } else {
+        setStartingId(null)
+        if ('error' in result && result.error) toastError(result.error)
       }
     })
   }

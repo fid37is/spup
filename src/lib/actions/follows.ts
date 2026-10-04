@@ -10,6 +10,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
 import { getBlockState } from '@/lib/mutuals'
+import { suspensionBlock } from '@/lib/suspension-server'
 
 // followers_count / following_count are maintained by the trg_sync_follow_counts
 // trigger on `follows` (migration 042) - never write them from app code.
@@ -60,7 +61,7 @@ async function getCallerProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { supabase, profile: null }
-  const { data: profile } = await supabase.from('users').select('id').eq('auth_id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('id, status').eq('auth_id', user.id).single()
   return { supabase, profile }
 }
 
@@ -85,6 +86,12 @@ export async function toggleFollowAction(targetUserId: string, desired?: boolean
   const isFollowing = !!existing
   const target = desired ?? !isFollowing
   if (target === isFollowing) return { following: isFollowing, changed: false }
+
+  // Suspended accounts can unfollow, but not follow anyone new.
+  if (!isFollowing) {
+    const suspended = await suspensionBlock(profile)
+    if (suspended) return suspended
+  }
 
   // A brand-new follow counts against the spam limit. Unfollows and no-op
   // repeats (a retried request, a double tap) never do.

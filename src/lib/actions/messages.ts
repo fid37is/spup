@@ -3,6 +3,7 @@
 // src/lib/actions/messages.ts
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { suspensionBlock } from '@/lib/suspension-server'
 import bcrypt from 'bcryptjs'
 import nodeCrypto from 'crypto'
 import { createNotification } from '@/lib/notifications'
@@ -22,7 +23,7 @@ async function getCallerProfile() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { supabase, profile: null }
   const { data: profile } = await supabase
-    .from('users').select('id, username, display_name, avatar_url')
+    .from('users').select('id, username, display_name, avatar_url, status')
     .eq('auth_id', user.id).single()
   return { supabase, profile }
 }
@@ -198,6 +199,8 @@ export async function getOrCreateConversationAction(targetUserId: string) {
   if (!profile) return { error: 'Not authenticated' }
   if (!targetUserId) return { error: 'Missing user' }
   if (targetUserId === profile.id) return { error: "You can't start a chat with yourself" }
+  const suspended = await suspensionBlock(profile)
+  if (suspended) return suspended
   const lock = await getChatLockReason(profile.id, targetUserId)
   if (lock) return chatLocked(lock)
 
@@ -403,6 +406,8 @@ export async function sendMessageAction(conversationId: string, body: string, re
   if (text.length > MAX_WIRE_LENGTH) return { error: 'Message is too long' }
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
+  const suspended = await suspensionBlock(profile)
+  if (suspended) return suspended
 
   // Only participants may post (also gives us the recipient for the notification).
   const conv = await getMyConversation(supabase, profile.id, conversationId)
