@@ -67,7 +67,17 @@ export async function adminUpdateUserAction({ userId, action }: { userId: string
     .update(updates[action])
     .eq('id', userId)
 
-  if (updateError) return { error: 'Update failed' }
+  if (updateError) {
+    console.error('[adminUpdateUserAction] update failed:', { userId, action, error: updateError })
+    // Admin-only screen, so the real reason is safe to show. The usual cause right
+    // after deploying is that migration 052 (users.suspended_until) hasn't been run.
+    const missingColumn = updateError.code === 'PGRST204' || updateError.code === '42703' || /suspended_until/.test(updateError.message)
+    return {
+      error: missingColumn
+        ? 'Update failed: the users.suspended_until column is missing. Run supabase/migrations/052_suspended_until.sql, then try again.'
+        : `Update failed: ${updateError.message}`,
+    }
+  }
 
   // If suspending, also send a system notification
   if (action === 'suspend') {
