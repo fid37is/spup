@@ -50,8 +50,8 @@ export async function POST(request: NextRequest) {
           { status: 429 },
         )
       }
-      if ('code' in result && result.code === 'suspended') {
-        return NextResponse.json({ ok: false, error: result.error, code: 'suspended' }, { status: 403 })
+      if ((result as { code?: string }).code === 'suspended') {
+        return NextResponse.json({ ok: false, error: (result as { error?: string }).error, code: 'suspended' }, { status: 403 })
       }
       if ('code' in result && result.code === 'follow_blocked') {
         return NextResponse.json({ ok: false, error: result.error, code: 'follow_blocked' }, { status: 403 })

@@ -145,7 +145,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       // Long messages (e.g. an upload error) wrap instead of running off a
       // narrow phone screen; short ones stay a single-line pill.
       borderRadius: toast.action || toast.message.length > 40 ? 20 : 100,
-      maxWidth: 'calc(100vw - 32px)',
+      maxWidth: '100%',
       backdropFilter: 'blur(24px)',
       WebkitBackdropFilter: 'blur(24px)',
       boxShadow: cfg.shadow,
@@ -200,10 +200,14 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 
   return createPortal(
     <div style={{
+      // Spans the screen (16px in from each edge) and centres the toasts inside it.
+      // Centring with left:50% + translateX(-50%) instead leaves the box only half
+      // the screen to size itself in, so a long message got squeezed into a narrow
+      // column even with plenty of room either side.
       position: 'fixed',
       top: 16,
-      left: '50%',
-      transform: 'translateX(-50%)',
+      left: 16,
+      right: 16,
       zIndex: 9999,
       display: 'flex',
       flexDirection: 'column',

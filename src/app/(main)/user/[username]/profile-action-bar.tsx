@@ -288,7 +288,7 @@ export default function ProfileActionBar({
               void (async () => {
                 const r = await getOrCreateConversationAction(targetUserId)
                 if ('conversationId' in r) router.push(`/messages/${r.conversationId}`)
-                else if ('code' in r && r.code === 'suspended') toastError(r.error)
+                else if ((r as { code?: string }).code === 'suspended') toastError((r as { error?: string }).error ?? 'Your account is suspended.')
                 else toastError(t('profile.could_not_open_chat'))
               })()
             }}
