@@ -10,12 +10,30 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/feed'
 
-  if (!code) return NextResponse.redirect(`${origin}/login?error=no_code`)
+  if (!code) {
+    // Google/Supabase send ?error=...&error_description=... when sign-in is cancelled or refused.
+    const providerReason = searchParams.get('error_description') || searchParams.get('error') || ''
+    return NextResponse.redirect(
+      `${origin}/login?error=no_code${providerReason ? `&reason=${encodeURIComponent(providerReason.slice(0, 120))}` : ''}`,
+    )
+  }
 
   const supabase = await createClient()
   const { error } = await supabase.auth.exchangeCodeForSession(code)
 
-  if (error) return NextResponse.redirect(`${origin}/login?error=auth_failed`)
+  if (error) {
+    // The same sign-in link can reach this route twice (the app gets the link
+    // as an event and again as its launch URL). The code is single-use, so the
+    // second attempt fails even though the first one signed the person in. If
+    // a session already exists, carry on instead of reporting a failure.
+    const { data: { user: existing } } = await supabase.auth.getUser()
+    if (!existing) {
+      console.error('auth callback: code exchange failed:', error.message)
+      return NextResponse.redirect(
+        `${origin}/login?error=auth_failed&reason=${encodeURIComponent(error.message.slice(0, 120))}`,
+      )
+    }
+  }
 
   // Check if this is a new OAuth user (no profile yet)
   const { data: { user } } = await supabase.auth.getUser()

@@ -17,6 +17,41 @@ const AUTH_HOST = 'auth'
 // SpupMessagingService.java (user tapped a push notification).
 const OPEN_HOST = 'open'
 
+// Remembers which deep links were already acted on. sessionStorage survives
+// the full page reloads that happen during sign-in (window.location.assign),
+// whereas variables and refs inside this component are wiped by every one.
+const SEEN_KEY = 'spup:deeplink-seen'
+const LAUNCH_KEY = 'spup:launch-consumed'
+
+function wasHandledRecently(url: string, withinMs: number): boolean {
+  try {
+    const raw = sessionStorage.getItem(SEEN_KEY)
+    if (!raw) return false
+    const seen = JSON.parse(raw) as { url: string; at: number }
+    return seen.url === url && Date.now() - seen.at < withinMs
+  } catch {
+    return false
+  }
+}
+
+function markHandled(url: string) {
+  try { sessionStorage.setItem(SEEN_KEY, JSON.stringify({ url, at: Date.now() })) } catch {}
+}
+
+/**
+ * Android keeps reporting the same launch URL for as long as the app process
+ * lives, and this component remounts on every full page load. Without this,
+ * a sign-in link that happened to launch the app would be replayed after every
+ * reload - and a sign-in code can only be used once.
+ */
+function consumeLaunchUrl(url: string): boolean {
+  try {
+    if (sessionStorage.getItem(LAUNCH_KEY) === url) return false
+    sessionStorage.setItem(LAUNCH_KEY, url)
+  } catch {}
+  return true
+}
+
 /**
  * Native-only behaviour for the Capacitor app. Renders nothing, and does
  * nothing on the web.
@@ -57,15 +92,12 @@ export default function NativeBootstrap() {
 
     const removers: Array<() => void> = []
     let cancelled = false
-    let lastUrl = ''
-    let lastAt = 0
 
     const handleUrl = (url: string) => {
-      // The same link can be reported twice (launch + event). Ignore the repeat.
-      const now = Date.now()
-      if (url === lastUrl && now - lastAt < 3000) return
-      lastUrl = url
-      lastAt = now
+      // The same link can be reported twice (launch + event), and sign-in
+      // codes and payment returns are single-use. Never act on one twice.
+      if (wasHandledRecently(url, 60_000)) return
+      markHandled(url)
 
       let u: URL
       try {
@@ -126,7 +158,7 @@ export default function NativeBootstrap() {
 
         // Cold start: the app was closed and a notification tap launched it.
         const launch = await App.getLaunchUrl()
-        if (launch?.url && !cancelled) handleUrl(launch.url)
+        if (launch?.url && !cancelled && consumeLaunchUrl(launch.url)) handleUrl(launch.url)
       })
       .catch(() => {})
 

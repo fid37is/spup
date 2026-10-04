@@ -46,11 +46,21 @@ function LoginForm() {
   // (admin on main domain, or vice versa) back here with ?error=... -
   // surface that as the same Alert a failed sign-in attempt would show.
   const hostErrorParam = searchParams.get('error')
+  // /api/auth/callback adds ?reason=... saying why a Google/Facebook sign-in failed.
+  const reasonParam = searchParams.get('reason')
   const hostErrorMessage = useMemo(() => {
     if (hostErrorParam === 'admin_only') return t('auth.admin_only_notice')
     if (hostErrorParam === 'use_admin_domain') return t('auth.admin_only_desc')
+    // Before this, a failed Google/Facebook sign-in landed here with nothing
+    // shown at all - the page just looked like it had ignored the tap.
+    if (hostErrorParam === 'auth_failed') {
+      return `Sign-in did not finish. Please try again.${reasonParam ? ` (${reasonParam})` : ''}`
+    }
+    if (hostErrorParam === 'no_code') {
+      return `Sign-in was interrupted before it finished. Please try again.${reasonParam ? ` (${reasonParam})` : ''}`
+    }
     return ''
-  }, [hostErrorParam, t])
+  }, [hostErrorParam, reasonParam, t])
 
   const [serverError, setServerError] = useState('')
   const [showPw, setShowPw] = useState(false)
