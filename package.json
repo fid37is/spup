@@ -26,6 +26,7 @@
     "@capacitor/push-notifications": "^8.0.3",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.2",
+    "@capgo/capacitor-social-login": "^8.5.12",
     "@fontsource/dm-sans": "^5.3.0",
     "@hookform/resolvers": "^5.2.2",
     "@next/third-parties": "^16.2.4",

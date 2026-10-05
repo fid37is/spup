@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { nativeGoogleAvailable, signInWithGoogleNative } from '@/lib/native-google'
 import { useTranslation } from '@/lib/i18n/language-context'
 
 const GOOGLE_ICON = (
@@ -47,6 +48,25 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
     // NativeBootstrap catches it and finishes sign-in at /api/auth/callback.
     // The PKCE verifier cookie lives in this WebView, so the exchange works.
     if (Capacitor.isNativePlatform()) {
+      // Google: use the native account sheet - no browser, no deep link.
+      // If it is not configured (no NEXT_PUBLIC_GOOGLE_WEB_CLIENT_ID) or it
+      // fails for a setup reason, fall through to the browser flow below, so
+      // this is never worse than before.
+      if (provider === 'google' && nativeGoogleAvailable()) {
+        const result = await signInWithGoogleNative(supabase)
+        if (result.ok) {
+          // The session now exists in this WebView. /api/auth/callback?native=1
+          // runs the same profile / onboarding routing as the browser flow.
+          window.location.assign('/api/auth/callback?native=1')
+          return
+        }
+        if (result.cancelled) {
+          setLoading(null)
+          return
+        }
+        console.error('[spup-auth] native Google sign-in failed, using the browser flow:', result.message)
+      }
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {

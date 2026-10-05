@@ -9,6 +9,9 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/feed'
+  // Native Google sign-in already created the session in the app, so there is
+  // no code to exchange - only the profile / onboarding routing below to run.
+  const nativeSession = searchParams.get('native') === '1'
 
   // TEMPORARY diagnostics - cookie NAMES only, never values or the code.
   const cookieNames = request.cookies.getAll().map(c => c.name)
@@ -20,7 +23,7 @@ export async function GET(request: NextRequest) {
     inAppWebView: /\bwv\b/.test(request.headers.get('user-agent') ?? ''),
   })
 
-  if (!code) {
+  if (!code && !nativeSession) {
     // Google/Supabase send ?error=...&error_description=... when sign-in is cancelled or refused.
     const providerReason = searchParams.get('error_description') || searchParams.get('error') || ''
     return NextResponse.redirect(
@@ -29,19 +32,21 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient()
-  const { error } = await supabase.auth.exchangeCodeForSession(code)
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
 
-  if (error) {
-    // The same sign-in link can reach this route twice (the app gets the link
-    // as an event and again as its launch URL). The code is single-use, so the
-    // second attempt fails even though the first one signed the person in. If
-    // a session already exists, carry on instead of reporting a failure.
-    const { data: { user: existing } } = await supabase.auth.getUser()
-    if (!existing) {
-      console.error('auth callback: code exchange failed:', error.message)
-      return NextResponse.redirect(
-        `${origin}/login?error=auth_failed&reason=${encodeURIComponent(error.message.slice(0, 120))}`,
-      )
+    if (error) {
+      // The same sign-in link can reach this route twice (the app gets the link
+      // as an event and again as its launch URL). The code is single-use, so the
+      // second attempt fails even though the first one signed the person in. If
+      // a session already exists, carry on instead of reporting a failure.
+      const { data: { user: existing } } = await supabase.auth.getUser()
+      if (!existing) {
+        console.error('auth callback: code exchange failed:', error.message)
+        return NextResponse.redirect(
+          `${origin}/login?error=auth_failed&reason=${encodeURIComponent(error.message.slice(0, 120))}`,
+        )
+      }
     }
   }
 
