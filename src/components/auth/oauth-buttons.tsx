@@ -5,6 +5,10 @@ import { useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { nativeGoogleAvailable, signInWithGoogleNative } from '@/lib/native-google'
+
+// Set when the native Google sheet failed for a non-cancel reason. The error is
+// shown on screen; the next tap then uses the browser flow instead.
+let nativeGoogleFailed = false
 import { useTranslation } from '@/lib/i18n/language-context'
 
 const GOOGLE_ICON = (
@@ -49,10 +53,9 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
     // The PKCE verifier cookie lives in this WebView, so the exchange works.
     if (Capacitor.isNativePlatform()) {
       // Google: use the native account sheet - no browser, no deep link.
-      // If it is not configured (no NEXT_PUBLIC_GOOGLE_WEB_CLIENT_ID) or it
-      // fails for a setup reason, fall through to the browser flow below, so
-      // this is never worse than before.
-      if (provider === 'google' && nativeGoogleAvailable()) {
+      // If it is not configured (no NEXT_PUBLIC_GOOGLE_WEB_CLIENT_ID), or it
+      // failed on the previous tap, use the browser flow below instead.
+      if (provider === 'google' && nativeGoogleAvailable() && !nativeGoogleFailed) {
         const result = await signInWithGoogleNative(supabase)
         if (result.ok) {
           // The session now exists in this WebView. /api/auth/callback?native=1
@@ -64,7 +67,13 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
           setLoading(null)
           return
         }
-        console.error('[spup-auth] native Google sign-in failed, using the browser flow:', result.message)
+        // Show the real reason instead of silently switching to the browser,
+        // which is what made this look like "another popup, then Chrome".
+        console.error('[spup-auth] native Google sign-in failed:', result.message)
+        nativeGoogleFailed = true
+        setError(`Google sign-in could not finish: ${result.message}. Tap again to try the browser sign-in instead.`)
+        setLoading(null)
+        return
       }
 
       const { data, error } = await supabase.auth.signInWithOAuth({
