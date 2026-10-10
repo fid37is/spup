@@ -1,9 +1,30 @@
+'use client'
+
 // src/app/(main)/messages/loading.tsx
 //
-// Pixel-matched to the real header ('16px 20px' padding) and conversation
-// rows (48px avatar, '14px 20px' padding - see messages-list-client.tsx).
+// Shown while the Chat route loads. If this device already knows the chat list
+// (from an earlier visit in this session) it is drawn right here with the same
+// row component as the real screen - so tapping Chat shows the chats at once and
+// the real page then swaps in without any visible change, like WhatsApp.
+// Only on the very first visit (nothing cached) does it fall back to skeleton
+// rows. Memory only, so it renders identically on server and client.
+
+import { peekChatListMemory } from '@/lib/chat-list-cache'
+import ConversationRow from '@/components/chat/conversation-row'
+import { ChatListHeader } from './messages-list-client'
 
 export default function MessagesListLoading() {
+  const cached = peekChatListMemory()?.filter(c => !c.hidden && !c.lock)
+
+  if (cached && cached.length > 0) {
+    return (
+      <div>
+        <ChatListHeader />
+        {cached.map(c => <ConversationRow key={c.id} conv={c} />)}
+      </div>
+    )
+  }
+
   return (
     <div>
       <style>{`

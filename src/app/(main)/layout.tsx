@@ -9,6 +9,7 @@ import RightSidebar from '@/components/layout/right-sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import MobileHeader from '@/components/layout/mobile-header'
 import PushNotificationsProvider from '@/components/layout/push-notifications-provider'
+import ChatCacheGuard from '@/components/chat/chat-cache-guard'
 import ActivityBeacon from '@/components/layout/activity-beacon' 
 import AutoplayPrefSync from '@/components/layout/autoplay-pref-sync'
 import EngagementSyncProvider from '@/components/layout/engagement-sync-provider'
@@ -79,6 +80,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   return (
     <LanguageProvider initialLocale={locale} initialMessages={initialMessages}>
       <PushNotificationsProvider userId={profile.id} />
+      <ChatCacheGuard userId={profile.id} />
       <ActivityBeacon />
       <AutoplayPrefSync value={profile.autoplay_preference} />
       <EngagementSyncProvider />
@@ -163,4 +165,4 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       </PostingProvider>
     </LanguageProvider>
   )
-}
+}

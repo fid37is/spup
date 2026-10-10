@@ -43,6 +43,7 @@ import ReportDialog from '@/components/feed/report-dialog'
 import { toggleBlockAction } from '@/lib/actions/follows'
 import { CHAT_LOCK_COPY, type ChatLockReason } from '@/lib/chat-access'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
+import { patchChatListCache } from '@/lib/chat-list-cache'
 import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 import { compressImageForUpload } from '@/lib/media-client'
 import { validateMediaFile, mediaKindOf } from '@/lib/media-limits'
@@ -314,6 +315,7 @@ export default function ChatClient({
       setMessages(prev => prev.map(m =>
         m.sender_id !== currentUserId && !m._optimistic && !m.read_at ? { ...m, read_at: now } : m))
       notifyChatUnreadChanged()           // the Chat tab badge re-checks
+      patchChatListCache(currentUserId, conversationId, { unread_count: 0 })   // the chat list (shown instantly from cache) must not still show this as unread
     }
   }, [conversationId, currentUserId])
 
@@ -574,12 +576,19 @@ export default function ChatClient({
       outboxRef.current.delete(tempId)
       if (item.text) setTexts(t => ({ ...t, [res.messageId]: item.text }))
       setMessages(prev => confirmOptimistic(prev, tempId, { id: res.messageId, created_at: res.createdAt }))
+      // The chat list is drawn from a cache when you go back to it: move this chat to the top now.
+      patchChatListCache(currentUserId, conversationId, {
+        last_message_preview: item.wire ? (item.wire.startsWith('enc:') ? item.wire : item.wire.slice(0, 80)) : (item.media ? (item.media.type === 'video' ? 'Video' : 'Photo') : null),
+        last_message_at: res.createdAt,
+        last_message_mine: true,
+        last_message_status: 'sent',
+      })
     } catch (e) {
       if (!outboxRef.current.has(tempId)) return
       console.warn('[chat] send failed:', e)
       setMessages(prev => markFailed(prev, tempId))
     }
-  }, [conversationId, connectPeer])
+  }, [conversationId, connectPeer, currentUserId])
 
   const enqueue = useCallback((tempId: string) => {
     sendChainRef.current = sendChainRef.current.then(() => deliver(tempId)).catch(() => { })
@@ -860,7 +869,7 @@ export default function ChatClient({
           aria-live="polite"
           onScroll={onListScroll}
           onClick={() => setSelectedId(null)}
-          style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', padding: '12px 16px' }}
+          style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', padding: '12px 16px' }}
         >
           <div ref={contentRef}>
 
@@ -988,9 +997,13 @@ export default function ChatClient({
                         // different UI states flashing past each other.
                         minWidth: text === undefined && !hasMedia ? 56 : undefined,
                         width: hasMedia ? 220 : undefined,
+                        // A bubble can never be wider than its column. Without this, a reply
+                        // quote (single-line, nowrap) made the bubble as wide as the whole
+                        // quoted text and pushed it off screen, so the chat scrolled sideways.
+                        maxWidth: '100%', boxSizing: 'border-box',
                         fontSize: 14, lineHeight: 1.5,
                         fontFamily: "'DM Sans', sans-serif",
-                        wordBreak: 'break-word', whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap',
                         opacity: msg._optimistic && !msg._failed ? 0.72 : 1,
                         outline: msg._failed ? '1px solid var(--color-border)' : selected ? '2px solid var(--color-brand-hover)' : 'none',
                         outlineOffset: selected ? 1 : -1,
@@ -1005,12 +1018,13 @@ export default function ChatClient({
                             background: isMine ? 'rgba(255,255,255,0.14)' : 'var(--color-surface-3)',
                             borderLeft: `3px solid ${isMine ? 'rgba(255,255,255,0.7)' : 'var(--color-brand)'}`,
                             borderRadius: 8, padding: '5px 9px', margin: hasMedia ? '0 0 6px' : '0 0 6px', whiteSpace: 'normal',
+                            minWidth: 0, maxWidth: '100%', overflow: 'hidden', boxSizing: 'border-box',
                           }}
                         >
                           <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 1, color: isMine ? 'rgba(255,255,255,0.9)' : 'var(--color-brand)' }}>
                             {nameOf(msg.reply_to.sender_id)}
                           </div>
-                          <div style={{ fontSize: 12, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 12, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
                             {replyText}
                           </div>
                         </div>
@@ -1351,4 +1365,4 @@ export default function ChatClient({
       <style>{`@keyframes chat-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
-}
+}
