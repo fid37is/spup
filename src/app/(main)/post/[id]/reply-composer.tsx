@@ -10,7 +10,7 @@
 // just an explicit opt-in for someone who wants more room to write.
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ImageIcon, VideoIcon, X, BarChart2, MapPin, Maximize2 } from 'lucide-react'
+import { ImageIcon, X, BarChart2, MapPin, Maximize2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useBackgroundMedia } from '@/hooks/use-background-media'
 import { usePosting } from '@/components/layout/posting-provider'
@@ -46,6 +46,7 @@ export default function ReplyComposer({
   const [showMedia, setShowMedia] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
+  const mediaInputRef = useRef<HTMLInputElement>(null)
   const anchorRef = useRef<HTMLDivElement>(null)
   // Uploads start as soon as files are picked and never block Reply.
   const { media, uploading, error: uploadError, upload, remove, takeForPost } = useBackgroundMedia()
@@ -211,7 +212,14 @@ export default function ReplyComposer({
             onFocus={() => setFocused(true)}
             onClick={mention.recheck}
             onKeyUp={mention.recheck}
-            onBlur={() => { mention.close(); if (!body && !media.length) setFocused(false) }}
+            onBlur={e => {
+              mention.close()
+              // Tapping a toolbar button blurs the textarea first. Collapsing the
+              // bar here removed that button before its click landed, so the
+              // picker never opened. Only collapse when focus really leaves the bar.
+              if (barRef.current?.contains(e.relatedTarget as Node | null)) return
+              if (!body && !media.length) setFocused(false)
+            }}
             onKeyDown={e => {
               if (mention.handleKeyDown(e)) return
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleReply()
@@ -271,28 +279,20 @@ export default function ReplyComposer({
 
           {/* Toolbar — only when expanded */}
           {isExpanded && (
-            <div style={{
-              display: 'flex', alignItems: 'center',
-              justifyContent: 'space-between',
-              borderTop: '1px solid var(--color-border)',
-              paddingTop: 8, marginTop: 4,
-            }}>
+            <div
+              onMouseDown={e => e.preventDefault()}   // pressing a button must not steal focus from the textarea (see onBlur above)
+              style={{
+                display: 'flex', alignItems: 'center',
+                justifyContent: 'space-between',
+                borderTop: '1px solid var(--color-border)',
+                paddingTop: 8, marginTop: 4,
+              }}>
               <div style={{ display: 'flex', gap: 2 }}>
+                {/* One picker for photos and videos, same as the post composer */}
                 <ToolbarBtn
                   icon={<ImageIcon size={17} />}
-                  label={t('composer.add_image')}
-                  onClick={() => {
-                    setShowMedia(true)
-                    ;(document.getElementById('reply-img-input') as HTMLInputElement | null)?.click()
-                  }}
-                />
-                <ToolbarBtn
-                  icon={<VideoIcon size={17} />}
-                  label={t('composer.add_video')}
-                  onClick={() => {
-                    setShowMedia(true)
-                    ;(document.getElementById('reply-vid-input') as HTMLInputElement | null)?.click()
-                  }}
+                  label={t('composer.add_photo_video')}
+                  onClick={() => mediaInputRef.current?.click()}
                 />
                 <ToolbarBtn icon={<BarChart2 size={17} />} label="Poll (coming soon)" onClick={() => {}} disabled />
                 <ToolbarBtn icon={<MapPin size={17} />} label="Location (coming soon)" onClick={() => {}} disabled />
@@ -367,19 +367,12 @@ export default function ReplyComposer({
         )}
       </div>
 
-      {/* Hidden file inputs */}
+      {/* Hidden file input - photos and videos together */}
       <input
-        id="reply-img-input"
+        ref={mediaInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime,video/mov,video/avi"
         multiple
-        style={{ display: 'none' }}
-        onChange={e => { if (e.target.files) { handleUpload(e.target.files); e.target.value = '' } }}
-      />
-      <input
-        id="reply-vid-input"
-        type="file"
-        accept="video/mp4,video/webm,video/mov,video/avi"
         style={{ display: 'none' }}
         onChange={e => { if (e.target.files) { handleUpload(e.target.files); e.target.value = '' } }}
       />
