@@ -191,6 +191,39 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             `,
           }}
         />
+        {/* Native app only: take the splash screen down as soon as the page has
+            PAINTED something (first-contentful-paint), instead of waiting for
+            React to download and hydrate - on slow internet that wait is what
+            kept the splash up for so long. Runs before React, uses the bridge
+            the native shell injects, and does nothing on the web. If it can't
+            run, NativeSplashHider (after hydration) and the native cap in
+            capacitor.config.ts are still there as fallbacks. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var C = window.Capacitor;
+                  if (!C || !C.isNativePlatform || !C.isNativePlatform()) return;
+                  var done = false;
+                  function hide() {
+                    if (done) return; done = true;
+                    try { C.Plugins.SplashScreen.hide({ fadeOutDuration: 150 }); } catch (e) {}
+                  }
+                  try {
+                    new PerformanceObserver(function(list) {
+                      var e = list.getEntries();
+                      for (var i = 0; i < e.length; i++) {
+                        if (e[i].name === 'first-contentful-paint') { hide(); return; }
+                      }
+                    }).observe({ type: 'paint', buffered: true });
+                  } catch (e) {}
+                  document.addEventListener('DOMContentLoaded', function() { requestAnimationFrame(hide); }, { once: true });
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
       </head>
       <body>
         <PWAProvider />

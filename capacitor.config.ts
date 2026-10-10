@@ -17,11 +17,15 @@ const config: CapacitorConfig = {
 
   plugins: {
     SplashScreen: {
-      // Safety cap. NativeSplashHider hides the splash earlier, as soon
-      // as the page has loaded, so this only matters on a very slow
-      // connection. 500ms was too short for a remote site and would
-      // cause a white flash before the page appeared.
-      launchShowDuration: 3000,
+      // Safety cap. The splash is normally hidden earlier, the moment the
+      // page paints its first content (inline script in app/layout.tsx),
+      // with NativeSplashHider as the after-hydration fallback. This only
+      // matters on a very slow connection, and it used to be 3000ms - which
+      // is exactly how long the splash sat there on slow internet.
+      // 500ms was too short for a remote site (flash before the page
+      // appeared); 1500ms is the middle ground. Needs `npx cap sync` and a
+      // new app build to take effect.
+      launchShowDuration: 1500,
       launchAutoHide: true,
       launchFadeOutDuration: 200,
       backgroundColor: '#0A0A0A',

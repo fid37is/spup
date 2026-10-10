@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, use, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -18,6 +18,12 @@ const NAV = [
   { href: '/settings',      icon: Settings, label: 'Settings' },
 ]
 
+// The mutuals number arrives as a promise streamed from the (main) layout so the
+// app doesn't wait for it before showing anything. A dash until it lands.
+function MutualsNumber({ promise }: { promise: Promise<number> }) {
+  return <>{formatNumber(use(promise))}</>
+}
+
 interface MobileHeaderProps {
   profile: {
     id: string
@@ -30,7 +36,7 @@ interface MobileHeaderProps {
     followers_count: number
   }
   unreadCount: number
-  mutualsCount: number
+  mutualsCount: Promise<number>
   title?: string
 }
 
@@ -152,7 +158,7 @@ export default function MobileHeader({ profile, unreadCount, mutualsCount, title
             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
             <span style={{ whiteSpace: 'nowrap' }}><strong style={{ color: 'var(--color-text-primary)' }}>{formatNumber(profile.followers_count)}</strong> Followers</span>
             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
-            <span style={{ whiteSpace: 'nowrap' }}><strong style={{ color: 'var(--color-text-primary)' }}>{formatNumber(mutualsCount)}</strong> Mutuals</span>
+            <span style={{ whiteSpace: 'nowrap' }}><strong style={{ color: 'var(--color-text-primary)' }}><Suspense fallback="–"><MutualsNumber promise={mutualsCount} /></Suspense></strong> Mutuals</span>
           </div>
         </Link>
 

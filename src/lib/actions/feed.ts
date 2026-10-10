@@ -9,7 +9,7 @@
  * Cursor-based pagination so the client can implement infinite scroll.
  */
 
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient, getAuthUser } from '@/lib/supabase/server'
 import { scorePost, SCORE_WEIGHTS } from '@/lib/feed/scoring'
 
 const PAGE_SIZE = 20
@@ -22,6 +22,28 @@ const PAGE_SIZE = 20
 const FEED_WINDOW_MS = 14 * 24 * 3_600_000
 const FEED_POOL_SIZE = 200
 const FEED_FRESHNESS = 3
+
+// Fresh lane: engagement-weighted ranking alone buries a brand-new post (it has
+// no likes yet) under older posts that do. So anything posted within the last
+// FRESH_LANE_MS goes ABOVE the ranked posts, newest first - at most
+// FRESH_LANE_MAX of them, so a burst of posting can never take over the whole
+// first page. Everything else keeps its ranked order underneath.
+const FRESH_LANE_MS = 30 * 60_000
+const FRESH_LANE_MAX = 8
+
+function withFreshLane<T extends { id: string; created_at: string }>(
+  rows: T[],
+  byRank: (a: T, b: T) => number,
+): T[] {
+  const cutoff = Date.now() - FRESH_LANE_MS
+  const lane = rows
+    .filter(p => Date.parse(p.created_at) >= cutoff)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .slice(0, FRESH_LANE_MAX)
+  const inLane = new Set(lane.map(p => p.id))
+  const rest = rows.filter(p => !inLane.has(p.id)).sort(byRank)
+  return [...lane, ...rest]
+}
 
 // Scheduled posts carry a future created_at (see createPostAction) and must
 // never surface in a feed/listing - including the author's own profile -
@@ -199,20 +221,23 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   nextCursor: string | null
 }> {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // getAuthUser() is request-cached: when the Feed page renders it has already
+  // asked Supabase who the user is, so this reuses that answer instead of
+  // paying for a second auth round trip before the feed can even start.
+  const user = await getAuthUser()
   if (!user) return { posts: [], nextCursor: null }
 
   const { data: profile } = await supabase
     .from('users').select('id').eq('auth_id', user.id).single()
   if (!profile) return { posts: [], nextCursor: null }
 
-  // Load user's saved interests
-  const { data: savedInterests } = await supabase
-    .from('user_interests').select('interest').eq('user_id', profile.id)
+  // Saved interests + blocked/muted graph don't depend on each other: one
+  // round trip instead of two in a row.
+  const [{ data: savedInterests }, graph] = await Promise.all([
+    supabase.from('user_interests').select('interest').eq('user_id', profile.id),
+    loadViewerGraph(supabase, profile.id),
+  ])
   const interestIds = (savedInterests || []).map((r: any) => r.interest)
-
-  // Exclude posts from blocked/muted users
-  const graph = await loadViewerGraph(supabase, profile.id)
   const excludeIds = graph.hidden
 
   // A cursor is a ranked-pool offset (digits) while inside the ranked window,
@@ -264,7 +289,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   let page: RawFeedRow[]
   let nextCursor: string | null
   if (isRanked) {
-    const sorted = [...rawPosts].sort(byRank)
+    const sorted = withFreshLane(rawPosts, byRank)
     page = sorted.slice(offset, offset + PAGE_SIZE)
     // Where the older-posts stretch begins: just below the pool if it was cut short, else the window edge.
     const tailCursor = rawPosts.length === FEED_POOL_SIZE ? rawPosts[rawPosts.length - 1].created_at : windowStartIso
@@ -323,7 +348,7 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
         const matchedIds = new Set(matched.map((p: any) => p.id))
         const backfillNeeded = Math.max(0, PAGE_SIZE - matched.length)
         const backfill = page.filter((p: any) => !matchedIds.has(p.id)).slice(0, backfillNeeded)
-        finalPage = [...matched, ...backfill].sort(byRank)
+        finalPage = withFreshLane([...matched, ...backfill], byRank)
       }
     }
   }

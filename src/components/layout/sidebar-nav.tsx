@@ -9,6 +9,7 @@ import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
 import { useChatUnread } from '@/hooks/use-chat-unread'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { useWarmTabs } from '@/hooks/use-warm-tabs'
 
 const NAV = [
   { href: '/feed',          icon: Home,          labelKey: 'nav.home' },
@@ -19,6 +20,9 @@ const NAV = [
   { href: '/profile',       icon: User,          labelKey: 'nav.profile' },
   { href: '/settings',      icon: Settings,      labelKey: 'nav.settings' },
 ]
+
+// Only the everyday tabs are fetched ahead of time - not wallet/settings/profile.
+const WARM_HREFS = new Set(['/feed', '/explore', '/notifications', '/messages'])
 
 interface SidebarNavProps {
   profile: {
@@ -36,6 +40,7 @@ interface SidebarNavProps {
 export default function SidebarNav({ profile, unreadCount, unreadChat }: SidebarNavProps) {
   const pathname = usePathname()
   const chatUnread = useChatUnread(unreadChat, profile.id)
+  const warm = useWarmTabs()
   const [, startTransition] = useTransition()
   const [showPostModal, setShowPostModal] = useState(false)
   const { theme } = useTheme()
@@ -93,7 +98,7 @@ export default function SidebarNav({ profile, unreadCount, unreadChat }: Sidebar
             const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
             const showBadge = badgeCount > 0
             return (
-              <Link key={href} href={href} style={{ textDecoration: 'none', display: 'block' }}>
+              <Link key={href} href={href} prefetch={warm && WARM_HREFS.has(href) ? true : undefined} style={{ textDecoration: 'none', display: 'block' }}>
                 <div
                   title={collapsed ? label : undefined}
                   style={{

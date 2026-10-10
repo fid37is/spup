@@ -126,6 +126,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
   const restoreAnchorRef = useRef<{ id: string; offset: number } | null>(null)
   const restoredRef = useRef<{ baseline: string; have: Set<string> } | null>(null)
   const [restoreTick, setRestoreTick] = useState(0)
+  const [scrollTopTick, setScrollTopTick] = useState(0) // bumped after new posts are committed - see the layout effect below
   const [fadeInIds, setFadeInIds] = useState<Set<string>>(new Set()) // posts just revealed - fade in quietly
   const lastAnchorRef = useRef<{ id: string; offset: number } | null>(null) // last known reading position
   const feedTopRef  = useRef<HTMLDivElement>(null)
@@ -524,11 +525,18 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
     pendingIdsRef.current = []
     pendingOverflowRef.current = false
     setHasNew(false)
+    // Take the person to the top straight away - they tapped to see the newest
+    // posts, so don't leave them where they were while the posts load.
+    window.scrollTo(0, 0)
     try {
       let incoming: FeedPost[]
       if (overflowed || ids.length === 0) {
-        // Too many to patch in (or nothing tracked): refresh the top of the feed
+        // Too many to patch in (or nothing tracked): refresh the top of the feed.
+        // That page comes back in ranked order (and may carry an ad), so put it
+        // newest-first and leave the ad out - the pill is for NEW posts.
         incoming = (await getFeedFn(tab)()).posts
+          .filter(p => !p.is_promoted)
+          .sort((x, y) => (x.created_at < y.created_at ? 1 : x.created_at > y.created_at ? -1 : 0))
       } else {
         // Exactly the posts that arrived - not a whole ranked page - newest first.
         // Ones already in hand (from the server's first page) aren't downloaded again.
@@ -552,7 +560,10 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
       setNewAuthors([])
       seenAuthorsRef.current = new Set()
       pendingPostsRef.current = new Map()
-      window.scrollTo(0, 0)
+      // Scroll again once the new posts are actually in the page (see the
+      // layout effect below) - scrolling before they render can leave the
+      // browser holding the old position.
+      setScrollTopTick(n => n + 1)
     } catch {
       // Put them back (ahead of anything that arrived meanwhile) so the pill can retry
       pendingIdsRef.current = [...ids, ...pendingIdsRef.current].slice(0, MAX_PENDING_IDS)
@@ -565,6 +576,13 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
 
   const showNewPostsRef = useRef(showNewPosts)
   showNewPostsRef.current = showNewPosts
+
+  // After the pill's posts are committed to the page, make sure the person is
+  // looking at the very top of them (before paint, so there is no visible jump).
+  useLayoutEffect(() => {
+    if (scrollTopTick === 0) return
+    window.scrollTo(0, 0)
+  }, [scrollTopTick])
 
   // Scrolling back up to the top while new posts are waiting loads them (same
   // as tapping the pill). Only fires on ARRIVING at the top from further down,
