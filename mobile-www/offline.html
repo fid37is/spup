@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0A">
+<title>Spup</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: #0A0A0A; color: #F2F2F2;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 32px 28px calc(32px + env(safe-area-inset-bottom)); }
+  .mark { font-size: 34px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 28px; }
+  .icon { width: 64px; height: 64px; margin-bottom: 20px; opacity: .9; }
+  h1 { font-size: 20px; margin: 0 0 8px; font-weight: 700; }
+  p { margin: 0 0 26px; font-size: 15px; line-height: 1.5; color: #A3A3A3; max-width: 320px; }
+  button { appearance: none; border: 0; border-radius: 999px; padding: 13px 30px; font-size: 15px; font-weight: 700;
+    background: #F2F2F2; color: #0A0A0A; -webkit-tap-highlight-color: transparent; }
+  button:active { opacity: .8; }
+  button[disabled] { opacity: .6; }
+  .status { margin-top: 18px; font-size: 13px; color: #737373; min-height: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark">Spup</div>
+  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#A3A3A3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r=".6" fill="#A3A3A3"/>
+    <path d="M3 3l18 18"/>
+  </svg>
+  <h1>No connection</h1>
+  <p>Check your internet and we'll take you back in as soon as it's working.</p>
+  <button id="retry" type="button">Try again</button>
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+</main>
+<script>
+(function () {
+  var TARGET = 'https://spup.live/';
+  var btn = document.getElementById('retry');
+  var statusEl = document.getElementById('status');
+  var busy = false, delay = 3000, timer = null;
+
+  function probe() {
+    // Can we reach the site at all? (no-cors: we only care that the request gets through)
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctrl) ctrl.abort(); }, 7000);
+    return fetch(TARGET + 'manifest.json?ts=' + Date.now(), { mode: 'no-cors', cache: 'no-store', signal: ctrl ? ctrl.signal : undefined })
+      .then(function () { clearTimeout(t); return true; })
+      .catch(function () { clearTimeout(t); return false; });
+  }
+
+  function attempt(manual) {
+    if (busy) return;
+    busy = true;
+    btn.disabled = true;
+    statusEl.textContent = 'Connecting\u2026';
+    probe().then(function (ok) {
+      if (ok) { window.location.replace(TARGET); return; }
+      busy = false;
+      btn.disabled = false;
+      statusEl.textContent = manual ? 'Still no connection. We\u2019ll keep trying.' : '';
+      schedule();
+    });
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(function () { attempt(false); }, delay);
+    delay = Math.min(delay * 1.5, 12000);   // gentle back-off while offline
+  }
+
+  btn.addEventListener('click', function () { attempt(true); });
+  window.addEventListener('online', function () { delay = 3000; attempt(false); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) attempt(false); });
+  schedule();
+})();
+</script>
+</body>
+</html>
