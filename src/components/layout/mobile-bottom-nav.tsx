@@ -45,7 +45,14 @@ export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { u
         const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
         const showBadge = badgeCount > 0
         return (
-          <Link key={href} href={href} prefetch={warm ? true : undefined} style={{
+          <Link key={href} href={href} prefetch={warm ? true : undefined}
+            // Tapping Home while already on the feed takes you back to the top of it
+            // (instead of doing nothing), the way other social apps do.
+            onClick={href === '/feed' && pathname === '/feed' ? (e) => {
+              e.preventDefault()
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            } : undefined}
+            style={{
             flex: 1, display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
             gap: 4, padding: '10px 0',

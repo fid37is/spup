@@ -13,7 +13,13 @@ const config: CapacitorConfig = {
     // Links to these domains stay inside the app; everything else
     // opens outside it.
     allowNavigation: ['spup.live', '*.spup.live'],
-  },
+    // If spup.live can't be reached (no internet, dropped connection) the app
+    // shows this page from inside the app instead of Android's "Webpage not
+    // available" error. It retries by itself and goes into the app as soon as
+    // the connection is back. The file is mobile-www/offline.html - needs
+    // `npx cap sync` and a new app build.
+    errorPath: 'offline.html',
+  } as NonNullable<CapacitorConfig['server']> & { errorPath?: string },
 
   plugins: {
     SplashScreen: {

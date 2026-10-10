@@ -26,6 +26,7 @@
  */
 
 import { useEffect, useSyncExternalStore } from 'react'
+import { followPausedMessage } from '@/lib/follow-pause'
 
 export type EngagementKind = 'like' | 'follow'
 
@@ -87,9 +88,10 @@ function subscribe(cb: () => void) {
 type Outcome = 'ok' | 'network' | 'server' | 'fatal' | 'follow_paused'
 interface SendResult { outcome: Outcome; message?: string; pausedUntil?: number }
 
+// Time LEFT until following is allowed again - recalculated on every tap, so each
+// retry during the pause shows a smaller number.
 function pausedMessage(until: number) {
-  const hours = Math.max(1, Math.ceil((until - Date.now()) / 3_600_000))
-  return `You're following people too quickly, so following is paused for about ${hours} hour${hours === 1 ? '' : 's'}. Please try again later.`
+  return followPausedMessage(until)
 }
 
 function getFollowPausedUntil(): number {
@@ -162,7 +164,7 @@ async function deliver(k: string, it: Intent) {
   } else if (outcome === 'follow_paused') {
     // Following is paused: undo this follow and every other follow still waiting
     // (they would all be refused), and tell the person once.
-    setFollowPausedUntil(pausedUntil ?? Date.now() + 3 * 3_600_000)
+    setFollowPausedUntil(pausedUntil ?? Date.now() + 7 * 60_000)
     for (const [key, other] of [...intents.entries()]) {
       if (key.startsWith('follow:') && other.desired && !other.confirmed) intents.delete(key)
     }

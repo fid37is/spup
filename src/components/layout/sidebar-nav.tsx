@@ -98,7 +98,13 @@ export default function SidebarNav({ profile, unreadCount, unreadChat }: Sidebar
             const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
             const showBadge = badgeCount > 0
             return (
-              <Link key={href} href={href} prefetch={warm && WARM_HREFS.has(href) ? true : undefined} style={{ textDecoration: 'none', display: 'block' }}>
+              <Link key={href} href={href} prefetch={warm && WARM_HREFS.has(href) ? true : undefined}
+                // Clicking Home while already on the feed scrolls back to the top of it.
+                onClick={href === '/feed' && pathname === '/feed' ? (e) => {
+                  e.preventDefault()
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                } : undefined}
+                style={{ textDecoration: 'none', display: 'block' }}>
                 <div
                   title={collapsed ? label : undefined}
                   style={{

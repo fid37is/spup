@@ -11,32 +11,55 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createNotification } from '@/lib/notifications'
 import { getBlockState } from '@/lib/mutuals'
 import { suspensionBlock } from '@/lib/suspension-server'
+import { followPausedMessage } from '@/lib/follow-pause'
 
 // followers_count / following_count are maintained by the trg_sync_follow_counts
 // trigger on `follows` (migration 042) - never write them from app code.
 
 // ─── Follow-spam limits ──────────────────────────────────────────────────────
-// Following too many accounts too quickly pauses the person's ability to follow
-// for a few hours. Tune the numbers here - no migration needed.
-const FOLLOW_BURST_LIMIT      = 25          // new follows allowed inside the burst window...
+// Following too many accounts too quickly pauses the person's ability to follow.
+// The first pause is short (minutes); if they keep doing it, each next pause is
+// longer, up to hours. Tune the numbers here - no migration needed.
+const FOLLOW_BURST_LIMIT      = 40          // new follows allowed inside the burst window...
 const FOLLOW_BURST_WINDOW_SEC = 10 * 60     // ...of 10 minutes
-const FOLLOW_BURST_PAUSE_SEC  = 3 * 3600    // pause after a burst: 3 hours
-const FOLLOW_DAILY_LIMIT      = 150         // new follows allowed in any 24 hours
-const FOLLOW_DAILY_PAUSE_SEC  = 6 * 3600    // pause after hitting the daily cap: 6 hours
+const FOLLOW_PAUSE_LADDER_SEC = [           // pause after the 1st, 2nd, 3rd... burst (the last repeats)
+  7 * 60,                                   //   1st:  7 minutes
+  60 * 60,                                  //   2nd:  1 hour
+  3 * 3600,                                 //   3rd:  3 hours
+  6 * 3600,                                 //   4th+: 6 hours
+]
+const FOLLOW_STRIKE_RESET_SEC = 24 * 3600   // a clean 24 hours puts them back at the first step
+const FOLLOW_DAILY_LIMIT      = 400         // new follows allowed in any 24 hours
+const FOLLOW_DAILY_PAUSE_SEC  = 3 * 3600    // pause after hitting the daily cap: 3 hours
 
 // Records a new follow against the person's limits. Returns when the pause ends
 // if they are (now) paused, or null if the follow may go ahead. Fails open on an
 // unexpected error: a limiter outage shouldn't stop everyone from following.
 async function registerFollowAttempt(userId: string): Promise<Date | null> {
   try {
-    const { data, error } = await createAdminClient().rpc('register_follow_attempt', {
+    const admin = createAdminClient()
+    let { data, error } = await admin.rpc('register_follow_attempt_v2', {
       p_user: userId,
       p_burst_limit: FOLLOW_BURST_LIMIT,
       p_burst_window_secs: FOLLOW_BURST_WINDOW_SEC,
-      p_burst_pause_secs: FOLLOW_BURST_PAUSE_SEC,
+      p_pause_ladder_secs: FOLLOW_PAUSE_LADDER_SEC,
+      p_strike_reset_secs: FOLLOW_STRIKE_RESET_SEC,
       p_daily_limit: FOLLOW_DAILY_LIMIT,
       p_daily_pause_secs: FOLLOW_DAILY_PAUSE_SEC,
     })
+    if (error) {
+      // Migration 052 not run yet: use the original limiter with the new numbers
+      // (one fixed short pause, no escalation) until it is.
+      console.warn('register_follow_attempt_v2 unavailable, using v1:', error.message)
+      ;({ data, error } = await admin.rpc('register_follow_attempt', {
+        p_user: userId,
+        p_burst_limit: FOLLOW_BURST_LIMIT,
+        p_burst_window_secs: FOLLOW_BURST_WINDOW_SEC,
+        p_burst_pause_secs: FOLLOW_PAUSE_LADDER_SEC[0],
+        p_daily_limit: FOLLOW_DAILY_LIMIT,
+        p_daily_pause_secs: FOLLOW_DAILY_PAUSE_SEC,
+      }))
+    }
     if (error) {
       console.error('register_follow_attempt failed, allowing follow:', error.message)
       return null
@@ -49,9 +72,10 @@ async function registerFollowAttempt(userId: string): Promise<Date | null> {
 }
 
 function followPausedResponse(until: Date) {
-  const hours = Math.max(1, Math.ceil((until.getTime() - Date.now()) / 3_600_000))
   return {
-    error: `You're following people too quickly, so following is paused for about ${hours} hour${hours === 1 ? '' : 's'}. Please try again later.`,
+    // Time LEFT, worked out fresh on every attempt - so trying again during the
+    // pause shows a smaller number each time.
+    error: followPausedMessage(until),
     code: 'follow_paused' as const,
     pausedUntil: until.toISOString(),
   }
