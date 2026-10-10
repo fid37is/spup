@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { Home, Search, Bell, MessageSquare } from 'lucide-react'
 import { useChatUnread } from '@/hooks/use-chat-unread'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { useWarmTabs } from '@/hooks/use-warm-tabs'
 
 const NAV = [
   { href: '/feed',          icon: Home,          labelKey: 'nav.home' },
@@ -18,6 +19,8 @@ export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { u
   const { t } = useTranslation()
   // Live count for the Chat tab (hooks must run before the early return below).
   const chatUnread = useChatUnread(unreadChat, userId)
+  // Once idle on a good connection, the other tabs are fetched in the background.
+  const warm = useWarmTabs()
 
   // Focused, full-screen sub-pages hide the nav entirely, matching how X's own
   // Post Activity screen has no bottom tab bar — these are drill-down detail
@@ -42,7 +45,7 @@ export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { u
         const badgeCount = badge === 'alerts' ? unreadCount : badge === 'chat' ? chatUnread : 0
         const showBadge = badgeCount > 0
         return (
-          <Link key={href} href={href} style={{
+          <Link key={href} href={href} prefetch={warm ? true : undefined} style={{
             flex: 1, display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
             gap: 4, padding: '10px 0',

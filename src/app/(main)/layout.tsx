@@ -22,6 +22,25 @@ import { LanguageProvider } from '@/lib/i18n/language-context'
 import { isLocale, DEFAULT_LOCALE, loadDictionary } from '@/lib/i18n/dictionaries'
 
 
+// Mutuals = people you follow who also follow you. Only the mobile drawer shows
+// the number, so it must NOT hold up the whole app: this is started without being
+// awaited and streamed to the header, which shows a dash until it arrives. (It used
+// to be two unbounded follows scans that every page load waited on before sending
+// a single byte of HTML.)
+async function countMutuals(admin: ReturnType<typeof createAdminClient>, profileId: string): Promise<number> {
+  try {
+    const [youFollow, followYou] = await Promise.all([
+      admin.from('follows').select('following_id').eq('follower_id', profileId),
+      admin.from('follows').select('follower_id').eq('following_id', profileId),
+    ])
+    const youFollowSet = new Set((youFollow.data || []).map((r: { following_id: string }) => r.following_id))
+    const followYouSet = new Set((followYou.data || []).map((r: { follower_id: string }) => r.follower_id))
+    return [...youFollowSet].filter(id => followYouSet.has(id)).length
+  } catch {
+    return 0
+  }
+}
+
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const user = await getAuthUser()
   if (!user) redirect('/login')
@@ -57,25 +76,19 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       .limit(5)
   ).then(r => (r.data ?? []) as FeedAnnouncement[], () => [] as FeedAnnouncement[])
 
-  const [onboardingProgress, unreadCount, unreadChat, youFollow, followYou, initialMessages, announcementRows] = await Promise.all([
+  // Not awaited - see countMutuals above.
+  const mutualsCount = countMutuals(admin, profile.id)
+
+  const [onboardingProgress, unreadCount, unreadChat, initialMessages, announcementRows] = await Promise.all([
     getOnboardingProgress(profile.id),
     getUnreadNotificationCount(profile.id),
     getUnreadChatCount(profile.id),
-    admin.from('follows').select('following_id').eq('follower_id', profile.id),
-    admin.from('follows').select('follower_id').eq('following_id', profile.id),
     loadDictionary(locale),
     liveAnnouncements,
   ])
   const dismissedAnnouncements = parseDismissed((await cookies()).get(DISMISSED_COOKIE)?.value)
 
   if (!onboardingProgress?.completed_at) redirect('/onboarding')
-
-  // Mutuals count for the mobile drawer's profile header (not a denormalized
-  // column like followers_count/following_count, so it's computed here —
-  // same intersection logic used for a viewed profile's mutuals stat).
-  const youFollowSet = new Set((youFollow.data || []).map((r: { following_id: string }) => r.following_id))
-  const followYouSet = new Set((followYou.data || []).map((r: { follower_id: string }) => r.follower_id))
-  const mutualsCount = [...youFollowSet].filter(id => followYouSet.has(id)).length
 
   return (
     <LanguageProvider initialLocale={locale} initialMessages={initialMessages}>
