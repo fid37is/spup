@@ -166,14 +166,42 @@ export async function getConversationsAction() {
       members:conversation_members(unread_count, user_id, hidden_at)
     `)
     .or(`participant_1.eq.${profile.id},participant_2.eq.${profile.id}`)
-    .order('last_message_at', { ascending: false })
+    // A chat with no message in it yet (opened, nothing sent) is not listed.
+    .not('last_message_preview', 'is', null)
+    // Newest activity first. nullsFirst:false matters: Postgres sorts NULLs FIRST on
+    // a descending order, which used to float never-used chats to the very top.
+    .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(50)
 
-  const rows = data || []
+  const rows = (data || []).filter((c: any) => c.last_message_preview !== '')
   const reasons = await getChatLockReasons(
     profile.id,
     rows.map((c: any) => (c.participant_1 === profile.id ? c.participant_2 : c.participant_1)),
   )
+
+  // The newest message of each conversation: who sent it and whether it was
+  // delivered / read, so the list can show the same ticks as inside the chat.
+  // `last_message_at` is written as that message's created_at (see
+  // sendMessageAction), so the pair identifies it exactly. Best-effort: if this
+  // lookup fails the list still loads, just without ticks.
+  type Latest = { sender_id: string; read_at: string | null; delivered_at?: string | null }
+  const latest = new Map<string, Latest>()
+  const stamped = rows.filter((c: any) => c.last_message_at)
+  if (stamped.length > 0) {
+    const pairs = stamped
+      .map((c: any) => `and(conversation_id.eq.${c.id},created_at.eq.${c.last_message_at})`)
+      .join(',')
+    let res = await supabase
+      .from('messages')
+      .select('conversation_id, sender_id, read_at, delivered_at')
+      .or(pairs)
+    if (res.error) {
+      // delivered_at comes from migration 026; without it, fall back to sent/read only.
+      res = await supabase.from('messages').select('conversation_id, sender_id, read_at').or(pairs) as typeof res
+    }
+    if (res.error) console.error('[getConversationsAction] last-message status lookup failed:', res.error.message)
+    for (const m of (res.data ?? []) as any[]) latest.set(m.conversation_id, m)
+  }
 
   return rows.map((c: any) => {
     const other = c.participant_1 === profile.id ? c.p2 : c.p1
@@ -181,11 +209,18 @@ export async function getConversationsAction() {
     const hiddenAt: string | null = myMembership?.hidden_at ?? null
     // Hidden until something newer than the moment it was hidden arrives.
     const hidden = !!hiddenAt && (!c.last_message_at || new Date(c.last_message_at) <= new Date(hiddenAt))
+    const last = latest.get(c.id)
+    const mine = !!last && last.sender_id === profile.id
     return {
       id: c.id,
       other,
       last_message_preview: c.last_message_preview,
       last_message_at: c.last_message_at,
+      // Ticks next to the preview when the newest message is mine.
+      last_message_mine: mine,
+      last_message_status: (mine
+        ? (last!.read_at ? 'read' : last!.delivered_at ? 'delivered' : 'sent')
+        : null) as 'sent' | 'delivered' | 'read' | null,
       unread_count: myMembership?.unread_count ?? 0,
       // Why this thread is read-only (null = normal). Deleted accounts have no `other`.
       lock: (other?.id ? reasons.get(other.id) ?? null : null) as ChatLockReason | null,
@@ -516,4 +551,4 @@ export async function deleteMessageAction(messageId: string) {
     .eq('last_message_at', data.created_at)
 
   return { success: true }
-}
+}
