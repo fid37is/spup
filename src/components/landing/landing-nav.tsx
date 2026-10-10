@@ -1,9 +1,11 @@
 // src/components/landing/landing-nav.tsx
 'use client'
 
+import { useEffect } from 'react'
 import LandingCTA from '@/components/landing/landing-cta'
 import { useWaitlist } from '@/components/landing/waitlist-context'
 import { ThemeToggle } from '@/components/layout/theme-provider'
+import { createBrowserClient } from '@/lib/supabase/client'
 
 const G = 'var(--color-brand)'
 const BORDER = 'var(--color-border)'
@@ -11,6 +13,36 @@ const ENABLE_LOGIN = process.env.NEXT_PUBLIC_ENABLE_LOGIN === 'true'
 
 export default function LandingNav() {
   const { openModal } = useWaitlist()
+
+  // Signed-in people never see the landing page - they live in /feed.
+  // src/proxy.ts redirects "/" for signed-in users, but only when the browser
+  // makes a request; Back can restore the page from cache with no request.
+  // This catches that case. Only acts on "/" (this nav is also used on /reviews).
+  useEffect(() => {
+    if (window.location.pathname !== '/') return
+    let cancelled = false
+
+    const check = async () => {
+      try {
+        // Reads the session from the cookie; an expired one that cannot be
+        // refreshed returns no session, so stale cookies don't count.
+        const { data: { session } } = await createBrowserClient().auth.getSession()
+        if (session && !cancelled) window.location.replace('/feed')
+      } catch {
+        // Offline or storage unavailable: stay on the landing page.
+      }
+    }
+    check()
+
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) check()
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      cancelled = true
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [])
 
   return (
     <>

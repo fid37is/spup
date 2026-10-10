@@ -15,13 +15,6 @@ export async function GET(request: NextRequest) {
 
   // TEMPORARY diagnostics - cookie NAMES only, never values or the code.
   const cookieNames = request.cookies.getAll().map(c => c.name)
-  console.log('[auth-callback] hit', {
-    hasCode: !!code,
-    hasVerifierCookie: cookieNames.some(n => n.endsWith('-code-verifier')),
-    hasSessionCookie: cookieNames.some(n => /-auth-token(\.\d+)?$/.test(n)),
-    cookieCount: cookieNames.length,
-    inAppWebView: /\bwv\b/.test(request.headers.get('user-agent') ?? ''),
-  })
 
   if (!code && !nativeSession) {
     // Google/Supabase send ?error=...&error_description=... when sign-in is cancelled or refused.

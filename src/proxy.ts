@@ -164,6 +164,20 @@ export async function proxy(request: NextRequest) {
     return new NextResponse(null, { status: 404 })
   }
 
+  // ── Signed-in users never see the landing page ─────────────────────────────
+  // "/" is the marketing page. Anyone with a session lives in the feed, so this
+  // sends them there - which also fixes Back from the feed landing on it, and
+  // the landing page's login button bouncing them to /feed. Logged-out visitors
+  // (including someone who just logged out and tapped the logo on an auth page)
+  // still get the landing page. Only the exact path "/" is affected, so the
+  // legal and public pages stay reachable. The admin host returned above.
+  if (user && pathname === '/') {
+    const redirectUrl = request.nextUrl.clone()
+    redirectUrl.pathname = '/feed'
+    redirectUrl.search = ''
+    return withRefreshedCookies(NextResponse.redirect(redirectUrl))
+  }
+
   // Logged-out visitors (and crawlers) opening an in-app post, profile or explore
   // link get the public, readable version instead of a login wall. The public
   // pages live at /p/[id], /u/[username] and /discover.
