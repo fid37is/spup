@@ -115,6 +115,15 @@ export default function NativePullToRefresh() {
       if (!wasPulling) return
 
       if (pull >= THRESHOLD) {
+        // Offline: don't reload into Android's "Webpage not available" - ask the app
+        // shell to show its own offline page (it brings the person back here when the
+        // connection returns). Only exists inside the native app.
+        const native = (window as unknown as { SpupNative?: { show: (url: string) => void } }).SpupNative
+        if (native && navigator.onLine === false) {
+          render(0, true)
+          native.show(window.location.href)
+          return
+        }
         refreshing = true
         spin.style.animation = 'spin 0.7s linear infinite'
         render(THRESHOLD, true)

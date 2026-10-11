@@ -3,6 +3,7 @@ package com.spup.app;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.os.Build;
 import android.os.Bundle;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -10,6 +11,7 @@ import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.util.Log;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
@@ -54,6 +56,12 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     // build is the one installed and which path fired. Set to false once it works.
     private static final boolean SHOW_OFFLINE_DEBUG = true;
 
+    private BridgeWebViewClient offlineClient;
+    // URL of a main-frame load that failed and whose replacement (the offline page)
+    // hasn't finished loading yet; used by the onPageFinished backstop below.
+    private String pendingFailedUrl = null;
+    private int pendingTries = 0;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,7 +90,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         // (a broken image or script doesn't replace the screen), and the offline page
         // itself is never redirected.
         final Bridge bridge = getBridge();
-        bridge.getWebView().setWebViewClient(new BridgeWebViewClient(bridge) {
+        offlineClient = new BridgeWebViewClient(bridge) {
             @Override
             public void onReceivedError(final WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
@@ -91,12 +99,35 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
                 final String failedUrl = request.getUrl().toString();
                 Log.w(TAG, "main-frame load failed: code=" + error.getErrorCode()
                         + " desc=" + error.getDescription() + " url=" + failedUrl);
-                if (failedUrl.startsWith("file:///android_asset/")) return;
+                if (failedUrl.startsWith("file:///android_asset/") || failedUrl.startsWith(OFFLINE_BASE)) return;
 
+                pendingFailedUrl = failedUrl;
+                pendingTries = 0;
                 debugToast("load failed (" + error.getErrorCode() + ") -> offline page");
                 showOfflinePage(view, failedUrl);
             }
-        });
+
+            // Backstop: if Android's own error page finished loading after a failure
+            // (i.e. our replacement lost the race), put the offline page on top of it.
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (url != null && (url.startsWith(OFFLINE_BASE) || url.startsWith("data:"))) {
+                    pendingFailedUrl = null;      // the offline page is up
+                    return;
+                }
+                if (pendingFailedUrl != null && pendingTries < 3) {
+                    pendingTries++;
+                    debugToast("error page showed -> offline page (backstop)");
+                    showOfflinePage(view, pendingFailedUrl);
+                }
+            }
+        };
+        bridge.getWebView().setWebViewClient(offlineClient);
+
+        // Lets the web app ask for the offline page directly (used by pull-to-refresh
+        // when the phone is offline, instead of reloading into an error page).
+        bridge.getWebView().addJavascriptInterface(new OfflineBridge(), "SpupNative");
 
         debugToast("offline handler v3 installed");
         final boolean online = hasInternetTransport();
@@ -105,6 +136,47 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             Log.i(TAG, "no active network at launch");
             showOfflinePage(bridge.getWebView(), SITE_URL);
         }
+    }
+
+    // If another plugin swaps the WebViewClient after startup, our offline handling
+    // would silently stop working - put it back.
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (offlineClient != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WebView wv = getBridge().getWebView();
+            if (wv.getWebViewClient() != offlineClient) {
+                debugToast("WebViewClient was replaced - re-installing");
+                wv.setWebViewClient(offlineClient);
+            }
+        }
+    }
+
+    /** Exposed to the web app as window.SpupNative. */
+    private class OfflineBridge {
+        @JavascriptInterface
+        public void show(final String url) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    debugToast("app asked for the offline page");
+                    showOfflinePage(getBridge().getWebView(), siteUrlOrDefault(url));
+                }
+            });
+        }
+    }
+
+    // Only ever hand spup.live URLs on to the offline page; anything else -> home.
+    private String siteUrlOrDefault(String url) {
+        try {
+            Uri u = Uri.parse(url);
+            String host = u.getHost();
+            if ("https".equals(u.getScheme()) && host != null
+                    && (host.equals("spup.live") || host.endsWith(".spup.live"))) {
+                return url;
+            }
+        } catch (Exception ignored) { }
+        return SITE_URL;
     }
 
     // Loads the bundled offline page. Posted rather than loaded directly: loading from
