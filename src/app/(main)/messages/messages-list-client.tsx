@@ -11,15 +11,15 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction, unhideConversationAction } from '@/lib/actions/messages'
+import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction, unhideConversationAction, markAllConversationsReadAction } from '@/lib/actions/messages'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
-import { ChevronDown, ChevronRight, MessageSquare, MessageSquarePlus } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, MessageSquare, MessageSquarePlus, MessageCircle, MessageSquareDot, User, Settings, CheckCheck } from 'lucide-react'
 import {
   getStoredKeyPair, deriveSharedKey, decryptMessage, isEncrypted, UNDECRYPTABLE,
   getCachedPeerPublicKey, setCachedPeerPublicKey,
 } from '@/lib/chat-crypto'
 import {
-  decryptedPreviews, sharedPreviewKeys, peekChatListMemory, readChatListCache, writeChatListCache,
+  decryptedPreviews, sharedPreviewKeys, peekChatListMemory, readChatListCache, writeChatListCache, patchChatListCache,
   sortConversations, hasMessage, type ChatListConversation,
 } from '@/lib/chat-list-cache'
 import ConversationRow from '@/components/chat/conversation-row'
@@ -31,7 +31,89 @@ interface Props {
   currentUserId: string
 }
 
-export function ChatListHeader() {
+export type ChatFilter = 'all' | 'unread' | 'direct'
+
+const FILTER_LABEL: Record<ChatFilter, string> = { all: 'All', unread: 'Unread', direct: 'Direct' }
+
+interface HeaderProps {
+  /** Omit on the loading screen: the filter only shows on the live list. */
+  filter?: ChatFilter
+  onFilterChange?: (f: ChatFilter) => void
+  onMarkAllRead?: () => void
+  canMarkAllRead?: boolean
+}
+
+function FilterMenu({ filter, onFilterChange, onMarkAllRead, canMarkAllRead }: Required<Omit<HeaderProps, never>>) {
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', away)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+
+  const item: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '14px 16px',
+    background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+    color: 'var(--color-text-primary)', fontSize: 15, fontWeight: 500, textDecoration: 'none',
+    fontFamily: "'DM Sans', sans-serif", boxSizing: 'border-box',
+  }
+  const divider = <div style={{ height: 6, background: 'var(--color-surface-2)' }} />
+  const choose = (f: ChatFilter) => { onFilterChange(f); setOpen(false) }
+  const filterRow = (f: ChatFilter, icon: React.ReactNode) => (
+    <button key={f} role="menuitemradio" aria-checked={filter === f} onClick={() => choose(f)} style={item}>
+      {icon}
+      <span style={{ flex: 1 }}>{FILTER_LABEL[f]}</span>
+      {filter === f && <Check size={18} />}
+    </button>
+  )
+
+  return (
+    <div ref={wrap} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        aria-haspopup="menu" aria-expanded={open}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, background: 'none',
+          border: '1px solid var(--color-border)', borderRadius: 20, padding: '7px 14px',
+          color: 'var(--color-text-primary)', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+          fontFamily: "'Syne', sans-serif",
+        }}
+      >
+        {FILTER_LABEL[filter]}
+        <ChevronDown size={14} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </button>
+
+      {open && (
+        <div role="menu" style={{
+          position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 30, width: 240,
+          background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 14,
+          boxShadow: '0 8px 30px rgba(0,0,0,0.35)', overflow: 'hidden',
+        }}>
+          {filterRow('all', <MessageCircle size={20} />)}
+          {filterRow('unread', <MessageSquareDot size={20} />)}
+          {filterRow('direct', <User size={20} />)}
+          {divider}
+          <Link href="/messages/settings" role="menuitem" onClick={() => setOpen(false)} style={item}>
+            <Settings size={20} /> Settings
+          </Link>
+          {divider}
+          <button role="menuitem" disabled={!canMarkAllRead}
+            onClick={() => { onMarkAllRead(); setOpen(false) }}
+            style={{ ...item, opacity: canMarkAllRead ? 1 : 0.45, cursor: canMarkAllRead ? 'pointer' : 'default' }}>
+            <CheckCheck size={20} /> Mark all as read
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ChatListHeader({ filter, onFilterChange, onMarkAllRead, canMarkAllRead }: HeaderProps = {}) {
   const { t } = useTranslation()
   return (
     <div style={{
@@ -39,21 +121,26 @@ export function ChatListHeader() {
       backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
       borderBottom: '1px solid var(--color-border)',
       padding: '16px 20px',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
     }}>
       <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)', margin: 0 }}>
         {t('chat.title')}
       </h1>
-      <Link href="/messages/new" style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        background: 'var(--color-brand)', color: 'white',
-        borderRadius: 20, padding: '8px 16px',
-        textDecoration: 'none', fontSize: 13,
-        fontFamily: "'Syne', sans-serif", fontWeight: 700,
-      }}>
-        <MessageSquarePlus size={14} />
-        {t('chat.new_chat')}
-      </Link>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {filter && onFilterChange && onMarkAllRead && (
+          <FilterMenu filter={filter} onFilterChange={onFilterChange} onMarkAllRead={onMarkAllRead} canMarkAllRead={!!canMarkAllRead} />
+        )}
+        <Link href="/messages/new" style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'var(--color-brand)', color: 'white',
+          borderRadius: 20, padding: '8px 16px',
+          textDecoration: 'none', fontSize: 13,
+          fontFamily: "'Syne', sans-serif", fontWeight: 700,
+        }}>
+          <MessageSquarePlus size={14} />
+          {t('chat.new_chat')}
+        </Link>
+      </div>
     </div>
   )
 }
@@ -79,8 +166,15 @@ function ListSkeleton() {
   )
 }
 
-function EmptyState() {
+function EmptyState({ filter }: { filter: ChatFilter }) {
   const { t } = useTranslation()
+  if (filter === 'unread') {
+    return (
+      <div style={{ padding: '80px 20px', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 14 }}>
+        You&apos;re all caught up - no unread chats.
+      </div>
+    )
+  }
   return (
     <div style={{ padding: '80px 20px', textAlign: 'center' }}>
       <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
@@ -111,6 +205,7 @@ export default function MessagesListClient({ currentUserId }: Props) {
   const supabase = useRef<ReturnType<typeof createBrowserClient> | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const busy = useRef(false)
+  const [filter, setFilter] = useState<ChatFilter>('all')
   const [showInactive, setShowInactive] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   const [, bumpPreviews] = useState(0)
@@ -246,6 +341,19 @@ export default function MessagesListClient({ currentUserId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId])
 
+  async function handleMarkAllRead() {
+    const before = conversations
+    if (!before) return
+    // Optimistic: clear the badges now, put them back if the server says no.
+    const cleared = before.map(c => ({ ...c, unread_count: 0 }))
+    setConversations(cleared)
+    writeChatListCache(currentUserId, cleared)
+    notifyChatUnreadChanged()
+    const r = await markAllConversationsReadAction().catch(() => ({ error: 'network' }))
+    if ('error' in r) { setConversations(before); writeChatListCache(currentUserId, before) }
+    notifyChatUnreadChanged()
+  }
+
   async function handleUnhide(id: string) {
     setConversations(prev => prev && prev.map(c => (c.id === id ? { ...c, hidden: false } : c)))   // optimistic
     const r = await unhideConversationAction(id).catch(() => ({ error: 'network' }))
@@ -272,8 +380,16 @@ export default function MessagesListClient({ currentUserId }: Props) {
   if (conversations === null) {
     body = <ListSkeleton />
   } else if (conversations.length === 0) {
-    body = <EmptyState />
+    body = <EmptyState filter="all" />
+  } else if (filter === 'unread') {
+    // Unread: anything with unread messages that isn't hidden, newest first.
+    const unread = conversations.filter(c => !c.hidden && c.unread_count > 0)
+    body = unread.length === 0
+      ? <EmptyState filter="unread" />
+      : <div>{unread.map(c => <ConversationRow key={c.id} conv={c} />)}</div>
   } else {
+    // All and Direct: every chat here is one-to-one today (no group chats yet),
+    // so Direct shows the same list; it starts to differ once groups exist.
     const visible  = conversations.filter(c => !c.hidden)
     const active   = visible.filter(c => !c.lock)
     const inactive = visible.filter(c => c.lock)
@@ -308,9 +424,11 @@ export default function MessagesListClient({ currentUserId }: Props) {
     )
   }
 
+  const hasUnread = !!conversations?.some(c => c.unread_count > 0)
+
   return (
     <div>
-      <ChatListHeader />
+      <ChatListHeader filter={filter} onFilterChange={setFilter} onMarkAllRead={handleMarkAllRead} canMarkAllRead={hasUnread} />
       {body}
     </div>
   )

@@ -4,7 +4,7 @@
 //
 // "Forgot PIN" for the chat PIN gate. The old PIN can't be asked for, so the
 // person proves they own the account instead: a 6-digit code is emailed to the
-// address on the account, and only a correct code lets a new PIN be saved.
+// address on the account (sent by the app itself, as a code - not a Supabase magic link), and only a correct code lets a new PIN be saved.
 //
 // The E2E key backup is wrapped with `${PIN}:${pepper}`, so a new PIN also means
 // re-wrapping it. That happens in the browser (the server never sees the key):
@@ -15,7 +15,8 @@
 //     (messages encrypted to the old key can't be read again).
 // The pepper is kept the same (rotating it would orphan an existing wrap).
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { sendChatPinResetCodeEmail } from '@/lib/email/send'
 import bcrypt from 'bcryptjs'
 import nodeCrypto from 'crypto'
 import { checkRateLimit } from '@/lib/rate-limit'
@@ -38,19 +39,26 @@ function maskEmail(email: string) {
 
 /** Emails a 6-digit code to the account's address. */
 export async function requestChatPinResetAction() {
-  const { supabase, user, profile } = await getCaller()
+  const { user, profile } = await getCaller()
   if (!user || !profile) return { error: 'Not authenticated' }
 
   if (!(await checkRateLimit(`chat-pin-reset-request:${profile.id}`, 3, 15 * 60))) {
     return { error: 'Too many requests. Please wait a few minutes and try again.' }
   }
 
-  const { error } = await supabase.auth.signInWithOtp({
-    email: user.email!,
-    options: { shouldCreateUser: false },
-  })
-  if (error) {
-    console.error('[requestChatPinResetAction] could not send code:', error.message)
+  // Supabase's own sign-in email is a magic LINK for existing users (its Magic
+  // Link template), which is not what this screen asks for. So generate the
+  // one-time code server-side (nothing is emailed by Supabase here) and send it
+  // ourselves, as a plain code, with the app's own email sender.
+  const { data: link, error } = await createAdminClient().auth.admin.generateLink({ type: 'magiclink', email: user.email! })
+  const code = link?.properties?.email_otp
+  if (error || !code) {
+    console.error('[requestChatPinResetAction] could not create code:', error?.message)
+    return { error: "We couldn't send the code right now. Please try again in a moment." }
+  }
+  const sent = await sendChatPinResetCodeEmail(user.email!, code)
+  if (sent.error) {
+    console.error('[requestChatPinResetAction] could not email code:', sent.error)
     return { error: "We couldn't send the code right now. Please try again in a moment." }
   }
   return { success: true as const, email: maskEmail(user.email!) }
@@ -73,7 +81,8 @@ export async function confirmChatPinResetAction(code: string, newPin: string) {
     return { error: 'Too many attempts. Please wait a few minutes and try again.' }
   }
 
-  const { error: otpError } = await supabase.auth.verifyOtp({ email: user.email!, token: code, type: 'email' })
+  let { error: otpError } = await supabase.auth.verifyOtp({ email: user.email!, token: code, type: 'email' })
+  if (otpError) ({ error: otpError } = await supabase.auth.verifyOtp({ email: user.email!, token: code, type: 'magiclink' }))
   if (otpError) return { error: 'Invalid or expired code. Please try again.' }
 
   // The code must have belonged to THIS account.
