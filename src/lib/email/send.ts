@@ -310,6 +310,22 @@ export async function sendNotificationEmail(opts: SendEmailOptions): Promise<{ i
   return sendEmail(to, template.subject, template.html)
 }
 
+// ─── Chat PIN reset code ──────────────────────────────────────────────────────
+// A short numeric code (not a link) for "Forgot PIN" on the chat PIN screen.
+export async function sendChatPinResetCodeEmail(to: string, code: string): Promise<{ id?: string; error?: string }> {
+  const safe = escapeHtml(code)
+  const html = wrap(
+    `
+      <h1>Reset your chat PIN</h1>
+      <p>Enter this code in Spup to choose a new chat PIN:</p>
+      <div class="pill" style="font-size:28px;font-weight:800;letter-spacing:0.35em;padding:14px 22px">${safe}</div>
+      <p class="muted">The code expires soon. If you didn&apos;t ask to reset your chat PIN, you can ignore this email - your PIN stays as it is.</p>
+    `,
+    'You received this because a chat PIN reset was requested on your Spup account.',
+  )
+  return sendEmail(to, 'Your Spup chat PIN reset code', html)
+}
+
 // ─── Contact form → Spup inbox ────────────────────────────────────────────────
 // Sends a message from the public /contact form to the right Spup inbox.
 // Reply-To is the visitor's address, so hitting Reply in your mail app answers

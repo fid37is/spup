@@ -11,7 +11,8 @@
 // (rewrapKeyForNewPassword), then the server verifies the current PIN and
 // saves both together (changeChatPinAction).
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import PinCircles from '@/components/chat/pin-circles'
 import { createPortal } from 'react-dom'
 import { KeyRound, ChevronRight, Loader, Check } from 'lucide-react'
 import { verifyChatPinAction, getWrappedKeyAction, uploadWrappedKeyAction, getPublicKeyAction } from '@/lib/actions/messages'
@@ -19,39 +20,26 @@ import { changeChatPinAction } from '@/lib/actions/chat-pin'
 import { rewrapKeyForNewPassword, WrongPasswordError } from '@/lib/chat-crypto'
 import { setSessionPinMaterial } from '@/lib/chat-pin-session'
 
-const INPUT: React.CSSProperties = {
-  width: '100%', boxSizing: 'border-box',
-  background: 'var(--input-bg)', border: '1px solid var(--color-border)', borderRadius: 10,
-  padding: '12px 14px', color: 'var(--color-text-primary)',
-  fontSize: 18, letterSpacing: '0.5em', textAlign: 'center', outline: 'none',
-  fontFamily: "'DM Sans', sans-serif",
-}
-
-function PinField({ label, value, onChange, autoFocus = false }: {
+// Four circles, same look as the chat PIN gate (grey ring when empty, white ring + dot when filled).
+function PinField({ label, value, onChange, autoFocus = false, firstRef, onComplete }: {
   label: string; value: string; onChange: (v: string) => void; autoFocus?: boolean
+  firstRef?: React.RefObject<HTMLInputElement | null>; onComplete?: () => void
 }) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
+    <div style={{ marginBottom: 18 }}>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 10, textAlign: 'center' }}>
         {label}
       </label>
-      <input
-        value={value}
-        onChange={e => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
-        type="password"
-        inputMode="numeric"
-        autoComplete="off"
-        maxLength={4}
-        placeholder="••••"
-        autoFocus={autoFocus}
-        style={INPUT}
-      />
+      <PinCircles value={value} onChange={onChange} name={label} autoFocus={autoFocus} inputRef={firstRef} onComplete={onComplete} size={52} />
     </div>
   )
 }
 
-export default function ChangeChatPinRow({ last = false }: { last?: boolean }) {
-  const [open, setOpen] = useState(false)
+/**
+ * The "Change chat PIN" sheet. Controlled: render it where you want and flip
+ * `open`. (The Chat settings page opens it from its own row.)
+ */
+export function ChangeChatPinSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [oldPin, setOldPin] = useState('')
   const [newPin, setNewPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
@@ -61,7 +49,7 @@ export default function ChangeChatPinRow({ last = false }: { last?: boolean }) {
 
   function close() {
     if (busy) return
-    setOpen(false); setOldPin(''); setNewPin(''); setConfirmPin(''); setError(''); setDone(false)
+    onClose(); setOldPin(''); setNewPin(''); setConfirmPin(''); setError(''); setDone(false)
   }
 
   async function submit() {
@@ -137,35 +125,12 @@ export default function ChangeChatPinRow({ last = false }: { last?: boolean }) {
   }
 
   const canSubmit = oldPin.length === 4 && newPin.length === 4 && confirmPin.length === 4 && !busy && !done
+  const newRef = useRef<HTMLInputElement>(null)
+  const confirmRef = useRef<HTMLInputElement>(null)
 
-  return (
-    <>
-      <div
-        onClick={() => setOpen(true)}
-        role="button"
-        style={{
-          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px',
-          borderBottom: last ? 'none' : '1px solid var(--color-border)',
-          cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
-        }}
-      >
-        <div style={{
-          width: 34, height: 34, borderRadius: 9, flexShrink: 0,
-          background: 'var(--color-surface-raised)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <KeyRound size={15} color="var(--color-text-secondary)" strokeWidth={1.8} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-text-primary)', lineHeight: 1.3 }}>Change chat PIN</div>
-          <div style={{ fontSize: 13, marginTop: 2, lineHeight: 1.3, color: 'var(--color-text-muted)' }}>
-            Update the 4-digit PIN that protects your messages
-          </div>
-        </div>
-        <ChevronRight size={15} color="var(--color-text-faint)" />
-      </div>
+  if (!open || typeof document === 'undefined') return null
 
-      {open && typeof document !== 'undefined' && createPortal(
+  return createPortal(
         <>
           <div onClick={close} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'var(--overlay-bg)' }} />
           <div style={{ position: 'fixed', inset: 0, zIndex: 401, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -186,9 +151,9 @@ export default function ChangeChatPinRow({ last = false }: { last?: boolean }) {
                 Your message history stays readable - it is re-protected with the new PIN.
               </p>
 
-              <PinField label="Current PIN" value={oldPin} onChange={setOldPin} autoFocus />
-              <PinField label="New PIN" value={newPin} onChange={setNewPin} />
-              <PinField label="Confirm new PIN" value={confirmPin} onChange={setConfirmPin} />
+              <PinField label="Current PIN" value={oldPin} onChange={setOldPin} autoFocus onComplete={() => newRef.current?.focus()} />
+              <PinField label="New PIN" value={newPin} onChange={setNewPin} firstRef={newRef} onComplete={() => confirmRef.current?.focus()} />
+              <PinField label="Confirm new PIN" value={confirmPin} onChange={setConfirmPin} firstRef={confirmRef} />
 
               {error && <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--color-error)', lineHeight: 1.5 }}>{error}</p>}
 
@@ -222,7 +187,38 @@ export default function ChangeChatPinRow({ last = false }: { last?: boolean }) {
           <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
         </>,
         document.body
-      )}
+  )
+}
+
+export default function ChangeChatPinRow({ last = false }: { last?: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <div
+        onClick={() => setOpen(true)}
+        role="button"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px',
+          borderBottom: last ? 'none' : '1px solid var(--color-border)',
+          cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+        }}
+      >
+        <div style={{
+          width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+          background: 'var(--color-surface-raised)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <KeyRound size={15} color="var(--color-text-secondary)" strokeWidth={1.8} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-text-primary)', lineHeight: 1.3 }}>Change chat PIN</div>
+          <div style={{ fontSize: 13, marginTop: 2, lineHeight: 1.3, color: 'var(--color-text-muted)' }}>
+            Update the 4-digit PIN that protects your messages
+          </div>
+        </div>
+        <ChevronRight size={15} color="var(--color-text-faint)" />
+      </div>
+      <ChangeChatPinSheet open={open} onClose={() => setOpen(false)} />
     </>
   )
 }

@@ -417,6 +417,37 @@ export async function markAllDeliveredAction() {
   return { success: true }
 }
 
+/** "Mark all as read" in the chat list menu: every conversation, in one go. */
+export async function markAllConversationsReadAction() {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+
+  const { data: convs } = await supabase
+    .from('conversations')
+    .select('id')
+    .or(`participant_1.eq.${profile.id},participant_2.eq.${profile.id}`)
+    .limit(200)
+  const ids = (convs ?? []).map((c: { id: string }) => c.id)
+  if (ids.length === 0) return { success: true }
+
+  const now = new Date().toISOString()
+  const { error } = await supabase
+    .from('messages')
+    .update({ read_at: now })
+    .in('conversation_id', ids)
+    .neq('sender_id', profile.id)
+    .is('read_at', null)
+  if (error) { console.error('[markAllConversationsReadAction] read_at update failed:', error.message); return { error: error.message } }
+
+  const { error: uErr } = await supabase
+    .from('conversation_members')
+    .update({ unread_count: 0, last_read_at: now })
+    .eq('user_id', profile.id)
+    .in('conversation_id', ids)
+  if (uErr) console.error('[markAllConversationsReadAction] unread reset failed:', uErr.message)
+  return { success: true }
+}
+
 /** Client-callable refresh for the Chat tab badge (see hooks/use-chat-unread.ts). */
 export async function getUnreadChatCountAction(): Promise<number> {
   const { profile } = await getCallerProfile()
@@ -551,4 +582,4 @@ export async function deleteMessageAction(messageId: string) {
     .eq('last_message_at', data.created_at)
 
   return { success: true }
-}
+}
