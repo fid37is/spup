@@ -103,9 +103,12 @@ function Avatar({
 // `registry` + `index` let the parent MediaRow find this element, so that opening
 // the full-screen viewer can hand over the current playback position (and take it
 // back on close) instead of restarting the video from 0.
-function TrackedVideo({ src, poster, postId, width, height, registry, index }: {
+function TrackedVideo({ src, poster, postId, width, height, registry, index, onDims }: {
   src: string; poster?: string; postId: string; width?: number | null; height?: number | null
   registry?: Map<number, HTMLVideoElement>; index?: number
+  // Called once the browser knows the video's real size (single-video posts that
+  // have no stored width/height use it to shape their frame).
+  onDims?: (w: number, h: number) => void
 }) {
   const { t } = useTranslation()
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -201,6 +204,10 @@ function TrackedVideo({ src, poster, postId, width, height, registry, index }: {
         ref={videoRef}
         src={src} poster={poster} playsInline loop muted={muted} preload="metadata"
         onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={e => {
+          const v = e.currentTarget
+          if (onDims && v.videoWidth && v.videoHeight) onDims(v.videoWidth, v.videoHeight)
+        }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         style={{
@@ -246,6 +253,17 @@ function TrackedVideo({ src, poster, postId, width, height, registry, index }: {
   )
 }
 
+// Single photo / video sizing, modelled on Threads:
+//  - PHOTOS fill the column width. A photo keeps its own shape but is never
+//    narrower than 3:4: anything taller (phone screenshots, 9:16 shots) is
+//    cropped from the centre, so one photo can't turn into a wall. Tapping it
+//    opens the full, uncropped image in the viewer.
+//  - VIDEOS keep their own orientation and are never cropped. The height is
+//    capped instead, so a portrait video just gets narrower (flush left).
+const SINGLE_PHOTO_CAP = 520
+const SINGLE_VIDEO_CAP = 420
+const PHOTO_MIN_RATIO = 3 / 4      // width / height
+
 // `bleed` (quoted-post embed): a single item runs edge to edge across the embed,
 // centred, with no rounding of its own (the embed's border clips the corners).
 function MediaRow({ media, postId, post, compact = false, bleed = false }: { media: FeedPost['media']; postId: string; post: FeedPost; compact?: boolean; bleed?: boolean }) {
@@ -255,7 +273,8 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
   const [viewerStartTime, setViewerStartTime] = useState(0)
   const inlineVideos = useRef(new Map<number, HTMLVideoElement>())
   const scrollerRef = useRef<HTMLDivElement>(null)
-  const cap = bleed ? 340 : compact ? 260 : 520
+  // Real size of a single video that has no stored dimensions (read from the file itself).
+  const [measured, setMeasured] = useState<{ w: number; h: number } | null>(null)
   const radius = bleed ? 0 : compact ? 8 : 14
 
   if (!media || media.length === 0) return null
@@ -276,13 +295,18 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
     el.currentTime = finished ? 0 : time
   }
 
-  // Single item - width is derived from the media's real aspect ratio against
-  // the height cap, not forced to 100%. A portrait item renders at its own
-  // narrower width (capped by height, flush left - never stretched or
-  // centered); a landscape item naturally fills the column.
+  // Single item - see SINGLE_* above. The frame's shape comes from the media's
+  // real dimensions; its width is that shape against the height cap, so a
+  // portrait video renders at its own narrower width (flush left - never
+  // stretched or centered) and a landscape item fills the column.
   if (sorted.length === 1) {
     const m = sorted[0]
-    const ratio = m.width && m.height ? m.width / m.height : null
+    const isVideo = m.media_type === 'video'
+    const w = m.width || (isVideo ? measured?.w : null) || null
+    const h = m.height || (isVideo ? measured?.h : null) || null
+    const real = w && h ? w / h : null
+    const ratio = real ? (isVideo ? real : Math.max(real, PHOTO_MIN_RATIO)) : null
+    const cap = bleed ? 340 : compact ? 260 : isVideo ? SINGLE_VIDEO_CAP : SINGLE_PHOTO_CAP
     const boxWidth = ratio ? `min(100%, ${Math.round(ratio * cap)}px)` : undefined
     const bleedWrap: React.CSSProperties = bleed
       ? { display: 'flex', justifyContent: 'center', width: '100%', background: 'var(--color-surface-2)' }
@@ -297,21 +321,22 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
             background: 'var(--color-surface-2)', cursor: 'pointer',
             maxHeight: cap, maxWidth: '100%',
             ...(ratio
-              ? { width: boxWidth, aspectRatio: `${m.width}/${m.height}` }
-              : m.media_type === 'image'
+              ? { width: boxWidth, aspectRatio: String(ratio) }
+              : isVideo
+                // Size not known yet: a 16/9 placeholder gives the autoplay
+                // observer a definite box; it reshapes as soon as the video's
+                // metadata arrives (onDims below).
+                ? { width: '100%', aspectRatio: '16/9' }
                 // No stored dimensions for this image - don't guess a box
                 // shape (a wrong guess crops real content). Let it size
                 // itself: display:inline-block so the div hugs the img's
                 // own natural width instead of stretching to the column.
-                ? { display: 'inline-block' }
-                // Video still needs a definite box before it loads (for the
-                // autoplay observer), so it keeps a 16/9 placeholder shape.
-                : { width: '100%', aspectRatio: '16/9' }),
+                : { display: 'inline-block' }),
           }}
         >
-          {m.media_type === 'image'
-            ? <ProgressiveImage src={m.url} width={900} fit={ratio ? 'cover' : 'natural'} maxHeight={cap} />
-            : <GatedMedia render={() => <TrackedVideo src={m.url} poster={videoPoster(m.url, m.thumbnail_url)} postId={postId} width={m.width} height={m.height} registry={inlineVideos.current} index={0} />} />
+          {!isVideo
+            ? <ProgressiveImage src={m.url} width={900} fit={ratio ? 'cover' : 'natural'} maxHeight={Math.min(cap, SINGLE_VIDEO_CAP)} />
+            : <GatedMedia render={() => <TrackedVideo src={m.url} poster={videoPoster(m.url, m.thumbnail_url)} postId={postId} width={w} height={h} registry={inlineVideos.current} index={0} onDims={m.width && m.height ? undefined : (vw, vh) => setMeasured({ w: vw, h: vh })} />} />
           }
         </div>
         </div>
@@ -347,7 +372,7 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
           marginBottom: compact ? 0 : 10,
           scrollSnapType: scrolls ? 'x mandatory' : undefined,
           WebkitOverflowScrolling: 'touch',
-          maxHeight: compact ? cap : undefined,
+          maxHeight: compact ? (bleed ? 340 : 260) : undefined,
           // Stops horizontal swipes through multi-image posts from being
           // mistaken for the browser/app's edge-swipe "back" gesture once
           // the scroller hits its start/end.

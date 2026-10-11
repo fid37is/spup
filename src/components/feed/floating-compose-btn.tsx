@@ -7,11 +7,13 @@ import { useRouter } from 'next/navigation'
 import { Pencil, X } from 'lucide-react'
 import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-composer'
 import DraftsPanel from './drafts-panel'
+import { useChromeVisible } from '@/lib/chrome-visibility'
 import type { LocalDraft } from '@/lib/local-drafts'
 
 // Floating compose button — only for feed page.
-// Visible when user is scrolled near the bottom (recent posts).
-// Hides when scrolled to top. Opens the composer on click:
+// Shows near the top of the page and whenever the user scrolls up; hides while
+// scrolling down. The visibility flag is shared with the mobile bottom nav
+// (lib/chrome-visibility), so the two always move together. Opens the composer on click:
 //   - Desktop: centered modal dialog
 //   - Mobile:  the /compose PAGE (app/(main)/compose). It used to be a sheet
 //     drawn over the feed; with the feed still underneath, the page could move
@@ -26,12 +28,10 @@ interface FloatingComposeBtnProps {
 }
 
 export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorName, userId }: FloatingComposeBtnProps) {
-  const [visible, setVisible] = useState(false)
+  const visible = useChromeVisible()
   const [open, setOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [showDrafts, setShowDrafts] = useState(false)
-  const lastScrollY = useRef(0)
-  const ticking = useRef(false)
   const composerRef = useRef<PostComposerHandle>(null)
   const router = useRouter()
 
@@ -48,23 +48,6 @@ export default function FloatingComposeBtn({ onPosted, authorAvatarUrl, authorNa
   useEffect(() => {
     if (isMobile) router.prefetch('/compose')
   }, [isMobile, router])
-
-  useEffect(() => {
-    function onScroll() {
-      if (ticking.current) return
-      ticking.current = true
-      requestAnimationFrame(() => {
-        const y = window.scrollY
-        const scrollingUp = y < lastScrollY.current
-        setVisible(y < 100 || scrollingUp)
-        lastScrollY.current = y
-        ticking.current = false
-      })
-    }
-    setVisible(true)
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
 
   function handlePosted(post: unknown) {
     setOpen(false)
