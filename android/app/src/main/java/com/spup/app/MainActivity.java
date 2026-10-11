@@ -15,7 +15,6 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
-import android.widget.Toast;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 
@@ -33,8 +32,6 @@ import ee.forgr.capacitor.social.login.SocialLoginPlugin;
 // ModifiedMainActivityForSocialLoginPlugin is required by @capgo/capacitor-social-login.
 public class MainActivity extends BridgeActivity implements ModifiedMainActivityForSocialLoginPlugin {
 
-    private static final String TAG = "SpupOffline";
-
     // The offline page is android/app/src/main/assets/offline.html (NOT assets/public/ -
     // `npx cap sync` wipes and refills that folder). It is read here and handed to the
     // WebView directly, so no file:// access or Capacitor setting is involved.
@@ -51,10 +48,6 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         + "<button onclick=\"location.replace('https://spup.live/')\" style='background:#1A9E5F;color:#fff;"
         + "border:0;border-radius:99px;padding:14px 32px;font-size:16px'>Try again</button></div>";
     private static final String SITE_URL = "https://spup.live/";
-
-    // TEMPORARY: shows small on-screen messages so you can see (without adb) that this
-    // build is the one installed and which path fired. Set to false once it works.
-    private static final boolean SHOW_OFFLINE_DEBUG = true;
 
     private BridgeWebViewClient offlineClient;
     // URL of a main-frame load that failed and whose replacement (the offline page)
@@ -97,13 +90,10 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
                 if (request == null || !request.isForMainFrame()) return;
 
                 final String failedUrl = request.getUrl().toString();
-                Log.w(TAG, "main-frame load failed: code=" + error.getErrorCode()
-                        + " desc=" + error.getDescription() + " url=" + failedUrl);
                 if (failedUrl.startsWith("file:///android_asset/") || failedUrl.startsWith(OFFLINE_BASE)) return;
 
                 pendingFailedUrl = failedUrl;
                 pendingTries = 0;
-                debugToast("load failed (" + error.getErrorCode() + ") -> offline page");
                 showOfflinePage(view, failedUrl);
             }
 
@@ -118,7 +108,6 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
                 }
                 if (pendingFailedUrl != null && pendingTries < 3) {
                     pendingTries++;
-                    debugToast("error page showed -> offline page (backstop)");
                     showOfflinePage(view, pendingFailedUrl);
                 }
             }
@@ -129,11 +118,8 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         // when the phone is offline, instead of reloading into an error page).
         bridge.getWebView().addJavascriptInterface(new OfflineBridge(), "SpupNative");
 
-        debugToast("offline handler v3 installed");
         final boolean online = hasInternetTransport();
-        debugToast(online ? "network looks available at launch" : "no network at launch");
         if (!online) {
-            Log.i(TAG, "no active network at launch");
             showOfflinePage(bridge.getWebView(), SITE_URL);
         }
     }
@@ -146,7 +132,6 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         if (offlineClient != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WebView wv = getBridge().getWebView();
             if (wv.getWebViewClient() != offlineClient) {
-                debugToast("WebViewClient was replaced - re-installing");
                 wv.setWebViewClient(offlineClient);
             }
         }
@@ -159,7 +144,6 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    debugToast("app asked for the offline page");
                     showOfflinePage(getBridge().getWebView(), siteUrlOrDefault(url));
                 }
             });
@@ -187,16 +171,13 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         final String baseUrl = OFFLINE_BASE + "?u=" + Uri.encode(failedUrl);
         String html = readAsset(OFFLINE_ASSET);
         if (html == null) {
-            debugToast("assets/" + OFFLINE_ASSET + " NOT FOUND - using basic fallback page");
             html = FALLBACK_HTML;
         }
         final String page = html;
         view.post(new Runnable() {
             @Override
             public void run() {
-                Log.i(TAG, "showing offline page");
                 view.loadDataWithBaseURL(baseUrl, page, "text/html", "UTF-8", null);
-                debugToast("offline page loaded");
             }
         });
     }
@@ -209,7 +190,6 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
             return out.toString("UTF-8");
         } catch (Exception e) {
-            Log.w(TAG, "could not read asset " + name + ": " + e);
             return null;
         }
     }
@@ -225,20 +205,8 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             NetworkCapabilities caps = cm.getNetworkCapabilities(active);
             return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
         } catch (Exception e) {
-            Log.w(TAG, "network check failed: " + e);
-            debugToast("network check failed: " + e.getClass().getSimpleName());
             return true;
         }
-    }
-
-    private void debugToast(final String msg) {
-        if (!SHOW_OFFLINE_DEBUG) return;
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Toast.makeText(MainActivity.this, "Spup: " + msg, Toast.LENGTH_LONG).show();
-            }
-        });
     }
 
     // Hands Google's sign-in result to the social-login plugin (from its setup guide).
