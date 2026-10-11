@@ -14,6 +14,8 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.widget.Toast;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -31,12 +33,21 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
 
     private static final String TAG = "SpupOffline";
 
-    // The offline page lives in android/app/src/main/assets/ - NOT in assets/public/.
-    // `npx cap sync` wipes and refills assets/public from mobile-www on every sync, so a
-    // missing or stale copy there is easy to end up with (and leaves Android's own
-    // "Webpage not available" showing). Android always allows file:///android_asset/
-    // URLs, so this needs no sync and no Capacitor setting.
-    private static final String OFFLINE_PAGE = "file:///android_asset/offline.html";
+    // The offline page is android/app/src/main/assets/offline.html (NOT assets/public/ -
+    // `npx cap sync` wipes and refills that folder). It is read here and handed to the
+    // WebView directly, so no file:// access or Capacitor setting is involved.
+    private static final String OFFLINE_ASSET = "offline.html";
+    // Origin the offline page runs under (only used as its base URL).
+    private static final String OFFLINE_BASE = "https://localhost/offline.html";
+    // Shown only if offline.html is missing from assets, so the person never sees
+    // Android's own error page.
+    private static final String FALLBACK_HTML =
+        "<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'>"
+        + "<body style='margin:0;background:#0A0A0A;color:#fff;font-family:sans-serif;display:flex;"
+        + "min-height:100vh;align-items:center;justify-content:center;text-align:center'>"
+        + "<div><h2>No connection</h2><p style='color:#aaa'>Check your internet and try again.</p>"
+        + "<button onclick=\"location.replace('https://spup.live/')\" style='background:#1A9E5F;color:#fff;"
+        + "border:0;border-radius:99px;padding:14px 32px;font-size:16px'>Try again</button></div>";
     private static final String SITE_URL = "https://spup.live/";
 
     // TEMPORARY: shows small on-screen messages so you can see (without adb) that this
@@ -87,26 +98,48 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             }
         });
 
-        debugToast("offline handler v2 installed");
-        if (!hasInternetTransport()) {
+        debugToast("offline handler v3 installed");
+        final boolean online = hasInternetTransport();
+        debugToast(online ? "network looks available at launch" : "no network at launch");
+        if (!online) {
             Log.i(TAG, "no active network at launch");
-            debugToast("no network at launch -> offline page");
             showOfflinePage(bridge.getWebView(), SITE_URL);
         }
     }
 
     // Loads the bundled offline page. Posted rather than loaded directly: loading from
     // inside onReceivedError (or straight after Capacitor's own first load) can lose to
-    // the error page the WebView is about to show.
+    // the error page the WebView is about to show. The failed URL rides along as ?u= (in
+    // the base URL, which is what the page sees as its location).
     private void showOfflinePage(final WebView view, String failedUrl) {
-        final String offlineUrl = OFFLINE_PAGE + "?u=" + Uri.encode(failedUrl);
+        final String baseUrl = OFFLINE_BASE + "?u=" + Uri.encode(failedUrl);
+        String html = readAsset(OFFLINE_ASSET);
+        if (html == null) {
+            debugToast("assets/" + OFFLINE_ASSET + " NOT FOUND - using basic fallback page");
+            html = FALLBACK_HTML;
+        }
+        final String page = html;
         view.post(new Runnable() {
             @Override
             public void run() {
                 Log.i(TAG, "showing offline page");
-                view.loadUrl(offlineUrl);
+                view.loadDataWithBaseURL(baseUrl, page, "text/html", "UTF-8", null);
+                debugToast("offline page loaded");
             }
         });
+    }
+
+    private String readAsset(String name) {
+        try (InputStream in = getAssets().open(name);
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toString("UTF-8");
+        } catch (Exception e) {
+            Log.w(TAG, "could not read asset " + name + ": " + e);
+            return null;
+        }
     }
 
     // True when the phone has a network that claims internet access. (Wi-Fi with no
@@ -120,6 +153,8 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             NetworkCapabilities caps = cm.getNetworkCapabilities(active);
             return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
         } catch (Exception e) {
+            Log.w(TAG, "network check failed: " + e);
+            debugToast("network check failed: " + e.getClass().getSimpleName());
             return true;
         }
     }
