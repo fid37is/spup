@@ -2,10 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect } from 'react'
 import { Home, Search, Bell, MessageSquare } from 'lucide-react'
 import { useChatUnread } from '@/hooks/use-chat-unread'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { useWarmTabs } from '@/hooks/use-warm-tabs'
+import { useChromeVisible, showChrome } from '@/lib/chrome-visibility'
 
 const NAV = [
   { href: '/feed',          icon: Home,          labelKey: 'nav.home' },
@@ -21,6 +23,11 @@ export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { u
   const chatUnread = useChatUnread(unreadChat, userId)
   // Once idle on a good connection, the other tabs are fetched in the background.
   const warm = useWarmTabs()
+  // Slides away on scroll-down and comes back on scroll-up, in step with the
+  // floating compose button (both read the same flag).
+  const chromeVisible = useChromeVisible()
+  // A new page always starts with the bar showing.
+  useEffect(() => { showChrome() }, [pathname])
 
   // Focused, full-screen sub-pages hide the nav entirely, matching how X's own
   // Post Activity screen has no bottom tab bar — these are drill-down detail
@@ -31,13 +38,17 @@ export default function MobileBottomNav({ unreadCount, unreadChat, userId }: { u
   if (hiddenOn.some(re => re.test(pathname))) return null
 
   return (
-    <nav style={{
+    <nav aria-hidden={!chromeVisible} style={{
       position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
       background: 'var(--nav-bg)',
       backdropFilter: 'blur(16px)',
       borderTop: '1px solid var(--color-border)',
       display: 'flex',
       paddingBottom: 'env(safe-area-inset-bottom)',
+      transform: chromeVisible ? 'translateY(0)' : 'translateY(calc(100% + 1px))',
+      transition: 'transform 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+      pointerEvents: chromeVisible ? 'auto' : 'none',
+      willChange: 'transform',
     }}>
       {NAV.map(({ href, icon: Icon, labelKey, badge }) => {
         const label = t(labelKey)

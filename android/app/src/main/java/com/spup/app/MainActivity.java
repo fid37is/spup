@@ -3,11 +3,17 @@ package com.spup.app;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.net.Uri;
 import android.util.Log;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebView;
 
+import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
+import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginHandle;
 
@@ -17,6 +23,10 @@ import ee.forgr.capacitor.social.login.SocialLoginPlugin;
 
 // ModifiedMainActivityForSocialLoginPlugin is required by @capgo/capacitor-social-login.
 public class MainActivity extends BridgeActivity implements ModifiedMainActivityForSocialLoginPlugin {
+
+    // The app's own bundled pages (mobile-www/, copied to assets/public by `npx cap sync`)
+    // are served from this origin (Capacitor's default Android scheme + hostname).
+    private static final String LOCAL_ORIGIN = "https://localhost";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -31,6 +41,24 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             @Override
             public Bitmap getDefaultVideoPoster() {
                 return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+            }
+        });
+
+        // If the live site can't be reached (no internet, dropped connection, DNS
+        // failure) show the app's own offline page (mobile-www/offline.html) instead
+        // of Android's "Webpage not available". The page that failed is passed along
+        // as ?u=, so once the connection is back the person lands where they were
+        // heading. Only main-frame failures count (a broken image or script doesn't
+        // replace the screen), and the offline page itself is never redirected.
+        final Bridge bridge = getBridge();
+        bridge.getWebView().setWebViewClient(new BridgeWebViewClient(bridge) {
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request == null || !request.isForMainFrame()) return;
+                String failedUrl = request.getUrl().toString();
+                if (failedUrl.startsWith(LOCAL_ORIGIN)) return;
+                view.loadUrl(LOCAL_ORIGIN + "/offline.html?u=" + Uri.encode(failedUrl));
             }
         });
     }
