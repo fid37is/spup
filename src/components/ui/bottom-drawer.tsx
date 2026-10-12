@@ -18,10 +18,14 @@
 // - Clicks never reach the post card underneath: React bubbles events through
 //   portals, and the card is a clickable <article> that would open the post.
 // - z-index sits above the media viewer (300) and the quote composer (350).
+// - Locks page scroll while open (shared counted lock, see lib/scroll-lock.ts).
+// - Form / long-content sheets: put the content in <DrawerBody> so it scrolls inside the
+//   sheet, and pass `avoidKeyboard` if it has a text field.
 
 import { Children, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useBackClose } from '@/hooks/use-back-close'
+import { lockBodyScroll } from '@/lib/scroll-lock'
 
 const GROUP_BG = 'color-mix(in srgb, var(--color-text-primary) 7%, var(--color-surface-raised))'
 const DISMISS_DRAG_PX = 90
@@ -59,6 +63,13 @@ export function BottomDrawer({
   useEffect(() => { onHeightRef.current = onHeight })
   useEffect(() => setMounted(true), [])
   useBackClose(open, onClose)
+
+  // The page behind a drawer must not scroll. Counted, so it can't fight another lock
+  // (the media viewer holds one while its own drawers are open).
+  useEffect(() => {
+    if (!open) return
+    return lockBodyScroll()
+  }, [open])
 
   // offsetHeight ignores the slide-in / drag transform, so the picture starts moving
   // up at the same moment the sheet starts sliding up.
@@ -192,13 +203,15 @@ export function DrawerGroup({ children }: { children: React.ReactNode }) {
 
 /** One row: label on the left, icon on the right (as in the Threads sheets). */
 export function DrawerItem({
-  label, icon, onClick, destructive = false, disabled = false,
+  label, icon, onClick, destructive = false, disabled = false, color,
 }: {
   label: string
   icon?: React.ReactNode
   onClick: () => void
   destructive?: boolean
   disabled?: boolean
+  /** Text/icon colour for a row that is neither plain nor destructive (e.g. brand green, muted). */
+  color?: string
 }) {
   return (
     <button
@@ -210,7 +223,7 @@ export function DrawerItem({
         width: '100%', minHeight: 58, padding: '0 20px',
         background: 'none', border: 'none', textAlign: 'left',
         cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
-        color: destructive ? 'var(--color-error)' : 'var(--color-text-primary)',
+        color: destructive ? 'var(--color-error)' : (color ?? 'var(--color-text-primary)'),
         fontSize: 16, fontWeight: 500, fontFamily: "'DM Sans', sans-serif",
         WebkitTapHighlightColor: 'transparent',
       }}
@@ -218,5 +231,14 @@ export function DrawerItem({
       <span>{label}</span>
       {icon}
     </button>
+  )
+}
+
+/** Scrolling content area for a drawer that holds a form or a long list (not a row menu). */
+export function DrawerBody({ children, padding = '0 8px 8px' }: { children: React.ReactNode; padding?: string }) {
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding }}>
+      {children}
+    </div>
   )
 }

@@ -51,6 +51,7 @@ import ConfirmModal from '@/components/ui/confirm-modal'
 import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { lockBodyScroll } from '@/lib/scroll-lock'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -513,9 +514,7 @@ function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose:
   // On a phone the quote composer is a full page, so the page behind must not scroll.
   useEffect(() => {
     if (!isMobile) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
+    return lockBodyScroll()
   }, [isMobile])
   // The quoter's own avatar (the feed card only knows their id). Fetched once and
   // reused, so reopening the composer doesn't flash initials again.
@@ -678,8 +677,11 @@ function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose:
 
 // ── ActionBtn ─────────────────────────────────────────────────────────────────
 // ── MenuItems ─────────────────────────────────────────────────────────────────
-// Shared list of "..." menu actions - rendered inside a bottom sheet on mobile
-// and a compact anchored popup on desktop (same items, different container).
+// The "..." menu actions as a compact anchored popup on desktop. On a phone the same
+// actions render as a BottomDrawer (see PostCard); its rows have no click event to pass
+// on, so they hand the handlers this stand-in.
+const NO_EVENT = { stopPropagation: () => {} } as unknown as React.MouseEvent
+
 function MenuItems({
   isOwnPost, bookmarked, isPinned,
   onPromote, onPin, onBookmark, onCopyLink, onShare, onDelete, onReport,
@@ -1242,11 +1244,6 @@ export default function PostCard({
   const [showPinConfirm, setShowPinConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  // Portaled to document.body below — see the note on ConfirmModal for why
-  // (the mobile "more" action sheet would otherwise render trapped under
-  // the mobile bottom nav, no matter its own z-index).
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
   const router = useRouter()
   const { success, error: toastError, info } = useToast()
   const articleRef = useRef<HTMLElement>(null)
@@ -1473,35 +1470,46 @@ export default function PostCard({
                 >
                   <MoreHorizontal size={16} />
                 </button>
-                {showMenu && (isMobile ? (mounted && createPortal(
-                  <>
-                    <div
-                      onClick={e => { e.stopPropagation(); setShowMenu(false) }}
-                      style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.5)' }}
-                    />
-                    <div
-                      onClick={e => e.stopPropagation()}
-                      style={{
-                        position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 201,
-                        background: 'var(--color-surface-raised)',
-                        borderTopLeftRadius: 20, borderTopRightRadius: 20,
-                        padding: '10px 8px calc(env(safe-area-inset-bottom, 0px) + 12px)',
-                        boxShadow: '0 -8px 30px rgba(0,0,0,0.4)',
-                        animation: 'sheetUp 0.18s ease-out',
-                      }}
-                    >
-                      <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)', margin: '2px auto 10px' }} />
-                      <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
-                        onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
-                        onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
-                        onDelete={handleDelete}
-                        onReport={() => { setShowMenu(false); setShowReport(true) }}
-                        size={18} fontSize={15} gap={12} padding="14px 16px" />
-                    </div>
-                    <style>{`@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
-                  </>,
-                  document.body
-                )) : (
+                {showMenu && (isMobile ? (
+                  // Same BottomDrawer as the repost / media menus: rounded sheet, drag handle,
+                  // rows grouped in soft cards, label left and icon right.
+                  <BottomDrawer open onClose={() => setShowMenu(false)} label={t('profile.more_options')}>
+                    {isOwnPost && (
+                      <DrawerGroup>
+                        <DrawerItem
+                          label={t('post.promote_post')} color="#1A9E5F" icon={<Megaphone size={22} />}
+                          onClick={() => { setShowMenu(false); setShowPromoteModal(true) }}
+                        />
+                        <DrawerItem
+                          label={isPinned ? t('post.unpin_from_profile') : t('post.pin_to_profile')}
+                          icon={isPinned ? <PinOff size={22} /> : <Pin size={22} />}
+                          onClick={() => handlePin(NO_EVENT)}
+                        />
+                      </DrawerGroup>
+                    )}
+                    <DrawerGroup>
+                      <DrawerItem
+                        label={bookmarked ? t('post.saved') : t('post.save')}
+                        icon={<Bookmark size={22} fill={bookmarked ? 'var(--color-gold)' : 'none'} color={bookmarked ? 'var(--color-gold)' : 'currentColor'} />}
+                        onClick={() => handleBookmark(NO_EVENT)}
+                      />
+                      <DrawerItem label={t('post.copy_link')} icon={<Link2 size={22} />} onClick={() => handleCopyLink(NO_EVENT)} />
+                      <DrawerItem label={t('post.share')} icon={<Send size={22} />} onClick={() => handleShare(NO_EVENT)} />
+                    </DrawerGroup>
+                    <DrawerGroup>
+                      {isOwnPost && (
+                        <DrawerItem
+                          label={t('post.delete_post_menu')} destructive icon={<Trash2 size={22} />}
+                          onClick={() => handleDelete(NO_EVENT)}
+                        />
+                      )}
+                      <DrawerItem
+                        label={t('post.report_post')} color="var(--color-text-secondary)" icon={<Flag size={22} />}
+                        onClick={() => { setShowMenu(false); setShowReport(true) }}
+                      />
+                    </DrawerGroup>
+                  </BottomDrawer>
+                ) : (
                   <>
                     <div onClick={e => { e.stopPropagation(); setShowMenu(false) }} style={{ position: 'fixed', inset: 0, zIndex: 200 }} />
                     <div

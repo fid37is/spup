@@ -56,7 +56,7 @@ async function notify(recipientId: string, actorId: string, type: 'wallet_transf
 // Powers the live "who are you sending to" preview in send-button.tsx.
 // Deliberately returns the same shape/behaviour whether the user doesn't
 // exist or isn't eligible to receive — no need to distinguish those to the
-// sender beyond "can't send to this account".
+// sender beyond "can't send to this account"
 
 export async function resolveTransferRecipientAction(username: string) {
   const clean = username.trim().replace(/^@/, '').toLowerCase()

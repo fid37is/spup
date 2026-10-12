@@ -8,6 +8,7 @@ import { X, Home, Search, Bell, Wallet, User, Settings, PenSquare } from 'lucide
 import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
 import { formatNumber } from '@/lib/utils'
+import { lockBodyScroll } from '@/lib/scroll-lock'
 
 const NAV = [
   { href: '/feed',          icon: Home,     label: 'Home' },
@@ -56,8 +57,7 @@ export default function MobileHeader({ profile, unreadCount, mutualsCount, title
   // lock a full-screen page (the chat thread) had set.
   useEffect(() => {
     if (!mounted || !drawerOpen) return
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = '' }
+    return lockBodyScroll()
   }, [drawerOpen, mounted])
 
   // Close on route change

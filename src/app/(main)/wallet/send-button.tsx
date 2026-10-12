@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useTransition } from 'react'
-import { createPortal } from 'react-dom'
-import { Send, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { Send, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { transferAction } from '@/lib/actions/wallet-transfer'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { BottomDrawer, DrawerBody } from '@/components/ui/bottom-drawer'
 
 type Step = 'form' | 'confirm' | 'success' | 'error'
 
@@ -23,7 +23,6 @@ interface SendButtonProps {
 
 export default function SendButton({ balance }: SendButtonProps) {
   const { t } = useTranslation()
-  const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
   const [isPending, startTransition] = useTransition()
@@ -37,7 +36,6 @@ export default function SendButton({ balance }: SendButtonProps) {
   const [amountKobo, setAmountKobo] = useState(0)
   const [note, setNote] = useState('')
 
-  useEffect(() => { setMounted(true) }, [])
 
   // Auto-resolve recipient as the username is typed, same debounced
   // pattern as withdraw-button.tsx's account-name resolution.
@@ -101,37 +99,9 @@ export default function SendButton({ balance }: SendButtonProps) {
   }
 
   const modal = (
-    <>
-      <div onClick={handleClose} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} />
-      <div style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 401,
-        background: 'var(--color-bg)',
-        borderTop: '1px solid var(--color-border)',
-        borderRadius: '20px 20px 0 0',
-        maxHeight: '92dvh',
-        overflowY: 'auto',
-        animation: 'slideUp 0.25s cubic-bezier(0.4,0,0.2,1)',
-        maxWidth: 560,
-        margin: '0 auto',
-      }}>
-        <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
-
-        {/* Handle */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)' }} />
-        </div>
-
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px 16px' }}>
-          <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
-            {step === 'confirm' ? t('wallet.send_confirm_transfer') : step === 'success' ? t('wallet.send_money_sent') : step === 'error' ? t('wallet.send_transfer_failed') : t('wallet.send_money_title')}
-          </h2>
-          <button onClick={handleClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}>
-            <X size={20} />
-          </button>
-        </div>
-
-        <div style={{ padding: '0 20px 40px' }}>
+    <BottomDrawer open={open} onClose={handleClose} title={step === 'confirm' ? t('wallet.send_confirm_transfer') : step === 'success' ? t('wallet.send_money_sent') : step === 'error' ? t('wallet.send_transfer_failed') : t('wallet.send_money_title')} avoidKeyboard>
+      <DrawerBody>
+        <div>
 
           {/* SUCCESS */}
           {step === 'success' && (
@@ -272,8 +242,8 @@ export default function SendButton({ balance }: SendButtonProps) {
             </div>
           )}
         </div>
-      </div>
-    </>
+      </DrawerBody>
+    </BottomDrawer>
   )
 
   const canSend = balance >= 5_000
@@ -288,7 +258,7 @@ export default function SendButton({ balance }: SendButtonProps) {
         <Send size={16} />
         {t('wallet.send')}
       </button>
-      {mounted && open && createPortal(modal, document.body)}
+      {modal}
     </>
   )
 }

@@ -16,6 +16,7 @@
 // inside the page, next to the sidebars.
 
 import { useEffect, useRef } from 'react'
+import { lockBodyScroll } from '@/lib/scroll-lock'
 
 export default function ChatViewport({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -34,18 +35,21 @@ export default function ChatViewport({ children }: { children: React.ReactNode }
       if (l) stickToBottom = l.scrollHeight - l.scrollTop - l.clientHeight < 160
     }
 
+    let unlockScroll: (() => void) | null = null
+
     function apply() {
       if (!el) return
       if (!mobile.matches || !vv) {
         el.style.top = ''
         el.style.height = ''
-        document.body.style.overflow = ''
+        unlockScroll?.()
+        unlockScroll = null
         return
       }
       el.style.top = `${vv.offsetTop}px`
       el.style.height = `${vv.height}px`
-      // Keep the page itself from scrolling behind the chat.
-      document.body.style.overflow = 'hidden'
+      // Keep the page itself from scrolling behind the chat (held once, not per resize).
+      if (!unlockScroll) unlockScroll = lockBodyScroll()
       // Keyboard opened/closed: keep the latest messages in view.
       const l = list()
       if (l && stickToBottom) l.scrollTop = l.scrollHeight
@@ -68,7 +72,8 @@ export default function ChatViewport({ children }: { children: React.ReactNode }
       vv?.removeEventListener('scroll', apply)
       mobile.removeEventListener('change', apply)
       delete document.documentElement.dataset.chatOpen
-      document.body.style.overflow = ''
+      unlockScroll?.()
+      unlockScroll = null
     }
   }, [])
 

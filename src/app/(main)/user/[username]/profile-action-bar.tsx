@@ -19,6 +19,8 @@ import { useToast } from '@/components/layout/toast'
 import { useEngagement, setEngagement } from '@/lib/engagement-sync'
 import ReportDialog from '@/components/feed/report-dialog'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { useIsPhone } from '@/hooks/use-is-phone'
+import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
 
 interface ProfileActionBarProps {
   targetUserId: string
@@ -49,6 +51,7 @@ export default function ProfileActionBar({
   const router = useRouter()
   const { success, error: toastError } = useToast()
   const [, startT] = useTransition()
+  const phone = useIsPhone()
 
   // Saved instantly and delivered in the background (retried on a weak
   // connection) - see engagement-sync.
@@ -197,7 +200,44 @@ export default function ProfileActionBar({
   // — a menu nested or anchored inside that box gets clipped or spills out
   // in the wrong place instead of behaving like a normal floating dropdown,
   // so the menu itself needs to live entirely outside that DOM subtree.
-  const menuRendered = showMenu && menuPos && createPortal(
+  // Phone: the same BottomDrawer as every other sheet (post menu, repost options, ...).
+  const phoneMenu = showMenu && (
+    <BottomDrawer open onClose={() => setShowMenu(false)} label={t('profile.more_options')}>
+      {blocked ? (
+        <DrawerGroup>
+          <DrawerItem
+            label={t('profile.unblock_user', { username })} color="var(--color-brand)"
+            icon={<Ban size={22} />} onClick={handleBlock}
+          />
+        </DrawerGroup>
+      ) : (
+        <>
+          <DrawerGroup>
+            <DrawerItem label={t('profile.share_user', { username })} icon={<Share2 size={22} />} onClick={handleShare} />
+            <DrawerItem label={t('profile.copy_link_to_profile')} icon={<Link2 size={22} />} onClick={handleCopyLink} />
+          </DrawerGroup>
+          <DrawerGroup>
+            <DrawerItem
+              label={muted ? t('profile.unmute_user', { username }) : t('profile.mute_user', { username })}
+              icon={muted ? <Volume2 size={22} /> : <VolumeX size={22} />}
+              color={muted ? 'var(--color-brand)' : undefined}
+              onClick={handleMute}
+            />
+          </DrawerGroup>
+          <DrawerGroup>
+            <DrawerItem label={t('profile.block_user', { username })} destructive icon={<Ban size={22} />} onClick={handleBlock} />
+            <DrawerItem
+              label={t('profile.report_user', { username })} destructive icon={<Flag size={22} />}
+              onClick={() => { setShowMenu(false); setShowReport(true) }}
+            />
+          </DrawerGroup>
+        </>
+      )}
+    </BottomDrawer>
+  )
+
+  // Desktop: dropdown anchored under the trigger.
+  const desktopMenu = showMenu && menuPos && createPortal(
     <>
       <div onClick={() => setShowMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 499 }} />
       <div
@@ -254,6 +294,8 @@ export default function ProfileActionBar({
     </>,
     document.body
   )
+
+  const menuRendered = phone ? phoneMenu : desktopMenu
 
   const moreButtonRendered = (
     <>

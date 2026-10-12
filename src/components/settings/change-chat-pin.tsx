@@ -13,7 +13,7 @@
 
 import { useState, useRef } from 'react'
 import PinCircles from '@/components/chat/pin-circles'
-import { createPortal } from 'react-dom'
+import { BottomDrawer, DrawerBody } from '@/components/ui/bottom-drawer'
 import { KeyRound, ChevronRight, Loader, Check } from 'lucide-react'
 import { verifyChatPinAction, getWrappedKeyAction, uploadWrappedKeyAction, getPublicKeyAction } from '@/lib/actions/messages'
 import { changeChatPinAction } from '@/lib/actions/chat-pin'
@@ -128,25 +128,10 @@ export function ChangeChatPinSheet({ open, onClose }: { open: boolean; onClose: 
   const newRef = useRef<HTMLInputElement>(null)
   const confirmRef = useRef<HTMLInputElement>(null)
 
-  if (!open || typeof document === 'undefined') return null
-
-  return createPortal(
-        <>
-          <div onClick={close} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'var(--overlay-bg)' }} />
-          <div style={{ position: 'fixed', inset: 0, zIndex: 401, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pointerEvents: 'none' }}>
-            <div
-              onClick={e => e.stopPropagation()}
-              style={{
-                pointerEvents: 'auto',
-                background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)',
-                borderTopLeftRadius: 20, borderTopRightRadius: 20,
-                padding: '24px 24px calc(24px + env(safe-area-inset-bottom))',
-                width: '100%', maxWidth: 480,
-              }}
-            >
-              <h3 style={{ margin: '0 0 6px', textAlign: 'center', fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
-                Change chat PIN
-              </h3>
+  return (
+    <BottomDrawer open={open} onClose={close} title="Change chat PIN" avoidKeyboard>
+      <DrawerBody padding="0 12px 8px">
+            <div>
               <p style={{ margin: '0 0 20px', textAlign: 'center', fontSize: 14, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
                 Your message history stays readable - it is re-protected with the new PIN.
               </p>
@@ -183,10 +168,9 @@ export function ChangeChatPinSheet({ open, onClose }: { open: boolean; onClose: 
                 </button>
               </div>
             </div>
-          </div>
-          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-        </>,
-        document.body
+      </DrawerBody>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+    </BottomDrawer>
   )
 }
 

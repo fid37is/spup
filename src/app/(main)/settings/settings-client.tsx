@@ -1,8 +1,7 @@
 'use client'
 
 import { usernameLengthError, clampUsername } from '@/lib/validations/username-length'
-import { useState, useTransition, useEffect } from 'react'
-import { createPortal } from 'react-dom'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle, Lock,
@@ -11,6 +10,7 @@ import {
 import { signOutAction, saveInterestsAction } from '@/lib/actions'
 import { updateProfileAction, deleteAccountAction, changePasswordAction, changeUsernameAction } from '@/lib/actions/profiles'
 import { useTheme } from '@/components/layout/theme-provider'
+import { BottomDrawer, DrawerBody } from '@/components/ui/bottom-drawer'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { isLocale } from '@/lib/i18n/dictionaries'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -187,10 +187,6 @@ export default function SettingsClient({ profile, interests: initialInterests }:
   const [lang,       setLang]       = useState(profile.language_preference || 'en')
   const [autoplay,   setAutoplay]   = useState(profile.autoplay_preference || 'wifi')
   const [showDelete,  setShowDelete]  = useState(false)
-  // The delete sheet is portaled to document.body (so it isn't trapped under
-  // the mobile bottom nav); document only exists once mounted on the client.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
   const [deleteInput, setDeleteInput] = useState('')
   const [deleting,    setDeleting]    = useState(false)
 
@@ -793,26 +789,12 @@ export default function SettingsClient({ profile, interests: initialInterests }:
       </Card>
 
       {/* ── Delete confirmation sheet ─────────────────────────────────────── */}
-      {showDelete && mounted && createPortal(
-        <>
-          <div
-            onClick={() => { setShowDelete(false); setDeleteInput(''); setDeletePass(''); setDeletePassErr('') }}
-            style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'var(--overlay-bg)' }}
-          />
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 401,
-            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-          }}>
-            <div
-              onClick={e => e.stopPropagation()}
-              style={{
-                background: 'var(--color-surface)',
-                borderTop: '1px solid var(--color-border)',
-                borderTopLeftRadius: 20, borderTopRightRadius: 20,
-                padding: `28px 24px calc(28px + env(safe-area-inset-bottom))`,
-                width: '100%', maxWidth: 480,
-              }}
-            >
+      <BottomDrawer
+        open={showDelete} avoidKeyboard label={t('settings.delete_confirm_title')}
+        onClose={() => { setShowDelete(false); setDeleteInput(''); setDeletePass(''); setDeletePassErr('') }}
+      >
+        <DrawerBody padding="0 12px 8px">
+          <div>
               <div style={{
                 width: 48, height: 48, borderRadius: '50%',
                 background: 'var(--color-error-muted)',
@@ -908,11 +890,9 @@ export default function SettingsClient({ profile, interests: initialInterests }:
                   }
                 </button>
               </div>
-            </div>
           </div>
-        </>,
-        document.body
-      )}
+        </DrawerBody>
+      </BottomDrawer>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>

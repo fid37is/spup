@@ -36,6 +36,7 @@ import { useNetworkStatus } from '@/lib/network-status'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { useBackClose } from '@/hooks/use-back-close'
 import MediaPortal from '@/components/media/media-portal'
+import { lockBodyScroll } from '@/lib/scroll-lock'
 import MediaOptionsDrawer, { MEDIA_DRAWER_BACKDROP } from '@/components/media/media-options-drawer'
 import { BottomDrawer } from '@/components/ui/bottom-drawer'
 
@@ -409,12 +410,11 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose, pr
 
   useEffect(() => {
     document.addEventListener('keydown', handleKey)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', handleKey)
-      document.body.style.overflow = ''
-    }
+    return () => document.removeEventListener('keydown', handleKey)
   }, [handleKey])
+
+  // Scroll lock: mount/unmount only (see lib/scroll-lock.ts).
+  useEffect(() => lockBodyScroll(), [])
 
   if (!current || !mounted) return null
 
