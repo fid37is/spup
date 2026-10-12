@@ -1,22 +1,32 @@
 package com.spup.app;
 
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.MimeTypeMap;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Locale;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -148,6 +158,117 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
                 }
             });
         }
+
+        /**
+         * Saves a photo or video into the phone's gallery (Pictures/Spup or Movies/Spup)
+         * without leaving the app. Used by the "Save image / Save video" option in the
+         * media viewers (src/lib/save-media.ts).
+         *
+         * Returns true when the save was started; the outcome arrives afterwards as a
+         * "spup:media-saved" event on window with detail { id, ok }. Returns false when
+         * this phone or URL isn't supported (Android 9 and older, or a URL that isn't
+         * https://res.cloudinary.com/...) - the web app then falls back to downloading
+         * through the system browser.
+         */
+        @JavascriptInterface
+        public boolean saveMedia(final String url, final String kind, final String requestId) {
+            // MediaStore lets an app add its own files with no storage permission from
+            // Android 10 (API 29). Older phones would need a runtime permission - they
+            // use the browser download instead.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || !isMediaUrl(url)) return false;
+            final boolean video = "video".equals(kind);
+            new Thread(() -> reportMediaSaved(requestId, saveToGallery(url, video)), "spup-save-media").start();
+            return true;
+        }
+    }
+
+    // Only Cloudinary-hosted media (what posts and chats use) can be saved through the
+    // bridge, so a page can't make the app download arbitrary files.
+    private static final String MEDIA_HOST = "res.cloudinary.com";
+
+    private boolean isMediaUrl(String url) {
+        try {
+            Uri u = Uri.parse(url);
+            return "https".equals(u.getScheme()) && MEDIA_HOST.equals(u.getHost());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Downloads the file and adds it to the shared Pictures / Movies collection, so it
+    // shows up in the Gallery app straight away (album "Spup"). Runs off the UI thread.
+    // The item is marked pending while it is being written, and removed again if the
+    // download fails, so a half-written file never appears in the gallery.
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
+    private boolean saveToGallery(String url, boolean video) {
+        ContentResolver resolver = getContentResolver();
+        Uri item = null;
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(30000);
+            if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                throw new IOException("HTTP " + conn.getResponseCode());
+            }
+
+            String mime = conn.getContentType();
+            if (mime != null) {
+                int semicolon = mime.indexOf(';');
+                if (semicolon >= 0) mime = mime.substring(0, semicolon);
+                mime = mime.trim().toLowerCase(Locale.ROOT);
+            }
+            if (mime == null || !mime.startsWith(video ? "video/" : "image/")) {
+                throw new IOException("Unexpected content type: " + mime);
+            }
+            String ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
+            if (ext == null) ext = video ? "mp4" : "jpg";
+
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, "spup-" + System.currentTimeMillis() + "." + ext);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH,
+                    (video ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES) + "/Spup");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+            Uri collection = video
+                    ? MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    : MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+            item = resolver.insert(collection, values);
+            if (item == null) throw new IOException("MediaStore insert failed");
+
+            try (InputStream in = conn.getInputStream(); OutputStream out = resolver.openOutputStream(item)) {
+                if (out == null) throw new IOException("Could not open output stream");
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+
+            ContentValues done = new ContentValues();
+            done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            resolver.update(item, done, null, null);
+            return true;
+        } catch (Exception e) {
+            Log.w("SpupSaveMedia", "Save to gallery failed", e);
+            if (item != null) {
+                try { resolver.delete(item, null, null); } catch (Exception ignored) { }
+            }
+            return false;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    // Tells the page how the save went (window event "spup:media-saved"). The id is the
+    // one the page generated; it is stripped to safe characters before going into script.
+    private void reportMediaSaved(String requestId, boolean ok) {
+        final String id = requestId == null ? "" : requestId.replaceAll("[^A-Za-z0-9_-]", "");
+        final String js = "window.dispatchEvent(new CustomEvent('spup:media-saved',{detail:{id:'" + id + "',ok:" + ok + "}}))";
+        runOnUiThread(() -> {
+            try {
+                getBridge().getWebView().evaluateJavascript(js, null);
+            } catch (Exception ignored) { }
+        });
     }
 
     // Only ever hand spup.live URLs on to the offline page; anything else -> home.

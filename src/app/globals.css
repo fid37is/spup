@@ -75,6 +75,13 @@
   --color-error-border: rgba(229, 57, 53, 0.20);
   --color-success:      #1A9E5F;
 
+  /* ── Full-screen media viewer (theme-invariant: always black, like Threads) ── */
+  --viewer-bg:          #000000;
+  --viewer-fg:          #FFFFFF;
+  --viewer-fg-muted:    rgba(255, 255, 255, 0.72);
+  --viewer-control-bg:  rgba(255, 255, 255, 0.16);
+  --viewer-control-hover: rgba(255, 255, 255, 0.26);
+
   /* ── Dark theme vars on :root — always present for SSR/public pages ── */
   --color-bg:             #050508;
   --color-surface:        #0D0D12;
@@ -299,6 +306,10 @@ body > * { position: relative; z-index: 1; }
 @keyframes modalIn {
   from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes drawerUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
 }
 
 .animate-fade-in-up { animation: fadeInUp 0.4s ease forwards; opacity: 0; }

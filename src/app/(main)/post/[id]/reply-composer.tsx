@@ -23,11 +23,16 @@ const MAX_CHARS = 500
 
 interface ReplyComposerProps {
   parentPostId: string
-  viewerInitial: string
-  viewerAvatar: string | null
+  viewerInitial?: string
+  viewerAvatar?: string | null
   viewerName?: string
   /** Called with the newly created post (when the server returned one). */
   onPosted?: (post: unknown) => void
+  /** Sits inside another surface (the media viewer's replies drawer / sidebar) instead of
+   *  being the page's fixed bottom bar: normal flow, no keyboard/column positioning of its
+   *  own, no avatar unless one is given. Everything else - photos/videos, mentions, the
+   *  counter and background posting - is the same. */
+  embedded?: boolean
 }
 
 export default function ReplyComposer({
@@ -35,6 +40,7 @@ export default function ReplyComposer({
   viewerInitial,
   viewerAvatar,
   onPosted,
+  embedded = false,
 }: ReplyComposerProps) {
   const router = useRouter()
   const { t } = useTranslation()
@@ -62,6 +68,7 @@ export default function ReplyComposer({
   // so we track it here too and push the bar up by exactly the keyboard's
   // height, no more, no less, updating live as it opens and closes.
   useEffect(() => {
+    if (embedded) return   // the surface that holds it deals with the keyboard
     const vv = window.visualViewport
     if (!vv) return
     function apply() {
@@ -77,7 +84,7 @@ export default function ReplyComposer({
       vv.removeEventListener('resize', apply)
       vv.removeEventListener('scroll', apply)
     }
-  }, [])
+  }, [embedded])
 
   // This bar is `position: fixed` so it stays pinned to the bottom of the
   // viewport while replies scroll underneath it - same as the mobile app,
@@ -94,6 +101,7 @@ export default function ReplyComposer({
   // already spans the full width, so this measurement collapses back to
   // the original edge-to-edge behavior with no separate mobile-only case.
   useEffect(() => {
+    if (embedded) return
     const anchor = anchorRef.current
     const bar = barRef.current
     if (!anchor || !bar) return
@@ -111,7 +119,7 @@ export default function ReplyComposer({
       window.removeEventListener('resize', apply)
       ro.disconnect()
     }
-  }, [])
+  }, [embedded])
 
   const charsLeft = MAX_CHARS - body.length
   const isOverLimit = charsLeft < 0
@@ -171,7 +179,7 @@ export default function ReplyComposer({
       <div
         ref={barRef}
         className="reply-composer-bar"
-        style={{
+        style={embedded ? { width: '100%' } : {
           position: 'fixed',
           bottom: 0,
           zIndex: 20,
@@ -182,14 +190,16 @@ export default function ReplyComposer({
         }}
       >
       <div style={{
-        padding: isExpanded
-          ? '12px 16px calc(8px + env(safe-area-inset-bottom))'
-          : '10px 16px calc(10px + env(safe-area-inset-bottom))',
+        padding: embedded
+          ? '10px 4px 4px'
+          : isExpanded
+            ? '12px 16px calc(8px + env(safe-area-inset-bottom))'
+            : '10px 16px calc(10px + env(safe-area-inset-bottom))',
         display: 'flex', gap: 12, alignItems: 'flex-start',
         position: 'relative',
       }}>
-        {/* Avatar */}
-        <div style={{
+        {/* Avatar (embedded: only when the host knows who is replying) */}
+        {(!embedded || viewerAvatar || viewerInitial) && <div style={{
           width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
           background: viewerAvatar ? 'transparent' : 'var(--color-brand)',
           overflow: 'hidden',
@@ -201,7 +211,7 @@ export default function ReplyComposer({
             ? <img src={viewerAvatar} alt={viewerInitial} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             : viewerInitial
           }
-        </div>
+        </div>}
 
         <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
           {/* Textarea - type and post directly, right here */}
