@@ -774,5 +774,18 @@
   "chat.status_not_sent": "Not sent",
   "chat.status_sent": "Sent",
   "chat.status_delivered": "Delivered",
-  "chat.status_read": "Read"
+  "chat.status_read": "Read",
+  "chat.reply_placeholder": "Reply",
+  "chat.replying_to": "Replying to {name}",
+  "media.options": "Media options",
+  "media.share_via": "Share via...",
+  "media.save_image": "Save image",
+  "media.save_video": "Save video",
+  "media.saving": "Saving...",
+  "media.saved": "Saved to your device",
+  "media.save_failed": "Could not save. Try again.",
+  "media.share_failed": "Could not share. Try again.",
+  "media.replies_title": "Replies",
+  "post.repost_options": "Repost options",
+  "post.repost_only": "Repost only"
 }

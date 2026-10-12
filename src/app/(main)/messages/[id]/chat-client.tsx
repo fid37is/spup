@@ -38,6 +38,7 @@ import {
 } from '@/lib/chat-message-state'
 import type { MessageRow, ReplyRef } from '@/lib/chat-queries'
 import MessageStatusIcon from '@/components/chat/message-status'
+import ChatMediaViewer from '@/components/chat/chat-media-viewer'
 import { useToast } from '@/components/layout/toast'
 import ReportDialog from '@/components/feed/report-dialog'
 import { toggleBlockAction } from '@/lib/actions/follows'
@@ -118,7 +119,8 @@ export default function ChatClient({
   const [attachUploading, setAttachUploading] = useState(false)
   const [attachProgress, setAttachProgress] = useState(0)
   const [attachError, setAttachError] = useState('')
-  const [lightbox, setLightbox] = useState<{ url: string; type: 'image' | 'video' } | null>(null)
+  // The photo/video open in the full-screen viewer, plus the message it belongs to (so a reply typed in the viewer quotes it).
+  const [lightbox, setLightbox] = useState<{ url: string; type: 'image' | 'video'; msg: Message } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const attachAbortRef = useRef<AbortController | null>(null)
 
@@ -655,12 +657,10 @@ export default function ChatClient({
     setAttachError('')
   }
 
-  function handleSend() {
-    const text = body.trim()
-    const media = attachment
-    if ((!text && !media) || !canSend || attachUploading) return
+  // Adds one outgoing message to the thread (optimistically) and queues it for sending.
+  // Shared by the composer's Send button and the reply field inside the media viewer.
+  function queueMessage(text: string, media: UploadedChatMedia | null, reply: Message | null) {
     const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const reply = replyTo
     const optimistic: Message = {
       id: tempId, _key: tempId,
       body: null,                                   // filled with the wire body just before sending
@@ -683,11 +683,25 @@ export default function ChatClient({
     if (text) setTexts(t => ({ ...t, [tempId]: text }))
     stickRef.current = true
     setMessages(prev => arrange([...prev, optimistic]))
+    enqueue(tempId)
+  }
+
+  function handleSend() {
+    const text = body.trim()
+    const media = attachment
+    if ((!text && !media) || !canSend || attachUploading) return
+    queueMessage(text, media, replyTo)
     setBody('')
     setReplyTo(null)
     setAttachment(null)
     if (inputRef.current) inputRef.current.style.height = 'auto'
-    enqueue(tempId)
+  }
+
+  // Reply typed under a photo/video in the viewer: a normal message quoting that photo/video.
+  function sendReplyFromViewer(target: Message, text: string): boolean {
+    if (!canSend || !text) return false
+    queueMessage(text, null, target)
+    return true
   }
 
   async function handleHideChat() {
@@ -1032,7 +1046,7 @@ export default function ChatClient({
 
                       {hasMedia && (
                         <div
-                          onClick={e => { e.stopPropagation(); if (msg.media_url && !msg._optimistic) setLightbox({ url: msg.media_url, type: msg.media_type === 'video' ? 'video' : 'image' }) }}
+                          onClick={e => { e.stopPropagation(); if (msg.media_url && !msg._optimistic) setLightbox({ url: msg.media_url, type: msg.media_type === 'video' ? 'video' : 'image', msg }) }}
                           style={{
                             position: 'relative', borderRadius: 12, overflow: 'hidden',
                             marginBottom: hasCaption ? 6 : 0, cursor: 'pointer', background: 'rgba(0,0,0,0.15)',
@@ -1137,6 +1151,13 @@ export default function ChatClient({
           borderTop: '1px solid var(--color-border)',
           display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
         }}>
+          {(replyTo.media_type === 'video' ? replyTo.media_thumbnail_url : replyTo.media_url) && (
+            <img
+              src={(replyTo.media_type === 'video' ? replyTo.media_thumbnail_url : replyTo.media_url) ?? undefined}
+              alt="" aria-hidden
+              style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }}
+            />
+          )}
           <div style={{ flex: 1, minWidth: 0, borderLeft: '3px solid var(--color-brand)', paddingLeft: 10 }}>
             <div style={{ fontSize: 11, color: 'var(--color-brand)', fontWeight: 600, marginBottom: 2 }}>
               Replying to {nameOf(replyTo.sender_id)}
@@ -1319,47 +1340,16 @@ export default function ChatClient({
         </div>
       )}
 
-      {/* Media lightbox */}
+      {/* Media viewer: its own full-screen portal, with Share/Save and a reply field */}
       {lightbox && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={lightbox.type === 'video' ? t('notif.video') : t('notif.photo')}
-          onClick={() => setLightbox(null)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 'max(16px, env(safe-area-inset-top, 0px)) 16px 16px',
-          }}
-        >
-          <button
-            aria-label={t('chat.close')}
-            onClick={() => setLightbox(null)}
-            style={{
-              position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 0px))', right: 16,
-              width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.12)',
-              border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            <X size={20} color="white" />
-          </button>
-          {lightbox.type === 'video' ? (
-            <video
-              src={lightbox.url}
-              controls
-              autoPlay
-              onClick={e => e.stopPropagation()}
-              style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }}
-            />
-          ) : (
-            <img
-              src={lightbox.url}
-              alt=""
-              onClick={e => e.stopPropagation()}
-              style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8, objectFit: 'contain' }}
-            />
-          )}
-        </div>
+        <ChatMediaViewer
+          url={lightbox.url}
+          type={lightbox.type}
+          senderName={lightbox.msg.sender_id === currentUserId ? undefined : otherUser.display_name}
+          canReply={canSend}
+          onReply={text => sendReplyFromViewer(lightbox.msg, text)}
+          onClose={() => setLightbox(null)}
+        />
       )}
 
       <style>{`@keyframes chat-spin { to { transform: rotate(360deg); } }`}</style>

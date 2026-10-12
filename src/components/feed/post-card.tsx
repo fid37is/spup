@@ -48,6 +48,7 @@ import { publishFeedEvent } from '@/lib/feed-local-events'
 import { linkifyPostText, closeCutBold } from '@/components/shared/linkify'
 import LinkPreviewCard from '@/components/feed/link-preview-card'
 import ConfirmModal from '@/components/ui/confirm-modal'
+import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
 
@@ -342,7 +343,7 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
         </div>
         {!compact && viewerIdx !== null && (
           <MediaViewer
-            media={sorted} initialIndex={viewerIdx} post={post}
+            media={sorted} initialIndex={viewerIdx} post={post} previewWidth={900}
             initialVideoTime={viewerStartTime} onVideoTime={syncInlineVideoTime}
             onClose={() => setViewerIdx(null)}
           />
@@ -406,6 +407,7 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
           media={sorted}
           initialIndex={viewerIdx}
           post={post}
+          previewWidth={700}
           initialVideoTime={viewerStartTime}
           onVideoTime={syncInlineVideoTime}
           onClose={() => setViewerIdx(null)}
@@ -635,7 +637,7 @@ function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose:
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'var(--overlay-bg)', zIndex: 200 }} />
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'var(--overlay-bg)', zIndex: 350 }} />
       <div
         onClick={e => e.stopPropagation()}
         style={{
@@ -643,7 +645,7 @@ function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose:
           transform: 'translate(-50%,-50%)', width: 'min(600px, 95vw)',
           maxHeight: '90dvh', overflowY: 'auto',
           background: 'var(--color-surface-raised)', border: '1px solid var(--color-border-light)',
-          borderRadius: 20, padding: '12px 16px 16px', zIndex: 201, animation: 'modalIn 0.18s ease',
+          borderRadius: 20, padding: '12px 16px 16px', zIndex: 351, animation: 'modalIn 0.18s ease',
           boxSizing: 'border-box',
         }}
       >
@@ -733,9 +735,11 @@ function MenuItems({
   )
 }
 
-function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false, burst = false }: {
+function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false, burst = false, onDark = false }: {
   icon: React.ReactNode; count: number | null; active: boolean; activeColor: string
   onClick: (e: React.MouseEvent) => void; label: string; showZero?: boolean; burst?: boolean
+  // On the media viewer's black background: white icons/counts instead of the theme's muted grey.
+  onDark?: boolean
 }) {
   const [animating, setAnimating] = useState(false)
   const wasActive = useRef(active)
@@ -755,6 +759,10 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
   }, [active, burst])
 
   const particles = animating ? Array.from({ length: 6 }) : []
+  // No count, no space: an empty count used to reserve a fixed-width gap after the
+  // icon, which is what made the row look spread out across the width.
+  const countText = count !== null ? (count > 0 ? formatNumber(count) : showZero ? '0' : '') : ''
+  const idleColor = onDark ? 'var(--viewer-fg)' : 'var(--color-text-muted)'
 
   return (
     <button
@@ -767,15 +775,15 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
       }}
       aria-label={label}
       style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: countText ? 6 : 0,
         background: 'none', border: 'none', cursor: 'pointer',
-        color: active ? activeColor : 'var(--color-text-muted)',
+        color: active ? activeColor : idleColor,
         padding: '8px 10px', borderRadius: 20, fontSize: 13,
         fontFamily: "'DM Sans',sans-serif", transition: 'color 0.12s, background 0.12s',
         WebkitTapHighlightColor: 'transparent',
         minHeight: 40, touchAction: 'manipulation',
       }}
-      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-3)' }}
+      onMouseEnter={e => { e.currentTarget.style.background = onDark ? 'var(--viewer-control-bg)' : 'var(--color-surface-3)' }}
       onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
     >
       <span style={{
@@ -803,9 +811,11 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
           )
         })}
       </span>
-      <span style={{ fontSize: 12, minWidth: 14, textAlign: 'left', color: 'var(--color-text-muted)' }}>
-        {count !== null ? (count > 0 ? formatNumber(count) : showZero ? '0' : '') : ''}
-      </span>
+      {countText && (
+        <span style={{ fontSize: 12, textAlign: 'left', color: idleColor }}>
+          {countText}
+        </span>
+      )}
     </button>
   )
 }
@@ -817,11 +827,29 @@ export function PostActions({
   onReplyClick,
   isReply = false,
   repostTarget,
+  tone = 'default',
+  flush = true,
+  align = 'start',
+  drawerBackdrop,
+  onDrawerHeight,
 }: {
   post: FeedPost
   currentUserId?: string
   onReplyClick?: () => void
   isReply?: boolean
+  // 'onDark': white icons for the media viewer's black background.
+  tone?: 'default' | 'onDark'
+  // Pull the row left by the buttons' own padding so the first icon sits exactly
+  // on the text's left edge (as in Threads). Turn off where the row has no
+  // padding of its own to borrow from (the viewer's footer and sidebar).
+  flush?: boolean
+  // 'center' centres the buttons across the row (the media viewer's footer, as in
+  // Threads); every other place keeps them left-aligned.
+  align?: 'start' | 'center'
+  // The media viewer passes these so the repost options drawer matches its other
+  // drawers: a light shade over the picture, and the picture lifted above the sheet.
+  drawerBackdrop?: string
+  onDrawerHeight?: (px: number) => void
   // Set when `post` is itself a repost row. Like, comment and analytics then
   // belong to the repost, but the Repost / Quote buttons still act on the
   // ORIGINAL post (reposting a repost reposts the original, as on X).
@@ -849,20 +877,13 @@ export function PostActions({
     : Math.max(0, (rt.reposts_count ?? 0) + (reposted === rt.is_reposted ? 0 : reposted ? 1 : -1))
   useEffect(() => { settleEngagement('like', post.id, post.is_liked) }, [post.id, post.is_liked, likeOv])
   useEffect(() => { settleEngagement('repost', rt.id, rt.is_reposted ?? false) }, [rt.id, rt.is_reposted, repostOv])
+  // Repost options live in a bottom drawer (same component as the media viewer's
+  // menus), not a popover anchored to the button.
   const [showRepostMenu, setShowRepostMenu] = useState(false)
   const [showQuoteModal, setShowQuoteModal] = useState(false)
-  const repostRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
   const { success, error: toastError } = useToast()
-
-  useEffect(() => {
-    if (!showRepostMenu) return
-    const handler = (e: MouseEvent) => {
-      if (repostRef.current && !repostRef.current.contains(e.target as Node)) setShowRepostMenu(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showRepostMenu])
+  const onDark = tone === 'onDark'
 
   function handleLike(e: React.MouseEvent) {
     e.stopPropagation()
@@ -888,8 +909,8 @@ export function PostActions({
     })
   }
 
-  function handleRepost(e: React.MouseEvent) {
-    e.stopPropagation()
+  function handleRepost(e?: React.MouseEvent) {
+    e?.stopPropagation()
     const nextReposted = !reposted
     setShowRepostMenu(false)
     const seq = beginEngagement('repost', rt.id, nextReposted, rt.is_reposted ?? false)
@@ -917,12 +938,12 @@ export function PostActions({
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4, marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: align === 'center' ? 'center' : 'flex-start', gap: 4, marginTop: 8, marginLeft: flush ? -10 : 0 }}>
         <div>
           <ActionBtn
             icon={<MessageCircle size={18} />}
             count={post.comments_count}
-            active={false} activeColor="#378ADD"
+            active={false} activeColor="#378ADD" onDark={onDark}
             onClick={e => {
               e.stopPropagation()
               if (onReplyClick) onReplyClick()
@@ -932,32 +953,19 @@ export function PostActions({
           />
         </div>
 
-        <div ref={repostRef} style={{ position: 'relative' }}>
+        <div>
           <ActionBtn
             icon={<Repeat2 size={18} />} count={repostCount}
-            active={repostTarget ? false : reposted} activeColor="var(--color-brand)"
-            onClick={e => { e.stopPropagation(); setShowRepostMenu(v => !v) }}
+            active={repostTarget ? false : reposted} activeColor="var(--color-brand)" onDark={onDark}
+            onClick={e => { e.stopPropagation(); setShowRepostMenu(true) }}
             label={t('post.repost')}
           />
-          {showRepostMenu && (
-            <div
-              onClick={e => e.stopPropagation()}
-              style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, zIndex: 30, background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 6, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
-            >
-              <button onClick={handleRepost} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: reposted ? 'var(--color-brand)' : 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
-                <Repeat2 size={16} /> {reposted ? t('post.undo_repost') : t('post.repost')}
-              </button>
-              <button onClick={e => { e.stopPropagation(); setShowRepostMenu(false); setShowQuoteModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
-                <Quote size={16} /> {t('post.quote_post_title')}
-              </button>
-            </div>
-          )}
         </div>
 
         <div>
           <ActionBtn
             icon={<Heart size={18} fill={liked ? 'var(--color-brand)' : 'none'} />}
-            count={likeCount} active={liked} activeColor="var(--color-brand)"
+            count={likeCount} active={liked} activeColor="var(--color-brand)" onDark={onDark}
             onClick={handleLike} label={t('post.like')} burst
           />
         </div>
@@ -969,7 +977,7 @@ export function PostActions({
             <ActionBtn
               icon={<BarChart2 size={17} />}
               count={post.impressions_count > 0 ? post.impressions_count : null}
-              active={false} activeColor="var(--color-brand)"
+              active={false} activeColor="var(--color-brand)" onDark={onDark}
               onClick={e => { e.stopPropagation(); router.push(`/post/${post.id}/activity`) }}
               label={t('post.impressions')}
             />
@@ -980,7 +988,8 @@ export function PostActions({
             this post as selling something (post.is_selling), set via the
             composer toggle. See lib/actions/escrow.ts for the payment +
             hold logic, and post-modal.tsx for where the toggle lives. */}
-        {!isOwnPost && post.author?.username && post.is_selling && (
+        {/* Not in the media viewer's footer, which carries just the four action buttons. */}
+        {!onDark && !isOwnPost && post.author?.username && post.is_selling && (
           <div style={{ marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
             <PayVendorButton
               sellerUsername={post.author.username}
@@ -992,6 +1001,26 @@ export function PostActions({
           </div>
         )}
       </div>
+
+      <BottomDrawer
+        open={showRepostMenu} onClose={() => setShowRepostMenu(false)} title={t('post.repost_options')}
+        backdrop={drawerBackdrop} onHeight={onDrawerHeight}
+      >
+        <DrawerGroup>
+          <DrawerItem
+            label={t('post.quote')}
+            icon={<Quote size={22} />}
+            onClick={() => { setShowRepostMenu(false); setShowQuoteModal(true) }}
+          />
+        </DrawerGroup>
+        <DrawerGroup>
+          <DrawerItem
+            label={reposted ? t('post.undo_repost') : t('post.repost_only')}
+            icon={<Repeat2 size={22} />}
+            onClick={() => handleRepost()}
+          />
+        </DrawerGroup>
+      </BottomDrawer>
 
       {showQuoteModal && <QuoteModal post={rt} currentUserId={currentUserId} onClose={() => setShowQuoteModal(false)} />}
     </>
