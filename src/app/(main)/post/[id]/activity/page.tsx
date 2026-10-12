@@ -7,6 +7,7 @@ import {
 import Link from 'next/link'
 import BackButton from '@/components/ui/back-button'
 import { formatNumber } from '@/lib/utils'
+import { extractFirstUrl } from '@/lib/urls'
 
 function Avatar({ name, avatarUrl, size = 40 }: { name: string; avatarUrl?: string | null; size?: number }) {
   if (avatarUrl) {
@@ -43,7 +44,8 @@ export default async function PostActivityPage({
     .select(`
       id, body, likes_count, reposts_count, quotes_count, created_at, impressions_count,
       bookmarks_count, video_views_count, link_clicks_count, detail_expands_count, profile_visits_count,
-      author:users!posts_user_id_fkey(id, username, display_name, avatar_url)
+      author:users!posts_user_id_fkey(id, username, display_name, avatar_url),
+      media:post_media(media_type)
     `)
     .eq('id', id).is('deleted_at', null).single()
 
@@ -54,6 +56,11 @@ export default async function PostActivityPage({
   // Hardened: both ids must exist AND match — a silent fetch failure on either
   // side (both resolving to undefined) must never accidentally evaluate true.
   const isOwner = !!viewerProfile?.id && !!author?.id && viewerProfile.id === author.id
+
+  // "Video views" and "Link clicks" only mean something when the post has a video / a link,
+  // so those tiles are left out otherwise (they would just sit at 0 forever).
+  const hasVideo = (post.media ?? []).some((m: { media_type: string }) => m.media_type === 'video')
+  const hasLink = !!extractFirstUrl(post.body)
 
   const engagementsCount =
     post.likes_count + post.reposts_count + post.quotes_count +
@@ -136,9 +143,9 @@ export default async function PostActivityPage({
             <StatTile icon={<Zap size={16} />} label="Engagements" value={engagementsCount} />
             <StatTile icon={<Eye size={16} />} label="Impressions" value={post.impressions_count} />
             <StatTile icon={<Bookmark size={16} />} label="Bookmarks" value={post.bookmarks_count} />
-            <StatTile icon={<Video size={16} />} label="Video views" value={post.video_views_count} />
+            {hasVideo && <StatTile icon={<Video size={16} />} label="Video views" value={post.video_views_count} />}
             <StatTile icon={<Maximize2 size={16} />} label="Post expands" value={post.detail_expands_count} />
-            <StatTile icon={<MousePointerClick size={16} />} label="Link clicks" value={post.link_clicks_count} />
+            {hasLink && <StatTile icon={<MousePointerClick size={16} />} label="Link clicks" value={post.link_clicks_count} />}
             <StatTile icon={<UserCircle2 size={16} />} label="Profile visits" value={post.profile_visits_count} />
           </div>
         </div>

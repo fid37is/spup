@@ -181,50 +181,85 @@ export async function searchPosts(query: string, limit = 20) {
 // style: likes/reposts/quotes counts + a sortable list of likers with their
 // follower counts and follow-state relative to the viewer.
 
+export const LIKERS_PAGE_SIZE = 30
+// "Top" orders by follower count, which lives on the users table, so it is sorted here
+// rather than in the query. It looks at the most recent 1000 likes.
+const LIKERS_TOP_CAP = 1000
+
+export interface PostLiker {
+  id: string
+  username: string
+  display_name: string | null
+  avatar_url: string | null
+  verification_tier?: string | null
+  followers_count: number
+  /** The viewer already follows this person. */
+  is_following: boolean
+  /** This person follows the viewer (so the button says "Follow back"). */
+  follows_me: boolean
+}
+
+/**
+ * One page of the people who liked a post, so the likes screen can list ALL of them
+ * (it used to stop at the first 30). Pass `nextOffset` from the previous page as `offset`.
+ * `viewerId` is the viewer's AUTH id.
+ */
 export async function getPostLikers(
   postId: string,
   viewerId: string | null,
   sort: 'recent' | 'top' = 'recent',
-  limit = 30
-) {
+  offset = 0,
+  limit = LIKERS_PAGE_SIZE,
+): Promise<{ likers: PostLiker[]; nextOffset: number; hasMore: boolean }> {
   const supabase = await createClient()
+  const select = `
+    created_at,
+    user:users!likes_user_id_fkey(id, username, display_name, avatar_url, verification_tier, followers_count)
+  `
 
-  const { data: rows } = await supabase
-    .from('likes')
-    .select(`
-      created_at,
-      user:users!likes_user_id_fkey(id, username, display_name, avatar_url, verification_tier, followers_count)
-    `)
-    .eq('post_id', postId)
-    .order('created_at', { ascending: false })
-    .limit(limit)
-
-  let likers = (rows || [])
-    .map((r: any) => r.user)
-    .filter(Boolean)
+  let page: any[]
+  let nextOffset: number
+  let hasMore: boolean
 
   if (sort === 'top') {
-    likers = [...likers].sort((a: any, b: any) => (b.followers_count || 0) - (a.followers_count || 0))
+    const { data: rows } = await supabase
+      .from('likes').select(select).eq('post_id', postId)
+      .order('created_at', { ascending: false }).limit(LIKERS_TOP_CAP)
+    const all = (rows || []).map((r: any) => r.user).filter(Boolean)
+      .sort((a: any, b: any) => (b.followers_count || 0) - (a.followers_count || 0))
+    page = all.slice(offset, offset + limit)
+    nextOffset = offset + page.length
+    hasMore = all.length > nextOffset
+  } else {
+    // One extra row tells us whether there is another page without a second count query.
+    const { data: rows } = await supabase
+      .from('likes').select(select).eq('post_id', postId)
+      .order('created_at', { ascending: false }).range(offset, offset + limit)
+    const raw = rows || []
+    hasMore = raw.length > limit
+    page = raw.slice(0, limit).map((r: any) => r.user).filter(Boolean)
+    nextOffset = offset + Math.min(raw.length, limit)   // counts rows consumed, incl. any without a user
   }
 
-  if (!viewerId || likers.length === 0) {
-    return likers.map((u: any) => ({ ...u, is_following: false }))
+  const blank = (u: any): PostLiker => ({ ...u, is_following: false, follows_me: false })
+  if (!viewerId || page.length === 0) return { likers: page.map(blank), nextOffset, hasMore }
+
+  const { data: viewer } = await supabase.from('users').select('id').eq('auth_id', viewerId).maybeSingle()
+  if (!viewer) return { likers: page.map(blank), nextOffset, hasMore }
+
+  const ids = page.map((u: any) => u.id)
+  const [{ data: following }, { data: followers }] = await Promise.all([
+    supabase.from('follows').select('following_id').eq('follower_id', viewer.id).in('following_id', ids),
+    supabase.from('follows').select('follower_id').eq('following_id', viewer.id).in('follower_id', ids),
+  ])
+  const followingSet = new Set((following || []).map((f: any) => f.following_id))
+  const followsMeSet = new Set((followers || []).map((f: any) => f.follower_id))
+
+  return {
+    likers: page.map((u: any) => ({ ...u, is_following: followingSet.has(u.id), follows_me: followsMeSet.has(u.id) })),
+    nextOffset,
+    hasMore,
   }
-
-  const { data: viewer } = await supabase
-    .from('users').select('id').eq('auth_id', viewerId).maybeSingle()
-
-  if (!viewer) return likers.map((u: any) => ({ ...u, is_following: false }))
-
-  const { data: followRows } = await supabase
-    .from('follows')
-    .select('following_id')
-    .eq('follower_id', viewer.id)
-    .in('following_id', likers.map((u: any) => u.id))
-
-  const followingSet = new Set((followRows || []).map((f: any) => f.following_id))
-
-  return likers.map((u: any) => ({ ...u, is_following: followingSet.has(u.id) }))
 }
 
 // ─── Post Activity: who reposted a post ─────────────────────────────────────

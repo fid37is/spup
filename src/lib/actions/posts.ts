@@ -27,6 +27,30 @@ function bumpCounter(supabase: SupabaseClient, table: string, column: string, id
     })
 }
 
+// Post analytics counters (link clicks, post expands, video views, profile visits).
+//
+// These used to be `void supabase.rpc(...)`. A Supabase query is lazy: it is only sent
+// when something awaits it (or calls .then). `void` does neither, so the request was
+// never made and these counters never moved. Awaited here (the client calls these
+// actions fire-and-forget, so nothing waits on them), with failures logged.
+//
+// `skipOwner`: the author opening or visiting their own post is not an audience
+// signal, so it is not counted.
+type PostMetricColumn =
+  | 'link_clicks_count' | 'detail_expands_count' | 'video_views_count'
+  | 'video_completions_count' | 'profile_visits_count'
+
+async function recordPostMetric(postId: string, column: PostMetricColumn, opts: { skipOwner?: boolean } = {}) {
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  if (opts.skipOwner) {
+    const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).is('deleted_at', null).maybeSingle()
+    if (!post || post.user_id === profile.id) return
+  }
+  const { error } = await supabase.rpc('increment_counter', { p_table: 'posts', p_column: column, p_id: postId, p_amount: 1 })
+  if (error) console.error(`recordPostMetric failed (posts.${column}, id=${postId}):`, error.message)
+}
+
 // `failed` is true when the profile lookup itself errored (database problem),
 // as opposed to the caller simply not being signed in - so callers can tell
 // "Not authenticated" apart from "something broke on our side".
@@ -409,6 +433,9 @@ export async function toggleRepostAction(postId: string, desired?: boolean) {
   const { data: inserted } = await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).select('id')
   if (!inserted || inserted.length === 0) return { reposted: true }
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
+  // People who turned on this person's post notifications (the bell) hear about the
+  // repost too - as a "reposted" alert, not a plain new post (see notifyPostSubscribers).
+  void notifyPostSubscribers(inserted[0].id, profile.id)
   // Hand back the new repost fully hydrated (author, embedded original, counts) so
   // the feed can queue it behind the "new posts" pill without another round trip.
   let post: Awaited<ReturnType<typeof import('./feed').getPostsByIdsAction>>[number] | undefined
@@ -448,40 +475,30 @@ export async function recordImpressionAction(postId: string) {
 
 // ── Link click tracking ───────────────────────────────────────────────────────
 export async function recordLinkClickAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'link_clicks_count', p_id: postId, p_amount: 1 })
+  await recordPostMetric(postId, 'link_clicks_count')
 }
 
 // ── Detail expand tracking ────────────────────────────────────────────────────
 export async function recordDetailExpandAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'detail_expands_count', p_id: postId, p_amount: 1 })
+  await recordPostMetric(postId, 'detail_expands_count', { skipOwner: true })
 }
 
 // ── Video view tracking ───────────────────────────────────────────────────────
 // called when video reaches 3s of watch time
 export async function recordVideoViewAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'video_views_count', p_id: postId, p_amount: 1 })
+  await recordPostMetric(postId, 'video_views_count')
 }
 
 // called when video reaches >= 95% completion
 export async function recordVideoCompletionAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'video_completions_count', p_id: postId, p_amount: 1 })
+  await recordPostMetric(postId, 'video_completions_count')
 }
 
 // ── Profile visit tracking ────────────────────────────────────────────────────
 // Fires when a viewer clicks the author's avatar/name from a specific post -
 // attributes the resulting profile visit back to that post for analytics.
 export async function recordProfileVisitFromPostAction(postId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return
-  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'profile_visits_count', p_id: postId, p_amount: 1 })
+  await recordPostMetric(postId, 'profile_visits_count', { skipOwner: true })
 }
 
 // ── Promoted-post impression / click tracking ─────────────────────────────────
@@ -497,16 +514,22 @@ export async function recordProfileVisitFromPostAction(postId: string) {
 // navigate handler). Removing them from this file without also removing or
 // relocating the corresponding exports breaks that import at build time -
 // re-added rather than dropped as part of this update.
-export async function recordPromotionImpressionAction(promotionId: string) {
+// Same lazy-request bug as the post counters above: these were `void supabase.rpc(...)`,
+// which never sends the request, so the admin promotions pages showed 0 impressions and
+// 0 clicks (and a blank CTR) for every promotion. Awaited, failures logged.
+async function recordPromotionMetric(promotionId: string, column: 'impressions_count' | 'clicks_count') {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return
-  void supabase.rpc('increment_counter', { p_table: 'post_promotions', p_column: 'impressions_count', p_id: promotionId, p_amount: 1 })
+  const { error } = await supabase.rpc('increment_counter', { p_table: 'post_promotions', p_column: column, p_id: promotionId, p_amount: 1 })
+  if (error) console.error(`recordPromotionMetric failed (post_promotions.${column}, id=${promotionId}):`, error.message)
+}
+
+export async function recordPromotionImpressionAction(promotionId: string) {
+  await recordPromotionMetric(promotionId, 'impressions_count')
 }
 
 export async function recordPromotionClickAction(promotionId: string) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return
-  void supabase.rpc('increment_counter', { p_table: 'post_promotions', p_column: 'clicks_count', p_id: promotionId, p_amount: 1 })
+  await recordPromotionMetric(promotionId, 'clicks_count')
 }
 
 async function notifyPostAuthor(

@@ -58,6 +58,9 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         + "<button onclick=\"location.replace('https://spup.live/')\" style='background:#1A9E5F;color:#fff;"
         + "border:0;border-radius:99px;padding:14px 32px;font-size:16px'>Try again</button></div>";
     private static final String SITE_URL = "https://spup.live/";
+    // The same site without the trailing slash, for joining with a path that starts
+    // with "/" (SITE_URL + "/post/1" would give "https://spup.live//post/1").
+    private static final String SITE_ORIGIN = "https://spup.live";
 
     private BridgeWebViewClient offlineClient;
     // URL of a main-frame load that failed and whose replacement (the offline page)
@@ -132,6 +135,37 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         if (!online) {
             showOfflinePage(bridge.getWebView(), SITE_URL);
         }
+
+        // App was closed and a notification tap started it.
+        openFromNotification(getIntent());
+    }
+
+    // App was already running (in the background) and a notification tap brought it forward.
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        openFromNotification(intent);
+    }
+
+    // A tapped notification opens com.spup.app://open?path=/post/123 (built in
+    // SpupMessagingService). Load that page straight into the WebView, so the tap
+    // lands on the right post / chat / notifications page even if the website's
+    // own link listener hasn't started yet. The website also handles the link and
+    // skips it when it is already on that page.
+    private void openFromNotification(Intent intent) {
+        if (intent == null || getBridge() == null) return;
+        Uri data = intent.getData();
+        if (data == null
+                || !"com.spup.app".equals(data.getScheme())
+                || !"open".equals(data.getHost())) return;
+
+        String path = data.getQueryParameter("path");
+        // Only pages on our own site - never another address.
+        if (path == null || !path.startsWith("/") || path.startsWith("//")) return;
+
+        final String target = SITE_ORIGIN + path;
+        final WebView webView = getBridge().getWebView();
+        webView.post(() -> webView.loadUrl(target));
     }
 
     // If another plugin swaps the WebViewClient after startup, our offline handling

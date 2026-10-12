@@ -117,7 +117,7 @@ function uniqueActors(g: Group) {
 function verbFor(n: NotificationItem, t: (key: string, vars?: Record<string, string | number>) => string): string {
   const target = n.post?.is_reply ? t('notif.noun_reply') : t('notif.noun_post')
   switch (n.type) {
-    case 'new_follower':          return t('notif.verb_followed_you')
+    case 'new_follower':          return n.metadata?.follow_back ? t('notif.verb_followed_you_back') : t('notif.verb_followed_you')
     case 'post_like':             return t('notif.verb_liked', { target })
     case 'comment_like':          return t('notif.verb_liked_reply')
     case 'post_repost':           return t('notif.verb_reposted', { target })
@@ -162,7 +162,7 @@ function hrefFor(g: Group, username: string): string | null {
     return n.actor ? `/user/${n.actor.username}` : null
   }
   // A reply / quote opens the reply / quote itself; everything else opens the post.
-  const postId = n.metadata?.reply_id ?? n.entity_id
+  const postId = n.metadata?.reply_id ?? (n.metadata?.is_repost ? n.metadata?.reposted_id : null) ?? n.entity_id
   if (n.entity_type === 'post' && postId) return `/post/${postId}`
   return null
 }
@@ -401,7 +401,14 @@ function NotificationRow({
   // to you; mentions and new posts show the post itself; likes / reposts show
   // YOUR post.
   const shown: NotificationPostPreview | null =
-    first.type === 'post_comment' || first.type === 'post_quote' ? (first.reply ?? first.post) : first.post
+    first.type === 'post_comment' || first.type === 'post_quote' ? (first.reply ?? first.post)
+      : first.type === 'new_post' && first.metadata?.is_repost ? (first.reposted ?? first.post)
+      : first.post
+  const isRepostAlert = first.type === 'new_post' && !!first.metadata?.is_repost
+  // Several people following you: "followed you back" only if every one of them was a follow back.
+  const verb = first.type === 'new_follower' && group.items.length > 1
+    ? t(group.items.every(i => i.metadata?.follow_back) ? 'notif.verb_followed_you_back' : 'notif.verb_followed_you')
+    : verbFor(first, t)
   const authored = ['post_comment', 'mention', 'post_quote', 'new_post'].includes(first.type)
   const counts = countsText(group, shown, t)
 
@@ -431,7 +438,7 @@ function NotificationRow({
         cursor: 'pointer',
       }}
     >
-      <LeadingVisual type={first.type} actor={actors[0] ?? null} />
+      <LeadingVisual type={isRepostAlert ? 'post_repost' : first.type} actor={actors[0] ?? null} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{
@@ -439,10 +446,10 @@ function NotificationRow({
           color: 'var(--color-text-primary)', fontFamily: "'DM Sans', sans-serif",
         }}>
           {first.type === 'new_post'
-            ? <>{t('notif.recent_post_from')} <NameList actors={actors} /></>
+            ? <>{t(isRepostAlert ? 'notif.recent_repost_from' : 'notif.recent_post_from')} <NameList actors={actors} /></>
             : fixed
               ? fixed
-              : <><NameList actors={actors} />{' '}<span style={{ fontWeight: 400 }}>{verbFor(first, t)}</span></>}
+              : <><NameList actors={actors} />{' '}<span style={{ fontWeight: 400 }}>{verb}</span></>}
         </p>
 
         {shown && <PreviewCard post={shown} primary={authored} lines={authored ? 3 : 2} />}

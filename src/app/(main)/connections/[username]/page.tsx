@@ -76,10 +76,15 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
   const viewerFollowingIds = (viewerFollowingRels || []).map((r: any) => r.following_id as string)
   const viewerFollowerIds = (viewerFollowerRels || []).map((r: any) => r.follower_id as string)
 
-  // Fetch follow relationships using profile.id
+  // Fetch follow relationships using profile.id - NEWEST FIRST, so someone who just
+  // followed (or was just followed) sits at the top and is easy to spot and follow back.
+  // The users table has no idea when a follow happened, so the order has to come from the
+  // `follows` rows' own created_at.
   const [{ data: followingRels }, { data: followerRels }] = await Promise.all([
-    admin.from('follows').select('following_id').eq('follower_id', profile.id),
-    admin.from('follows').select('follower_id').eq('following_id', profile.id),
+    admin.from('follows').select('following_id, created_at').eq('follower_id', profile.id)
+      .order('created_at', { ascending: false }),
+    admin.from('follows').select('follower_id, created_at').eq('following_id', profile.id)
+      .order('created_at', { ascending: false }),
   ])
 
   const followingIds = (followingRels || []).map((r: any) => r.following_id as string)
@@ -95,12 +100,25 @@ export default async function ConnectionsPage({ params, searchParams }: PageProp
       : Promise.resolve({ data: [] as any[] }),
   ])
 
-  const following: any[] = followingUsers.data || []
-  const followers: any[] = followerUsers.data || []
+  // `.in('id', ids)` returns rows in whatever order the database likes (that was the
+  // "random" order), so put them back into the follow order from above. Deleted accounts
+  // are simply absent from the user rows and drop out here.
+  const inFollowOrder = (ids: string[], users: any[]): any[] => {
+    const byId = new Map(users.map(u => [u.id as string, u]))
+    return ids.map(id => byId.get(id)).filter(Boolean)
+  }
+  const following: any[] = inFollowOrder(followingIds, followingUsers.data || [])
+  const followers: any[] = inFollowOrder(followerIds, followerUsers.data || [])
 
-  // Mutuals = people you follow who also follow you back
+  // Mutuals = people you follow who also follow you back. Ordered by whichever of the two
+  // follows is more recent, so someone who just followed you back appears first.
   const followerIdSet = new Set(followerIds)
-  const mutuals = following.filter(u => followerIdSet.has(u.id))
+  const at = (rels: any[] | null, key: 'following_id' | 'follower_id') =>
+    new Map((rels || []).map((r: any) => [r[key] as string, new Date(r.created_at).getTime()]))
+  const followingAt = at(followingRels, 'following_id')
+  const followerAt = at(followerRels, 'follower_id')
+  const latest = (id: string) => Math.max(followingAt.get(id) ?? 0, followerAt.get(id) ?? 0)
+  const mutuals = following.filter(u => followerIdSet.has(u.id)).sort((a, b) => latest(b.id) - latest(a.id))
 
   return (
     <div>

@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
+import DetailExpandBeacon from '@/components/feed/detail-expand-beacon'
 import RepliesPanel from './replies-panel'
 import ReplySortMenu from './reply-sort-menu'
 import BackButton from './back-button'
@@ -207,6 +208,7 @@ export default async function PostDetailPage({
 
       {/* Main post */}
       <PostCard post={post} currentUserId={viewerUserId} />
+      {viewerUserId && <DetailExpandBeacon postId={post.id} isOwnPost={post.author?.id === viewerUserId} />}
 
       {/* Reply sort + view activity - only shown once there's something to sort/view */}
       {(replies.length > 0 || post.likes_count > 0 || post.reposts_count > 0) && (
