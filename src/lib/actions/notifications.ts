@@ -56,6 +56,8 @@ export interface NotificationItem {
   post: NotificationPostPreview | null
   /** For replies: the reply itself (metadata.reply_id). */
   reply: NotificationPostPreview | null
+  /** For a repost alert: the post that was reposted (metadata.reposted_id). */
+  reposted?: NotificationPostPreview | null
 }
 
 export interface NewPostUser extends NotificationActor {
@@ -214,6 +216,7 @@ async function hydrate(
   for (const r of rows) {
     if (r.entity_type === 'post' && r.entity_id) postIds.add(r.entity_id)
     if (r.metadata?.reply_id) postIds.add(r.metadata.reply_id)
+    if (r.metadata?.reposted_id) postIds.add(r.metadata.reposted_id)
   }
 
   const previews = new Map<string, NotificationPostPreview>()
@@ -250,6 +253,7 @@ async function hydrate(
     actor: one<NotificationActor>(r.actor),
     post: r.entity_type === 'post' && r.entity_id ? (previews.get(r.entity_id) ?? null) : null,
     reply: r.metadata?.reply_id ? (previews.get(r.metadata.reply_id) ?? null) : null,
+    reposted: r.metadata?.reposted_id ? (previews.get(r.metadata.reposted_id) ?? null) : null,
   }))
 }
 

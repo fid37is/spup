@@ -26,10 +26,17 @@ export async function notifyPostSubscribers(postId: string, authorId: string) {
   if (error) { console.error('notifyPostSubscribers: lookup failed', error.message); return }
   if (!subs?.length) return
 
+  // A repost says so: subscribers get "reposted", not a plain "new post" for
+  // what is really someone else's content. reposted_id = the original post.
+  const { data: post } = await admin.from('posts').select('post_type, quoted_post_id').eq('id', postId).maybeSingle()
+  const metadata = post?.post_type === 'repost' && post.quoted_post_id
+    ? { is_repost: true, reposted_id: post.quoted_post_id }
+    : {}
+
   await Promise.all(subs.map(sub =>
     createNotification({
       recipientId: sub.user_id, actorId: authorId,
-      type: 'new_post', entityId: postId, entityType: 'post',
+      type: 'new_post', entityId: postId, entityType: 'post', metadata,
     })
   ))
 }

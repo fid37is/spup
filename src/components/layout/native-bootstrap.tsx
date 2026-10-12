@@ -94,17 +94,20 @@ export default function NativeBootstrap() {
     let cancelled = false
 
     const handleUrl = (url: string) => {
-      // The same link can be reported twice (launch + event), and sign-in
-      // codes and payment returns are single-use. Never act on one twice.
-      if (wasHandledRecently(url, 60_000)) return
-      markHandled(url)
-
       let u: URL
       try {
         u = new URL(url)
       } catch {
         return
       }
+
+      // The same link can be reported twice (launch + event), so a repeat is
+      // skipped. Sign-in links carry a single-use code, so those are blocked for
+      // a minute. Everything else is just navigation: only the double delivery
+      // (a few seconds) is ignored, NOT a second real tap - every message in one
+      // chat produces the identical link, and that tap must still open the chat.
+      if (wasHandledRecently(url, u.host === AUTH_HOST ? 60_000 : 3_000)) return
+      markHandled(url)
       // TEMPORARY diagnostics: never logs the query string (it holds the sign-in code).
       console.log('[spup-auth] link received:', u.protocol + '//' + u.host + u.pathname)
 
@@ -118,7 +121,11 @@ export default function NativeBootstrap() {
       if (u.protocol === APP_SCHEME && u.host === OPEN_HOST) {
         // Only accept site-relative paths, never another host.
         const path = u.searchParams.get('path') ?? ''
-        if (path.startsWith('/') && !path.startsWith('//')) router.push(path)
+        if (path.startsWith('/') && !path.startsWith('//')) {
+          // MainActivity may already have loaded this exact page; don't stack a duplicate.
+          const here = window.location.pathname + window.location.search
+          if (path !== here) router.push(path)
+        }
         return
       }
 

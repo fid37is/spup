@@ -143,6 +143,13 @@ export async function toggleFollowAction(targetUserId: string, desired?: boolean
     return { following: false, changed: true }
   }
 
+  // A "follow back": they already follow me, so this follow is my answer to theirs.
+  // The notification says so ("followed you back") instead of a plain new follower.
+  const { data: theyFollowMe } = await supabase
+    .from('follows').select('id')
+    .match({ follower_id: targetUserId, following_id: profile.id })
+    .maybeSingle()
+
   const { error } = await supabase.from('follows').insert({ follower_id: profile.id, following_id: targetUserId })
   if (error?.code === '23505') return { following: true, changed: false }
   if (error?.code === '42501') return { error: 'Permission denied. Please log out and back in.' }
@@ -151,6 +158,7 @@ export async function toggleFollowAction(targetUserId: string, desired?: boolean
   void createNotification({
     recipientId: targetUserId, actorId: profile.id,
     type: 'new_follower', entityId: profile.id, entityType: 'user',
+    metadata: theyFollowMe ? { follow_back: true } : {},
   })
   revalidatePath('/profile')
   revalidatePath(`/user/${targetUsername}`)
