@@ -6,7 +6,10 @@ import { createPortal } from 'react-dom'
 import { Loader2, X } from 'lucide-react'
 import { submitReportAction } from '@/lib/actions/reports'
 import { useToast } from '@/components/layout/toast'
-import { useBackClose } from '@/hooks/use-back-close' 
+import { lockBodyScroll } from '@/lib/scroll-lock'
+import { useBackClose } from '@/hooks/use-back-close'
+import { useIsPhone } from '@/hooks/use-is-phone'
+import { BottomDrawer, DrawerBody } from '@/components/ui/bottom-drawer'
 
 type Reason = 'spam' | 'harassment' | 'hate_speech' | 'misinformation' | 'nudity' | 'violence' | 'other'
 
@@ -29,7 +32,9 @@ export default function ReportDialog({
   subject: string
   onClose: () => void
 }) {
-  useBackClose(true, onClose)
+  const phone = useIsPhone()
+  // On a phone the BottomDrawer registers its own back handler and scroll lock.
+  useBackClose(!phone, onClose)
   const { success, error: toastError, info } = useToast()
   const [reason, setReason] = useState<Reason | null>(null)
   const [details, setDetails] = useState('')
@@ -38,12 +43,11 @@ export default function ReportDialog({
 
   useEffect(() => { setMounted(true) }, [])
 
-  // Lock background scroll while the dialog is open.
+  // Lock background scroll while the (desktop) dialog is open.
   useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [])
+    if (phone) return
+    return lockBodyScroll()
+  }, [phone])
 
   function submit() {
     if (!reason || isPending) return
@@ -61,26 +65,92 @@ export default function ReportDialog({
     })
   }
 
+  const form = (
+    <>
+      <div role="radiogroup" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+        {REASONS.map(r => {
+          const active = reason === r.value
+          return (
+            <button
+              key={r.value} type="button" role="radio" aria-checked={active}
+              onClick={() => setReason(r.value)}
+              style={{
+                textAlign: 'left', cursor: 'pointer', padding: '10px 12px', borderRadius: 12,
+                border: `1px solid ${active ? 'var(--color-brand)' : 'var(--color-border)'}`,
+                background: active ? 'var(--color-surface-2)' : 'transparent',
+                color: 'var(--color-text-primary)',
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{r.label}</div>
+              {r.hint && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>{r.hint}</div>}
+            </button>
+          )
+        })}
+      </div>
+
+      <textarea
+        value={details}
+        onChange={e => setDetails(e.target.value.slice(0, 500))}
+        placeholder="Anything else we should know? (optional)"
+        rows={3}
+        style={{
+          width: '100%', resize: 'none', marginBottom: 12, padding: '10px 12px', borderRadius: 12,
+          border: '1px solid var(--color-border)', background: 'var(--color-bg)',
+          color: 'var(--color-text-primary)', fontSize: 14, outline: 'none', fontFamily: 'inherit',
+        }}
+      />
+
+      <button
+        type="button" onClick={submit} disabled={!reason || isPending}
+        style={{
+          width: '100%', minHeight: 44, borderRadius: 22, border: 'none',
+          fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
+          cursor: reason && !isPending ? 'pointer' : 'not-allowed',
+          background: reason ? 'var(--color-brand)' : 'var(--color-surface-3)',
+          color: reason ? 'white' : 'var(--color-text-muted)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {isPending
+          ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />
+          : 'Submit report'}
+      </button>
+    </>
+  )
+
   if (!mounted) return null
 
+  // Phone: the same BottomDrawer as every other sheet in the app.
+  if (phone) {
+    return (
+      <BottomDrawer open onClose={() => { if (!isPending) onClose() }} title={`Report ${subject}`} avoidKeyboard>
+        <DrawerBody>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', textAlign: 'center', margin: '0 0 14px' }}>
+            What&apos;s wrong? Your report is private.
+          </p>
+          {form}
+        </DrawerBody>
+      </BottomDrawer>
+    )
+  }
+
+  // Desktop: centred dialog.
   return createPortal(
     <div
       onClick={e => { e.stopPropagation(); if (!isPending) onClose() }}
-      className="report-dialog-overlay"
       style={{
         position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.55)',
-        display: 'flex', justifyContent: 'center',
+        display: 'flex', justifyContent: 'center', alignItems: 'center',
       }}
     >
       <div
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-label={`Report ${subject}`}
-        className="report-dialog-panel"
         style={{
           background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)',
-          width: '100%', maxWidth: 440, maxHeight: '88vh', overflowY: 'auto',
-          padding: '16px 18px calc(18px + env(safe-area-inset-bottom, 0px))',
+          width: '100%', maxWidth: 440, maxHeight: '88vh', overflowY: 'auto', borderRadius: 18,
+          padding: '16px 18px 18px',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -98,64 +168,8 @@ export default function ReportDialog({
           What&apos;s wrong? Your report is private.
         </p>
 
-        <div role="radiogroup" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-          {REASONS.map(r => {
-            const active = reason === r.value
-            return (
-              <button
-                key={r.value} type="button" role="radio" aria-checked={active}
-                onClick={() => setReason(r.value)}
-                style={{
-                  textAlign: 'left', cursor: 'pointer', padding: '10px 12px', borderRadius: 12,
-                  border: `1px solid ${active ? 'var(--color-brand)' : 'var(--color-border)'}`,
-                  background: active ? 'var(--color-surface-2)' : 'transparent',
-                  color: 'var(--color-text-primary)',
-                }}
-              >
-                <div style={{ fontSize: 14, fontWeight: 600 }}>{r.label}</div>
-                {r.hint && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>{r.hint}</div>}
-              </button>
-            )
-          })}
-        </div>
-
-        <textarea
-          value={details}
-          onChange={e => setDetails(e.target.value.slice(0, 500))}
-          placeholder="Anything else we should know? (optional)"
-          rows={3}
-          style={{
-            width: '100%', resize: 'none', marginBottom: 12, padding: '10px 12px', borderRadius: 12,
-            border: '1px solid var(--color-border)', background: 'var(--color-bg)',
-            color: 'var(--color-text-primary)', fontSize: 14, outline: 'none', fontFamily: 'inherit',
-          }}
-        />
-
-        <button
-          type="button" onClick={submit} disabled={!reason || isPending}
-          style={{
-            width: '100%', minHeight: 44, borderRadius: 22, border: 'none',
-            fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
-            cursor: reason && !isPending ? 'pointer' : 'not-allowed',
-            background: reason ? 'var(--color-brand)' : 'var(--color-surface-3)',
-            color: reason ? 'white' : 'var(--color-text-muted)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          {isPending
-            ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />
-            : 'Submit report'}
-        </button>
+        {form}
       </div>
-
-      <style>{`
-        .report-dialog-overlay { align-items: center; }
-        .report-dialog-panel { border-radius: 18px; }
-        @media (max-width: 640px) {
-          .report-dialog-overlay { align-items: flex-end; }
-          .report-dialog-panel { border-radius: 18px 18px 0 0; max-width: none !important; }
-        }
-      `}</style>
     </div>,
     document.body,
   )

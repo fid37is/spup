@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Ellipsis, X } from 'lucide-react'
 import { useBackClose } from '@/hooks/use-back-close'
+import { lockBodyScroll } from '@/lib/scroll-lock'
 import { useTranslation } from '@/lib/i18n/language-context'
 
 /** The round translucent buttons used for the viewer's chrome (close, options). */
@@ -87,13 +88,12 @@ export default function MediaPortal({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prevOverflow
-    }
+    return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Scroll lock lives in its own effect (mount/unmount only), so a changing onClose can't
+  // release and re-take it while a drawer is open over the viewer.
+  useEffect(() => lockBodyScroll(), [])
 
   if (!mounted) return null
 

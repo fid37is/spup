@@ -1,13 +1,13 @@
 'use client'
 
 // src/components/escrow/pay-vendor-button.tsx
-import { useState, useEffect, useTransition } from 'react'
-import { createPortal } from 'react-dom'
-import { ShieldCheck, X, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
+import { useState, useTransition } from 'react'
+import { ShieldCheck, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
 import { payVendorAction } from '@/lib/actions/escrow'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { BottomDrawer, DrawerBody } from '@/components/ui/bottom-drawer'
 
 type Step = 'form' | 'success' | 'error'
 
@@ -23,7 +23,6 @@ interface PayVendorButtonProps {
 }
 
 export default function PayVendorButton({ sellerUsername, sellerDisplayName, postId, itemDescription, compact }: PayVendorButtonProps) {
-  const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
   const [amountKobo, setAmountKobo] = useState(0)
@@ -33,7 +32,6 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
 
-  useEffect(() => { setMounted(true) }, [])
 
   function handleClose() {
     setOpen(false)
@@ -53,30 +51,10 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
   }
 
   const modal = (
-    <>
-      <div onClick={handleClose} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} />
-      <div style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 401,
-        background: 'var(--color-bg)', borderTop: '1px solid var(--color-border)',
-        borderRadius: '20px 20px 0 0', maxHeight: '92dvh', overflowY: 'auto',
-        animation: 'slideUp 0.25s cubic-bezier(0.4,0,0.2,1)', maxWidth: 560, margin: '0 auto',
-      }}>
-        <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)' }} />
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px 16px' }}>
-          <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--color-text-primary)' }}>
-            {step === 'success' ? 'Payment held in escrow' : step === 'error' ? 'Payment failed' : `Pay @${sellerUsername}`}
-          </h2>
-          <button onClick={handleClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}>
-            <X size={20} />
-          </button>
-        </div>
-
-        <div style={{ padding: '0 20px 40px' }}>
+    <BottomDrawer open={open} onClose={handleClose} title={step === 'success' ? 'Payment held in escrow' : step === 'error' ? 'Payment failed' : `Pay @${sellerUsername}`} avoidKeyboard>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <DrawerBody>
+        <div>
 
           {step === 'success' && (
             <div style={{ textAlign: 'center', padding: '32px 0' }}>
@@ -170,8 +148,8 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
             </div>
           )}
         </div>
-      </div>
-    </>
+      </DrawerBody>
+    </BottomDrawer>
   )
 
   return (
@@ -187,7 +165,7 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
           Pay @{sellerUsername}
         </button>
       )}
-      {mounted && open && createPortal(modal, document.body)}
+      {modal}
     </>
   )
 }

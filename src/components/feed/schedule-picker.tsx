@@ -2,7 +2,8 @@
 
 import { useState, useRef, useLayoutEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { Calendar, X } from 'lucide-react'
+import { Calendar, Clock, Sun, X } from 'lucide-react'
+import { BottomDrawer, DrawerBody, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
 
 interface SchedulePickerProps {
   value: string | null            // ISO string, or null if not scheduled
@@ -174,39 +175,15 @@ export default function SchedulePicker({ value, onChange, disabled }: SchedulePi
         </button>
       )}
 
-      {open && isMobile && createPortal(
-        <>
-          <style>{`
-            @keyframes schedFadeIn { from { opacity: 0; } to { opacity: 1; } }
-            @keyframes schedSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-          `}</style>
-          <div
-            onClick={() => setOpen(false)}
-            style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'var(--overlay-bg)', animation: 'schedFadeIn 0.15s ease' }}
-          />
-          <div
-            ref={popoverRef}
-            style={{
-              position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 501,
-              maxHeight: '85vh', overflowY: 'auto',
-              background: 'var(--color-surface-raised)',
-              borderRadius: '18px 18px 0 0',
-              boxShadow: '0 -8px 32px rgba(0,0,0,0.35)',
-              padding: '14px 16px calc(16px + env(safe-area-inset-bottom))',
-              animation: 'schedSlideUp 0.2s ease',
-            }}
-          >
-            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)', margin: '0 auto 14px' }} />
-            <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 12px', fontFamily: "'Syne', sans-serif" }}>
-              Schedule post
-            </p>
+      {isMobile && (
+        <BottomDrawer open={open} onClose={() => setOpen(false)} title="Schedule post" zIndex={500} avoidKeyboard>
+          <DrawerBody>
+            <DrawerGroup>
+              <DrawerItem label="In 1 hour" icon={<Clock size={22} />} onClick={() => applyPreset(addMinutes(new Date(), 60))} />
+              <DrawerItem label="Tomorrow morning · 9:00 AM" icon={<Sun size={22} />} onClick={() => applyPreset(nextMorning(new Date(), 9))} />
+            </DrawerGroup>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-              <PresetBtn label="In 1 hour" onClick={() => applyPreset(addMinutes(new Date(), 60))} />
-              <PresetBtn label="Tomorrow morning · 9:00 AM" onClick={() => applyPreset(nextMorning(new Date(), 9))} />
-            </div>
-
-            <label style={{ display: 'block', fontSize: 12.5, color: 'var(--color-text-faint)', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 12.5, color: 'var(--color-text-faint)', margin: '4px 4px 6px' }}>
               Or pick a date &amp; time
             </label>
             <input
@@ -214,30 +191,35 @@ export default function SchedulePicker({ value, onChange, disabled }: SchedulePi
               value={draftValue}
               onChange={e => { setDraftValue(e.target.value); setError('') }}
               style={{
-                width: '100%', background: 'var(--color-surface-2)',
-                border: '1px solid var(--color-border)', borderRadius: 10,
-                padding: '12px 10px', fontSize: 15, color: 'var(--color-text-primary)',
+                width: '100%', background: 'var(--color-surface-2)', boxSizing: 'border-box',
+                border: '1px solid var(--color-border)', borderRadius: 14,
+                padding: '14px 12px', fontSize: 15, color: 'var(--color-text-primary)',
                 fontFamily: "'DM Sans', sans-serif", marginBottom: 10,
               }}
             />
 
             {error && (
-              <p style={{ fontSize: 13, color: 'var(--color-error)', margin: '0 0 10px' }}>{error}</p>
+              <p style={{ fontSize: 13, color: 'var(--color-error)', margin: '0 4px 10px' }}>{error}</p>
             )}
 
             <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
               {value && (
-                <button type="button" onClick={clear} style={{ ...secondaryBtnStyle, flex: 1, textAlign: 'center', padding: '11px' }}>
+                <button
+                  type="button" onClick={clear}
+                  style={{ ...secondaryBtnStyle, flex: 1, minHeight: 46, borderRadius: 23, fontSize: 15, border: '1px solid var(--color-border)' }}
+                >
                   Remove
                 </button>
               )}
-              <button type="button" onClick={confirm} style={{ ...primaryBtnStyle, flex: 1, textAlign: 'center', padding: '11px', borderRadius: 10 }}>
+              <button
+                type="button" onClick={confirm}
+                style={{ ...primaryBtnStyle, flex: 1, minHeight: 46, borderRadius: 23, fontSize: 15 }}
+              >
                 Confirm
               </button>
             </div>
-          </div>
-        </>,
-        document.body
+          </DrawerBody>
+        </BottomDrawer>
       )}
 
       {open && !isMobile && coords && createPortal(
