@@ -1,7 +1,7 @@
 // src/components/profile/profile-header-edit.tsx
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader, Check, X, Shield } from 'lucide-react'
 import {
@@ -10,6 +10,8 @@ import {
 } from '@/lib/actions/profiles'
 import { buildProfileChanges, normaliseWebsite, type ProfileFormValues } from '@/lib/profile-diff'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { parseShortLink } from '@/lib/link-safety/short-link'
+import { getLinkMeta } from '@/lib/link-meta-client'
 
 interface EditProps {
   profile: {
@@ -58,6 +60,16 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
   const [occupation,   setOccupation]   = useState(profile.occupation ?? '')
   const [location,     setLocation]     = useState(profile.location ?? '')
   const [website,      setWebsite]      = useState(profile.website_url ?? '')
+  // The website is stored as a short link (spup.live/l/...). Show the person the address they
+  // typed instead, and compare against that, so saving without touching it changes nothing.
+  const [websiteBefore, setWebsiteBefore] = useState(profile.website_url ?? '')
+  useEffect(() => {
+    const slug = profile.website_url ? parseShortLink(profile.website_url) : null
+    if (!slug) return
+    let alive = true
+    getLinkMeta(slug).then(m => { if (alive && m?.url) { setWebsite(w => (w === profile.website_url ? m.url : w)); setWebsiteBefore(m.url) } })
+    return () => { alive = false }
+  }, [profile.website_url])
   const initialDob = profile.date_of_birth
     ? new Date(profile.date_of_birth).toISOString().split('T')[0]
     : ''
@@ -77,7 +89,7 @@ export default function ProfileHeaderEdit({ profile, onCancel, onSaved }: EditPr
       bio:                 (profile.bio ?? '').trim()        || null,
       occupation:          (profile.occupation ?? '').trim() || null,
       location:            (profile.location ?? '').trim()   || null,
-      website_url:         normaliseWebsite(profile.website_url ?? ''),
+      website_url:         normaliseWebsite(websiteBefore),
       date_of_birth:       initialDob || null,
       birthday_visibility: ((profile.birthday_visibility as ProfileFormValues['birthday_visibility'] | null) ?? 'followers'),
     }

@@ -15,6 +15,9 @@ import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schem
 import { getPostById } from '@/lib/queries/posts'
 import { screenContent, recordContentFlag } from '@/lib/content-rules'
 import { extractFirstUrl } from '@/lib/urls'
+import { processLinks } from '@/lib/link-safety/service'
+import { parseShortLink } from '@/lib/link-safety/short-link'
+import { APPEAL_URL } from '@/lib/link-safety/config'
 import { getLinkPreview } from '@/lib/link-preview'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -25,30 +28,6 @@ function bumpCounter(supabase: SupabaseClient, table: string, column: string, id
     .then(({ error }) => {
       if (error) console.error(`increment_counter failed (${table}.${column}, id=${id}):`, error.message)
     })
-}
-
-// Post analytics counters (link clicks, post expands, video views, profile visits).
-//
-// These used to be `void supabase.rpc(...)`. A Supabase query is lazy: it is only sent
-// when something awaits it (or calls .then). `void` does neither, so the request was
-// never made and these counters never moved. Awaited here (the client calls these
-// actions fire-and-forget, so nothing waits on them), with failures logged.
-//
-// `skipOwner`: the author opening or visiting their own post is not an audience
-// signal, so it is not counted.
-type PostMetricColumn =
-  | 'link_clicks_count' | 'detail_expands_count' | 'video_views_count'
-  | 'video_completions_count' | 'profile_visits_count'
-
-async function recordPostMetric(postId: string, column: PostMetricColumn, opts: { skipOwner?: boolean } = {}) {
-  const { supabase, profile } = await getCallerProfile()
-  if (!profile) return
-  if (opts.skipOwner) {
-    const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).is('deleted_at', null).maybeSingle()
-    if (!post || post.user_id === profile.id) return
-  }
-  const { error } = await supabase.rpc('increment_counter', { p_table: 'posts', p_column: column, p_id: postId, p_amount: 1 })
-  if (error) console.error(`recordPostMetric failed (posts.${column}, id=${postId}):`, error.message)
 }
 
 // `failed` is true when the profile lookup itself errored (database problem),
@@ -110,6 +89,26 @@ export async function createPostAction(data: CreatePostSchema) {
     return { error: "This contains language that isn't allowed on Spup. Please edit it and try again.", code: 'content_blocked' as const }
   }
 
+  // Link safety: every link in the text is checked and stored; the text is saved with each one
+  // replaced by its short link (spup.live/l/<slug>). An unsafe link refuses the whole post - the
+  // message is generic on purpose, and the attempt is logged as a strike. If a check we depend on
+  // is down the post still goes out, with that link as plain, non-clickable text.
+  let postBody = body
+  let previewTarget: string | null = null
+  if (body?.trim()) {
+    const linked = await processLinks(body, { userId: profile.id, context: parent_post_id ? 'reply' : quoted_post_id ? 'quote' : 'post' })
+    if (linked.blocked) {
+      return { error: "This link can't be shared on Spup", code: 'link_blocked' as const, appealUrl: APPEAL_URL }
+    }
+    postBody = linked.text
+    const limit = parent_post_id ? 500 : 1000
+    if (postBody.length > limit) return { error: `Max ${limit.toLocaleString('en-US')} characters` }
+    // The preview card is for the first link; a short link points at the real page.
+    const first = extractFirstUrl(postBody)
+    const slug = first ? parseShortLink(first) : null
+    previewTarget = slug ? (linked.links.find(l => l.slug === slug)?.resolved ?? null) : first
+  }
+
   // Uploads now go straight from the phone to Cloudinary, so this action no
   // longer sees the file - only the details the client reports back. Make sure
   // every item really is in *this* user's post folder on *our* Cloudinary
@@ -131,7 +130,7 @@ export async function createPostAction(data: CreatePostSchema) {
     .from('posts')
     .insert({
       user_id: profile.id,
-      body: body?.trim() || '',
+      body: postBody?.trim() || '',
       post_type: postType,
       parent_post_id: parent_post_id || null,
       quoted_post_id: quoted_post_id || null,
@@ -157,18 +156,22 @@ export async function createPostAction(data: CreatePostSchema) {
   // hashtags/post_hashtags stayed permanently empty and every feature
   // reading from them was silently a no-op. Fire-and-forget: a failure
   // here shouldn't block the post itself.
-  if (body?.trim()) {
-    void supabase.rpc('process_post_hashtags', { p_post_id: post.id, p_body: body })
+  if (postBody?.trim()) {
+    void supabase.rpc('process_post_hashtags', { p_post_id: post.id, p_body: postBody })
       .then(({ error }) => { if (error) console.error('process_post_hashtags failed:', error.message) })
   }
 
   // Fetch the first link's preview card now, in the background, so it is already
   // cached by the time anyone opens the post. A failure only means the card is
   // fetched on first view instead.
-  const firstUrl = extractFirstUrl(body)
-  if (firstUrl) {
-    after(async () => { try { await getLinkPreview(firstUrl) } catch { /* fetched on first view instead */ } })
+  if (previewTarget) {
+    const target = previewTarget
+    after(async () => { try { await getLinkPreview(target) } catch { /* fetched on first view instead */ } })
   }
+
+  // These links are checked now (the backfill job skips them).
+  void createAdminClient().from('posts').update({ links_scanned_at: new Date().toISOString() }).eq('id', post.id)
+    .then(({ error: scanError }) => { if (scanError) console.error('links_scanned_at update failed:', scanError.message) })
 
   // Insert post_media rows now that we have a real post_id
   if (media?.length) {
@@ -213,8 +216,8 @@ export async function createPostAction(data: CreatePostSchema) {
   // Mentions notify their recipients immediately - that only makes sense
   // once the post is actually visible, so a scheduled post's @mentions wait
   // and fire when it goes live (queued below, sent by the scheduled-post cron).
-  if (body?.trim() && !isScheduled) {
-    void notifyMentions(body.trim(), post.id, profile.id, profile.username, profile.display_name)
+  if (postBody?.trim() && !isScheduled) {
+    void notifyMentions(postBody.trim(), post.id, profile.id, profile.username, profile.display_name)
   }
   // Everyone who turned on post notifications (the bell on this author's
   // profile) gets a "new post" notification. Replies are excluded - those
@@ -433,9 +436,6 @@ export async function toggleRepostAction(postId: string, desired?: boolean) {
   const { data: inserted } = await supabase.from('posts').insert({ user_id: profile.id, post_type: 'repost', quoted_post_id: postId }).select('id')
   if (!inserted || inserted.length === 0) return { reposted: true }
   void notifyPostAuthor(supabase, postId, profile.id, 'post_repost')
-  // People who turned on this person's post notifications (the bell) hear about the
-  // repost too - as a "reposted" alert, not a plain new post (see notifyPostSubscribers).
-  void notifyPostSubscribers(inserted[0].id, profile.id)
   // Hand back the new repost fully hydrated (author, embedded original, counts) so
   // the feed can queue it behind the "new posts" pill without another round trip.
   let post: Awaited<ReturnType<typeof import('./feed').getPostsByIdsAction>>[number] | undefined
@@ -475,30 +475,40 @@ export async function recordImpressionAction(postId: string) {
 
 // ── Link click tracking ───────────────────────────────────────────────────────
 export async function recordLinkClickAction(postId: string) {
-  await recordPostMetric(postId, 'link_clicks_count')
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'link_clicks_count', p_id: postId, p_amount: 1 })
 }
 
 // ── Detail expand tracking ────────────────────────────────────────────────────
 export async function recordDetailExpandAction(postId: string) {
-  await recordPostMetric(postId, 'detail_expands_count', { skipOwner: true })
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'detail_expands_count', p_id: postId, p_amount: 1 })
 }
 
 // ── Video view tracking ───────────────────────────────────────────────────────
 // called when video reaches 3s of watch time
 export async function recordVideoViewAction(postId: string) {
-  await recordPostMetric(postId, 'video_views_count')
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'video_views_count', p_id: postId, p_amount: 1 })
 }
 
 // called when video reaches >= 95% completion
 export async function recordVideoCompletionAction(postId: string) {
-  await recordPostMetric(postId, 'video_completions_count')
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'video_completions_count', p_id: postId, p_amount: 1 })
 }
 
 // ── Profile visit tracking ────────────────────────────────────────────────────
 // Fires when a viewer clicks the author's avatar/name from a specific post -
 // attributes the resulting profile visit back to that post for analytics.
 export async function recordProfileVisitFromPostAction(postId: string) {
-  await recordPostMetric(postId, 'profile_visits_count', { skipOwner: true })
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'posts', p_column: 'profile_visits_count', p_id: postId, p_amount: 1 })
 }
 
 // ── Promoted-post impression / click tracking ─────────────────────────────────
@@ -514,22 +524,16 @@ export async function recordProfileVisitFromPostAction(postId: string) {
 // navigate handler). Removing them from this file without also removing or
 // relocating the corresponding exports breaks that import at build time -
 // re-added rather than dropped as part of this update.
-// Same lazy-request bug as the post counters above: these were `void supabase.rpc(...)`,
-// which never sends the request, so the admin promotions pages showed 0 impressions and
-// 0 clicks (and a blank CTR) for every promotion. Awaited, failures logged.
-async function recordPromotionMetric(promotionId: string, column: 'impressions_count' | 'clicks_count') {
+export async function recordPromotionImpressionAction(promotionId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return
-  const { error } = await supabase.rpc('increment_counter', { p_table: 'post_promotions', p_column: column, p_id: promotionId, p_amount: 1 })
-  if (error) console.error(`recordPromotionMetric failed (post_promotions.${column}, id=${promotionId}):`, error.message)
-}
-
-export async function recordPromotionImpressionAction(promotionId: string) {
-  await recordPromotionMetric(promotionId, 'impressions_count')
+  void supabase.rpc('increment_counter', { p_table: 'post_promotions', p_column: 'impressions_count', p_id: promotionId, p_amount: 1 })
 }
 
 export async function recordPromotionClickAction(promotionId: string) {
-  await recordPromotionMetric(promotionId, 'clicks_count')
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return
+  void supabase.rpc('increment_counter', { p_table: 'post_promotions', p_column: 'clicks_count', p_id: promotionId, p_amount: 1 })
 }
 
 async function notifyPostAuthor(

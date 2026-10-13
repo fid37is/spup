@@ -28,6 +28,7 @@ export default function robots(): MetadataRoute.Robots {
           '/compose',
           '/admin',
           '/api/',
+          '/l/',           // link-safety redirect pages: never index a redirect slug
           '/onboarding',
           '/complete-profile',
           '/verify-otp',
@@ -35,7 +36,7 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
       // The AdSense reviewer. Explicitly allowed so it can see the public pages.
-      { userAgent: 'Mediapartners-Google', allow: ['/'], disallow: ['/api/', '/feed', '/wallet', '/settings'] },
+      { userAgent: 'Mediapartners-Google', allow: ['/'], disallow: ['/api/', '/l/', '/feed', '/wallet', '/settings'] },
       // Block AI training crawlers
       { userAgent: 'GPTBot', disallow: ['/'] },
       { userAgent: 'CCBot', disallow: ['/'] },

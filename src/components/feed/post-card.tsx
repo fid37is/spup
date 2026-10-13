@@ -47,12 +47,13 @@ import { ProgressiveImage } from '@/components/media/progressive-image'
 import { publishFeedEvent } from '@/lib/feed-local-events'
 import { linkifyPostText, closeCutBold } from '@/components/shared/linkify'
 import LinkPreviewCard from '@/components/feed/link-preview-card'
-import { extractFirstUrl } from '@/lib/urls'
 import ConfirmModal from '@/components/ui/confirm-modal'
 import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { lockBodyScroll } from '@/lib/scroll-lock'
+import { useOptionalPosting } from '@/components/layout/posting-provider'
+import { useFitVisualViewport } from '@/hooks/use-fit-visual-viewport'
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -427,9 +428,6 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
 // dark mode (both #1E1E26), so inside the quote composer it is passed a stronger one.
 function QuotedEmbed({ q, onOpen, borderColor = 'var(--color-border)' }: { q: NonNullable<FeedPost['quoted_post']>; onOpen?: () => void; borderColor?: string }) {
   const single = (q.media?.length ?? 0) === 1
-  // A quoted post whose text has a link shows that link's Open Graph card too, as the post
-  // does on its own (it was missing here, so a quoted link showed as bare text).
-  const hasLinkPreview = !q.media?.length && !!extractFirstUrl(q.body)
   return (
     <div
       onClick={onOpen ? (e => { e.stopPropagation(); onOpen() }) : undefined}
@@ -455,13 +453,7 @@ function QuotedEmbed({ q, onOpen, borderColor = 'var(--color-border)' }: { q: No
           <MediaRow media={q.media} postId={q.id} post={q as unknown as FeedPost} compact bleed={single} />
         </div>
       )}
-      {hasLinkPreview && (
-        // The card carries its own 10px bottom margin, so no extra spacer below it.
-        <div style={{ padding: '10px 12px 0' }}>
-          <LinkPreviewCard body={q.body} />
-        </div>
-      )}
-      {!(single && q.media?.length) && !hasLinkPreview && <div style={{ height: 10 }} />}
+      {!(single && q.media?.length) && <div style={{ height: 10 }} />}
     </div>
   )
 }
@@ -513,6 +505,8 @@ function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose:
   const [isMobile, setIsMobile] = useState(false)
   const [viewer, setViewer] = useState<{ display_name: string; avatar_url: string | null } | null>(null)
   const [showDrafts, setShowDrafts] = useState(false)
+  const posting = useOptionalPosting()
+  const pageRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     setMounted(true)
     const mq = window.matchMedia('(max-width: 767px)')
@@ -526,6 +520,8 @@ function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose:
     if (!isMobile) return
     return lockBodyScroll()
   }, [isMobile])
+  // Phone: keep the page (and its bottom Quote bar) above the on-screen keyboard.
+  useFitVisualViewport(pageRef, mounted && isMobile)
   // The quoter's own avatar (the feed card only knows their id). Fetched once and
   // reused, so reopening the composer doesn't flash initials again.
   useEffect(() => {
@@ -540,6 +536,14 @@ function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose:
 
   function handleQuote() {
     if (!body.trim()) { setError(t('post.quote_needs_content')); return }
+    // Same as every other composer: hand it to the background poster and close straight away.
+    // The progress line shows at the top and a "Quote posted" toast follows (lib/posting/poster).
+    if (posting) {
+      posting.startPost({ body: body.trim(), quotedPostId: post.id, media: [] })
+      onClose()
+      return
+    }
+    // Outside the app shell (public pages) there is no background poster: send it here.
     startTransition(async () => {
       const result = await createPostAction({ body: body.trim(), quoted_post_id: post.id })
       if ('error' in result && result.error) { setError(result.error); toastError(result.error); return }
@@ -603,38 +607,41 @@ function QuoteModal({ post, onClose, currentUserId }: { post: FeedPost; onClose:
     return createPortal(
       <>
         <div
+          ref={pageRef}
           onClick={e => e.stopPropagation()}
           style={{
-            position: 'fixed', inset: 0, zIndex: 350, display: 'flex', flexDirection: 'column',
+            position: 'fixed', left: 0, right: 0, top: 0, height: '100dvh', zIndex: 350, display: 'flex', flexDirection: 'column',
             background: 'var(--color-bg)', animation: 'quotePageIn 0.18s ease-out',
             paddingTop: 'env(safe-area-inset-top, 0px)',
           }}
         >
-          {/* Top bar: close left, Drafts + Post right */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
+          {/* Top bar: close left, Drafts right. The Quote button lives in the bottom bar, like every other composer. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', flexShrink: 0 }}>
             {closeBtn(24)}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {draftsBtn}
-              <button
-                onClick={handleQuote}
-                disabled={!canPost}
-                style={{ padding: '9px 20px', borderRadius: 20, border: 'none', background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)', color: canPost ? 'white' : 'var(--color-text-muted)', cursor: canPost ? 'pointer' : 'not-allowed', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15 }}
-              >
-                {quoteLabel}
-              </button>
-            </div>
+            {draftsBtn}
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '4px 16px 16px' }}>
             {composer(40, 19, false)}
           </div>
 
-          {/* Bottom: audience placeholder + counter */}
-          <div style={{ borderTop: '1px solid var(--color-border-light)', padding: '12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span title="Coming soon" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--color-brand)', fontSize: 14, fontWeight: 600, cursor: 'default' }}>
-              <Globe size={16} /> Everyone can reply
+          {/* Bottom bar (rides on top of the keyboard): audience on the left, counter + Quote on the right */}
+          <div style={{ flexShrink: 0, borderTop: '1px solid var(--color-border-light)', padding: '10px 16px calc(env(safe-area-inset-bottom, 0px) + 10px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span title="Coming soon" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--color-brand)', fontSize: 14, fontWeight: 600, cursor: 'default', minWidth: 0 }}>
+              <Globe size={16} style={{ flexShrink: 0 }} /> Everyone can reply
             </span>
-            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('post.chars_left', { count: 500 - body.length })}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              {body.length > 0 && (
+                <span style={{ fontSize: 12, color: 500 - body.length <= 20 ? 'var(--color-gold)' : 'var(--color-text-muted)' }}>{t('post.chars_left', { count: 500 - body.length })}</span>
+              )}
+              <button
+                onClick={handleQuote}
+                disabled={!canPost}
+                style={{ padding: '9px 22px', minHeight: 40, borderRadius: 20, border: 'none', background: canPost ? 'var(--color-brand)' : 'var(--color-surface-2)', color: canPost ? 'white' : 'var(--color-text-muted)', cursor: canPost ? 'pointer' : 'not-allowed', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15 }}
+              >
+                {quoteLabel}
+              </button>
+            </div>
           </div>
           <style>{`@keyframes quotePageIn { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:none; } }`}</style>
         </div>

@@ -9,6 +9,7 @@ import { checkRateLimit } from '@/lib/rate-limit'
 import { generateUniqueUsername, suggestUsernames } from '@/lib/username'
 import { usernameLengthError } from '@/lib/validations/username-length'
 import { getCookieLocale } from '@/lib/i18n/locale-cookie.server'
+import { processLinks } from '@/lib/link-safety/service'
 import {
   signupSchema, loginSchema, emailOtpSchema,
   profileSetupSchema, interestsSchema, completeSocialProfileSchema,
@@ -516,14 +517,24 @@ export async function saveBioAction(bio: string) {
   const { supabase, user } = await getAuthUser()
   if (!user) return { error: 'Not authenticated' }
 
+  const profileId = await getProfileId(user.id)
+
+  // Link safety: links in a bio become checked short links; an unsafe one refuses the save.
+  let cleanBio = bio.trim()
+  if (cleanBio && profileId) {
+    const linked = await processLinks(cleanBio, { userId: profileId, context: 'bio' })
+    if (linked.blocked) return { error: "This link can't be shared on Spup" }
+    if (linked.text.length > 160) return { error: 'Your bio is too long once its links are checked.' }
+    cleanBio = linked.text
+  }
+
   const { error } = await supabase
     .from('users')
-    .update({ bio: bio.trim() || null })
+    .update({ bio: cleanBio || null })
     .eq('auth_id', user.id)
 
   if (error) return { error: 'Failed to save bio.' }
 
-  const profileId = await getProfileId(user.id)
   if (profileId) await upsertOnboarding(profileId, { profile_complete: true, step: 3 })
 
   return { success: true }
@@ -594,14 +605,21 @@ export async function saveProfileAction(data: ProfileSetupSchema) {
 
   if (taken) return { error: 'That username is already taken.' }
 
+  const profileId = await getProfileId(user.id)
+  let cleanBio = parsed.data.bio || null
+  if (cleanBio && profileId) {
+    const linked = await processLinks(cleanBio, { userId: profileId, context: 'bio' })
+    if (linked.blocked) return { error: "This link can't be shared on Spup" }
+    cleanBio = linked.text
+  }
+
   const { error } = await supabase
     .from('users')
-    .update({ username: parsed.data.username, bio: parsed.data.bio || null })
+    .update({ username: parsed.data.username, bio: cleanBio })
     .eq('auth_id', user.id)
 
   if (error) return { error: 'Failed to save profile.' }
 
-  const profileId = await getProfileId(user.id)
   if (profileId) await upsertOnboarding(profileId, { profile_complete: true, step: 1 })
 
   return { success: true }

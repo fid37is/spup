@@ -1,6 +1,8 @@
 import React from 'react'
 import Link from 'next/link'
 import { URL_RE, splitUrl, toHref } from '@/lib/urls'
+import { parseShortLink } from '@/lib/link-safety/short-link'
+import SafeLink from '@/components/shared/safe-link'
 
 // Matches MENTION_RE / HASHTAG_RE in lib/utils, combined into one pass so
 // mentions and hashtags interleave correctly in source order.
@@ -32,7 +34,12 @@ function linkifySegment(text: string, keyPrefix: string): React.ReactNode[] {
     if (/^(https?:\/\/|www\.)/i.test(token)) {
       const { url, trailing } = splitUrl(token)
       const link = toHref(url)
-      if (link) {
+      const slug = link ? parseShortLink(link) : null
+      if (link && slug) {
+        // One of our checked short links: shows spup.live/l/<slug> plus a badge with the real site.
+        parts.push(<SafeLink key={`${keyPrefix}${key++}`} slug={slug} />)
+        if (trailing) parts.push(trailing)
+      } else if (link) {
         parts.push(
           <a
             key={`${keyPrefix}${key++}`}
@@ -112,4 +119,29 @@ export function closeCutBold(text: string): string {
   let lastEnd = 0
   for (const m of text.matchAll(BOLD_RE)) lastEnd = (m.index ?? 0) + m[0].length
   return OPEN_BOLD_RE.test(text.slice(lastEnd)) ? text + '*' : text
+}
+/**
+ * Text for a direct message or a bio: only Spup short links become clickable. Any other address
+ * stays plain text. A message is end-to-end encrypted, so the server never checked it, and a bio
+ * written before link checking existed was not checked either - an unchecked address must not be
+ * one tap away.
+ */
+export function linkifyShortLinks(text: string | null | undefined): React.ReactNode[] {
+  if (!text) return []
+  const out: React.ReactNode[] = []
+  let last = 0
+  let key = 0
+  for (const m of text.matchAll(new RegExp(URL_RE.source, 'gi'))) {
+    const start = m.index ?? 0
+    const { url, trailing } = splitUrl(m[0])
+    const href = toHref(url)
+    const slug = href ? parseShortLink(href) : null
+    if (!slug) continue
+    if (start > last) out.push(text.slice(last, start))
+    out.push(<SafeLink key={`c${key++}`} slug={slug} />)
+    if (trailing) out.push(trailing)
+    last = start + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
 }

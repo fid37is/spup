@@ -49,6 +49,10 @@ import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 import { compressImageForUpload } from '@/lib/media-client'
 import { validateMediaFile, mediaKindOf } from '@/lib/media-limits'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { prepareDmLinksAction } from '@/lib/actions/links'
+import { extractLinkTokens, applyReplacements } from '@/lib/link-safety/extract'
+import { isOwnHost } from '@/lib/link-safety/short-link'
+import { linkifyShortLinks } from '@/components/shared/linkify'
 
 const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
 const MAX_TEXT = 4000            // characters per message (the server allows more for ciphertext overhead)
@@ -86,6 +90,25 @@ type CryptoState = 'loading' | 'ready' | 'no-peer-key' | 'unavailable'
 type RealtimeState = 'connecting' | 'live' | 'down'
 
 const isTouchPrimary = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
+
+/**
+ * Checks the web addresses in an outgoing message (see deliver()) and returns the text with each
+ * replaced by its short link. Links to Spup itself are left alone and need no check.
+ */
+async function prepareDmText(text: string): Promise<{ text: string; blocked: boolean }> {
+  const external = extractLinkTokens(text).filter(tok => {
+    try { return !isOwnHost(new URL(/^https?:\/\//i.test(tok.raw) ? tok.raw : `https://${tok.raw}`).hostname) } catch { return true }
+  })
+  if (external.length === 0) return { text, blocked: false }
+
+  const res = await prepareDmLinksAction([...new Set(external.map(tok => tok.raw))])
+  if ('error' in res) throw Object.assign(new Error(res.error), { code: res.code })
+  if (res.results.some(r => r.action === 'blocked')) return { text, blocked: true }
+
+  const replacements = new Map<string, string>()
+  for (const r of res.results) if (r.action === 'replace') replacements.set(r.raw, r.replacement)
+  return { text: applyReplacements(text, extractLinkTokens(text), replacements), blocked: false }
+}
 
 export default function ChatClient({
   conversationId, initialMessages, initialHasMore, initialError, currentUserId, otherUser, initialLock = null,
@@ -545,6 +568,32 @@ export default function ChatClient({
       await settledRef.current!.promise                       // never send before we know if we can encrypt
       if (!outboxRef.current.has(tempId)) return              // discarded while waiting
       if (item.wire === null && item.text) {
+        // Link safety. The message is encrypted on this phone, so the server never sees it; only the
+        // web addresses in it are sent to be checked. A checked address comes back as a short link
+        // (spup.live/l/...), an unsafe one stops the message. Offline / server trouble throws, so the
+        // message just shows "Not sent · Retry" like any other failed send.
+        const checked = await prepareDmText(item.text).catch((e: any) => {
+          if (e?.code === 'suspended') return { suspended: String(e.message) } as const
+          throw e
+        })
+        if ('suspended' in checked) {
+          outboxRef.current.delete(tempId)
+          setMessages(prev => removeMessage(prev, tempId))
+          setTexts(tx => { const { [tempId]: _drop, ...rest } = tx; return rest })
+          toastError(checked.suspended || 'Your account is suspended.')
+          return
+        }
+        if (checked.blocked) {
+          outboxRef.current.delete(tempId)
+          setMessages(prev => removeMessage(prev, tempId))
+          setTexts(tx => { const { [tempId]: _drop, ...rest } = tx; return rest })
+          toastError(t('links.cant_share'))
+          return
+        }
+        if (checked.text !== item.text) {
+          item.text = checked.text
+          setTexts(tx => ({ ...tx, [tempId]: checked.text }))
+        }
         if (!sharedKeyRef.current && privateKeyRef.current) await connectPeer().catch(() => false)
         item.wire = sharedKeyRef.current ? await encryptMessage(item.text, sharedKeyRef.current) : item.text
         const wire = item.wire
@@ -590,7 +639,7 @@ export default function ChatClient({
       console.warn('[chat] send failed:', e)
       setMessages(prev => markFailed(prev, tempId))
     }
-  }, [conversationId, connectPeer, currentUserId])
+  }, [conversationId, connectPeer, currentUserId, t])
 
   const enqueue = useCallback((tempId: string) => {
     sendChainRef.current = sendChainRef.current.then(() => deliver(tempId)).catch(() => { })
@@ -1081,10 +1130,10 @@ export default function ChatClient({
                         : failedDecrypt
                           ? <em style={{ opacity: 0.7, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> {t('chat.cant_open_on_device')}</em>
                           : hasMedia
-                            ? (hasCaption ? <span style={{ padding: '0 7px 3px' }}>{text}</span> : null)
+                            ? (hasCaption ? <span style={{ padding: '0 7px 3px' }}>{linkifyShortLinks(text)}</span> : null)
                             : text === undefined
                               ? <em style={{ opacity: 0.6, fontSize: 13 }}>{placeholder()}</em>
-                              : text}
+                              : linkifyShortLinks(text)}
                     </div>
 
                     {/* Actions for the tapped message */}

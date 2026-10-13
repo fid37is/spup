@@ -9,6 +9,9 @@ import { notFound } from 'next/navigation'
 import { Lock } from 'lucide-react'
 import PublicPostCard, { PublicAvatar } from '@/components/public/public-post-card'
 import { getPublicProfile, getPublicProfilePosts } from '@/lib/public-data'
+import { linkifyShortLinks } from '@/components/shared/linkify'
+import SafeLink from '@/components/shared/safe-link'
+import { parseShortLink } from '@/lib/link-safety/short-link'
 
 export const revalidate = 300
 
@@ -98,17 +101,21 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
 
         {profile.bio && (
           <p style={{ margin: '12px 0 0', fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-            {profile.bio}
+            {linkifyShortLinks(profile.bio)}
           </p>
         )}
         {(profile.location || profile.website_url) && (
           <div style={{ marginTop: 10, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: 'var(--color-text-muted)' }}>
             {profile.location && <span>{profile.location}</span>}
             {profile.website_url && (
-              <a href={profile.website_url} rel="nofollow ugc noopener" target="_blank"
-                style={{ color: 'var(--color-brand)', textDecoration: 'none' }}>
-                {profile.website_url.replace(/^https?:\/\//, '')}
-              </a>
+              parseShortLink(profile.website_url) ? (
+                <span><SafeLink slug={parseShortLink(profile.website_url)!} /></span>
+              ) : (
+                <a href={profile.website_url} rel="nofollow ugc noopener noreferrer" target="_blank"
+                  style={{ color: 'var(--color-brand)', textDecoration: 'none' }}>
+                  {profile.website_url.replace(/^https?:\/\//, '')}
+                </a>
+              )
             )}
           </div>
         )}

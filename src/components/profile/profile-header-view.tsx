@@ -9,6 +9,9 @@ import {
 } from 'lucide-react'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { linkifyShortLinks } from '@/components/shared/linkify'
+import SafeLink from '@/components/shared/safe-link'
+import { parseShortLink } from '@/lib/link-safety/short-link'
 
 interface ViewProps {
   profile: {
@@ -77,7 +80,7 @@ export default function ProfileHeaderView({
       {/* Bio */}
       {profile.bio && (
         <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', lineHeight: 1.65, margin: '0 0 10px', wordBreak: 'break-word' }}>
-          {profile.bio}
+          {linkifyShortLinks(profile.bio)}
         </p>
       )}
 
@@ -96,12 +99,20 @@ export default function ProfileHeaderView({
             </span>
           )}
           {profile.website_url && (
-            <a href={profile.website_url} target="_blank" rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, color: 'var(--color-brand)', textDecoration: 'none' }}>
-              <Globe size={14} strokeWidth={1.8} />
-              {profile.website_url.replace(/^https?:\/\//, '')}
-            </a>
+            parseShortLink(profile.website_url) ? (
+              // A checked short link: shows the link plus the real site's name, and opens the "leaving Spup" page.
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, flexWrap: 'wrap' }}>
+                <Globe size={14} strokeWidth={1.8} color="var(--color-brand)" />
+                <SafeLink slug={parseShortLink(profile.website_url)!} />
+              </span>
+            ) : (
+              <a href={profile.website_url} target="_blank" rel="nofollow ugc noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, color: 'var(--color-brand)', textDecoration: 'none' }}>
+                <Globe size={14} strokeWidth={1.8} />
+                {profile.website_url.replace(/^https?:\/\//, '')}
+              </a>
+            )
           )}
         </div>
       )}
