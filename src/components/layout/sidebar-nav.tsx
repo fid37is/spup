@@ -13,11 +13,11 @@ import { useWarmTabs } from '@/hooks/use-warm-tabs'
 
 const NAV = [
   { href: '/feed',          icon: Home,          labelKey: 'nav.home' },
+  { href: '/profile',       icon: User,          labelKey: 'nav.profile' },
   { href: '/explore',       icon: Search,        labelKey: 'nav.explore' },
   { href: '/notifications', icon: Bell,          labelKey: 'nav.notifications', badge: 'alerts' },
   { href: '/messages',      icon: MessageSquare, labelKey: 'nav.chat',          badge: 'chat' },
   { href: '/wallet',        icon: Wallet,        labelKey: 'nav.wallet' },
-  { href: '/profile',       icon: User,          labelKey: 'nav.profile' },
   { href: '/settings',      icon: Settings,      labelKey: 'nav.settings' },
 ]
 

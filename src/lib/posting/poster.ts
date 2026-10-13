@@ -55,6 +55,8 @@ export interface PostJobResult {
 export interface PostJobInput {
   body?: string
   parentPostId?: string
+  /** The post being quoted. A quote is text only: no media, scheduling or selling. */
+  quotedPostId?: string
   isSelling?: boolean
   /** ISO time. Only for original posts. */
   scheduledAt?: string
@@ -163,6 +165,7 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
       const result = await createPostAction({
         body: input.body?.trim() || undefined,
         parent_post_id: input.parentPostId,
+        quoted_post_id: input.quotedPostId,
         is_selling: input.parentPostId ? undefined : (input.isSelling || undefined),
         scheduled_at: input.parentPostId ? undefined : (input.scheduledAt || undefined),
         media: uploaded.length > 0 ? uploaded.map(m => ({
@@ -179,8 +182,14 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
       stopTrickle()
 
       if ('error' in result && result.error) {
+        const code = (result as { code?: string }).code
+        // An unsafe link can't be fixed by trying again: no Retry, but an Appeal button.
+        if (code === 'link_blocked') {
+          fail(job, result.error, false, (result as { appealUrl?: string }).appealUrl ?? '/contact?topic=link-appeal')
+          return
+        }
         // A suspension isn't something a second attempt can change, so no Retry button.
-        fail(job, result.error, (result as { code?: string }).code !== 'suspended')
+        fail(job, result.error, code !== 'suspended')
         return
       }
       succeed(job, {
@@ -274,7 +283,7 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
       // "View" would only reload the page they are already looking at.
       const alreadyThere = href !== undefined && deps.pathname() === href
       deps.toast().success(
-        isReply ? t('composer.reply_sent') : t('composer.post_sent'),
+        isReply ? t('composer.reply_sent') : input.quotedPostId ? t('post.quote_posted') : t('composer.post_sent'),
         6000,
         href && !alreadyThere ? { label: t('composer.view'), onClick: () => deps.router().push(href) } : undefined,
       )
@@ -299,7 +308,7 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
     }
   }
 
-  function fail(job: PostJob, detail: string, retryable = true) {
+  function fail(job: PostJob, detail: string, retryable = true, appealUrl?: string) {
     const { input } = job
     // An upload refused for a suspension arrives as plain text; treat it the same way.
     if (/^Your account is suspended/.test(detail)) retryable = false
@@ -335,6 +344,9 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
     const fallback = input.parentPostId ? t('composer.reply_failed') : t('composer.post_failed')
     if (retryable) {
       deps.toast().error(detail || fallback, FAILED_TOAST_MS, { label: t('composer.retry'), onClick: () => retry(job.id) })
+    } else if (appealUrl) {
+      // A blocked link: say so, and offer the appeal page.
+      deps.toast().error(t('links.cant_share'), 9000, { label: t('links.appeal'), onClick: () => deps.router().push(appealUrl) })
     } else {
       // Nothing to retry: just say why, and until when. Long enough to read the date.
       deps.toast().error(detail || fallback, 6000)

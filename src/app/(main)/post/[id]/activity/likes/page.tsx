@@ -1,9 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import BackButton from '@/components/ui/back-button'
-import { getPostLikers } from '@/lib/queries/posts'
+import { getPostLikersList } from '@/lib/queries/post-likers'
+import LikerRow from './liker-row'
 import ListSortMenu from '../list-sort-menu'
-import LikersList from './likers-list'
 
 export default async function PostLikesPage({
   params, searchParams,
@@ -22,10 +22,10 @@ export default async function PostLikesPage({
   const { data: viewerProfile } = await supabase
     .from('users').select('id').eq('auth_id', user.id).maybeSingle()
 
-  const { data: post } = await supabase.from('posts').select('id, likes_count').eq('id', id).is('deleted_at', null).single()
+  const { data: post } = await supabase.from('posts').select('id').eq('id', id).is('deleted_at', null).single()
   if (!post) notFound()
 
-  const first = await getPostLikers(id, user.id, sort)
+  const likers = await getPostLikersList(id, user.id, sort)
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -45,16 +45,15 @@ export default async function PostLikesPage({
         <ListSortMenu basePath={`/post/${id}/activity/likes`} currentSort={sort} />
       </div>
 
-      {/* Everyone who liked it, a page at a time, each with a Follow button. */}
-      <LikersList
-        key={sort}
-        postId={id}
-        sort={sort}
-        viewerProfileId={viewerProfile?.id}
-        initialLikers={first.likers}
-        initialNextOffset={first.nextOffset}
-        initialHasMore={first.hasMore}
-      />
+      {likers.length === 0 ? (
+        <div style={{ padding: '48px 20px', textAlign: 'center' }}>
+          <p style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>No likes yet.</p>
+        </div>
+      ) : (
+        likers.map(liker => (
+          <LikerRow key={liker.id} user={liker} isSelf={liker.id === viewerProfile?.id} />
+        ))
+      )}
     </div>
   )
 }

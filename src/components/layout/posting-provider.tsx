@@ -32,6 +32,11 @@ export function usePosting(): PostingContextValue {
   return ctx
 }
 
+/** Like usePosting, but returns null outside the app shell (e.g. the public pages) instead of throwing. */
+export function useOptionalPosting(): PostingContextValue | null {
+  return useContext(PostingContext)
+}
+
 export default function PostingProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()

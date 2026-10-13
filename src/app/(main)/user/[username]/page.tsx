@@ -172,7 +172,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     // showed a blocked or muted person as blocked or muted.
     const [muteRow, notifRow] = await Promise.all([
       admin.from('user_mutes').select('muter_id').match({ muter_id: viewerProfileId, muted_id: profile.id }).maybeSingle(),
-      admin.from('user_notification_preferences').select('id').match({ user_id: viewerProfileId, target_user_id: profile.id, type: 'post' }).maybeSingle(),
+      admin.from('post_notification_subscriptions').select('id').match({ user_id: viewerProfileId, target_user_id: profile.id, type: 'post' }).maybeSingle(),
     ])
     initialMuted          = !!muteRow.data
     initialBlocked        = blockState.byMe

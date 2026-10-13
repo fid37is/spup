@@ -4,4 +4,6 @@
     <string name="title_activity_main">Spup</string>
     <string name="package_name">com.spup.app</string>
     <string name="custom_url_scheme">com.spup.app</string>
+    <!-- AdMob APPLICATION id (ca-app-pub-...~...), not an ad unit id. -->
+    <string name="admob_app_id">ca-app-pub-5970584938854119~5865285285</string>
 </resources>

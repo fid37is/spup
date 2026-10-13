@@ -12,6 +12,8 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { nameField } from '@/lib/validations/schemas'
 import { z } from 'zod'
 import { usernameLengthError } from '@/lib/validations/username-length'
+import { processLinks, resolveLink } from '@/lib/link-safety/service'
+import { APPEAL_URL } from '@/lib/link-safety/config'
 
 async function getCallerProfile() {
   const supabase = await createClient()
@@ -63,9 +65,29 @@ export async function updateProfileAction(data: UpdateProfileData) {
   // Nothing to change: succeed without writing anything.
   if (Object.keys(parsed.data).length === 0) return { success: true }
 
+  const changes = { ...parsed.data }
+  const blockedLink = { error: "This link can't be shared on Spup", code: 'link_blocked' as const, appealUrl: APPEAL_URL }
+
+  // Link safety. A bio's links become short links (spup.live/l/<slug>); an unsafe one refuses the save.
+  if (typeof changes.bio === 'string' && changes.bio.trim()) {
+    const linked = await processLinks(changes.bio, { userId: profile.id, context: 'bio' })
+    if (linked.blocked) return blockedLink
+    if (linked.text.length > 160) return { error: 'Your bio is too long once its links are checked.' }
+    changes.bio = linked.text
+  }
+  // The website field is a single link: check it, and store its short link.
+  if (typeof changes.website_url === 'string' && changes.website_url.trim()) {
+    const r = await resolveLink(changes.website_url, { userId: profile.id, context: 'website' })
+    if (r.kind === 'blocked') return blockedLink
+    if (r.kind === 'invalid') return { error: 'Enter a valid link, for example https://yoursite.com' }
+    // A link we couldn't check right now can't be stored as an active link; plain text makes no sense in this field.
+    if (r.kind === 'unverified') return { error: "We couldn't check that link right now. Please try again in a few minutes." }
+    if (r.kind === 'link') changes.website_url = r.short
+  }
+
   const { error } = await supabase
     .from('users')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update({ ...changes, updated_at: new Date().toISOString() })
     .eq('id', profile.id)
 
   if (error) {

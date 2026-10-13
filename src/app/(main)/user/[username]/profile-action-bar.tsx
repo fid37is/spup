@@ -93,7 +93,7 @@ export default function ProfileActionBar({
     const next = !notifs
     setNotifs(next)
     startT(async () => {
-      const r = await togglePostNotificationsAction(targetUserId)
+      const r = await togglePostNotificationsAction(targetUserId, next)
       if ('error' in r) { setNotifs(!next); toastError((r as any).error); return }
       success(r.enabled ? t('profile.notified_of_posts', { username }) : t('profile.post_notifs_off'))
     })

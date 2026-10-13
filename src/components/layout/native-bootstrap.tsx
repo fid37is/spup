@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Capacitor } from '@capacitor/core'
-import { runTopBackHandler } from '@/lib/native-back'
+import { hasBackHandlers, onBackStackChange, runTopBackHandler } from '@/lib/native-back'
 
 const HOME = '/feed'
 const ROOT_TABS = ['/feed', '/explore', '/notifications', '/messages']
@@ -52,6 +52,103 @@ function consumeLaunchUrl(url: string): boolean {
   return true
 }
 
+// ─── AdMob banner (Android app only) ────────────────────────────────────────
+// Spup's banner ad unit. NEXT_PUBLIC_ADMOB_BANNER_ID overrides it - e.g. set it to
+// Google's public test banner (ca-app-pub-3940256099942544/6300978111) to see
+// harmless test ads while checking the layout.
+const BANNER_ID = process.env.NEXT_PUBLIC_ADMOB_BANNER_ID || 'ca-app-pub-5970584938854119/8668462467'
+// Optional: comma-separated test-device IDs (shown in Logcat as "Use
+// RequestConfiguration.Builder().setTestDeviceIds(...)") so YOUR phone only ever
+// gets test ads - tapping your own live ads is against AdMob policy.
+const TEST_DEVICES = (process.env.NEXT_PUBLIC_ADMOB_TEST_DEVICES ?? '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+const AD_ROUTES = ['/feed', '/explore']   // exact paths that show the banner
+const AD_GAP = 8                          // dp of air between the banner and the nav (accidental-tap policy)
+
+let adsReady: Promise<boolean> | null = null
+let bannerCreated = false
+let bannerShown = false
+let lastBannerHeight = 0
+let bannerQueue: Promise<void> = Promise.resolve()
+
+/** Height of the fixed bottom nav, so the banner can sit just above it. */
+function bottomNavHeight(): number {
+  for (const nav of Array.from(document.querySelectorAll('nav'))) {
+    const cs = getComputedStyle(nav)
+    if (cs.position === 'fixed' && cs.bottom === '0px') return Math.round(nav.getBoundingClientRect().height)
+  }
+  return 64
+}
+
+/** Room at the end of the page so the last post isn't hidden behind the banner. */
+function setAdPadding(px: number) {
+  document.body.style.paddingBottom = px > 0 ? `${px}px` : ''
+}
+
+/** Consent (EU/UK rules), then start the SDK. Runs once; false = ads unavailable this session. */
+function ensureAds(): Promise<boolean> {
+  if (!adsReady) {
+    adsReady = (async () => {
+      try {
+        const { AdMob, AdmobConsentStatus } = await import('@capacitor-community/admob')
+        let consent = await AdMob.requestConsentInfo()
+        if (consent.isConsentFormAvailable && consent.status === AdmobConsentStatus.REQUIRED) {
+          consent = await AdMob.showConsentForm()
+        }
+        if (!consent.canRequestAds) return false
+        await AdMob.initialize(
+          TEST_DEVICES.length ? { initializeForTesting: true, testingDevices: TEST_DEVICES } : undefined,
+        )
+        return true
+      } catch (err) {
+        console.error('[admob] could not start:', err)
+        return false   // the app stays fully usable without ads
+      }
+    })()
+  }
+  return adsReady
+}
+
+/** Show or hide the banner. Calls are queued so quick changes can't overlap. */
+function setBanner(visible: boolean): void {
+  bannerQueue = bannerQueue.then(async () => {
+    if (visible === bannerShown) return
+    const { AdMob, BannerAdPluginEvents, BannerAdPosition, BannerAdSize } =
+      await import('@capacitor-community/admob')
+
+    if (visible) {
+      if (!(await ensureAds())) return
+      bannerShown = true
+      try {
+        if (!bannerCreated) {
+          await AdMob.addListener(BannerAdPluginEvents.SizeChanged, size => {
+            lastBannerHeight = size.height
+            setAdPadding(bannerShown ? size.height + AD_GAP : 0)
+          })
+          await AdMob.showBanner({
+            adId: BANNER_ID,
+            adSize: BannerAdSize.ADAPTIVE_BANNER,
+            position: BannerAdPosition.BOTTOM_CENTER,
+            margin: bottomNavHeight() + AD_GAP,
+          })
+          bannerCreated = true
+        } else {
+          await AdMob.resumeBanner()
+          setAdPadding(lastBannerHeight + AD_GAP)
+        }
+      } catch (err) {
+        bannerShown = false
+        throw err
+      }
+    } else {
+      if (!bannerCreated) return
+      bannerShown = false
+      setAdPadding(0)
+      await AdMob.hideBanner()
+    }
+  }).catch(err => console.error('[admob] banner error:', err))
+}
+
 /**
  * Native-only behaviour for the Capacitor app. Renders nothing, and does
  * nothing on the web.
@@ -72,6 +169,10 @@ function consumeLaunchUrl(url: string): boolean {
  *    - com.spup.app://open?path=/some/page    (payment return, or a tapped
  *      push notification) -> open that page inside the app
  *    - https://spup.live/...                  (App Links, once verified)
+ *
+ * 3. AdMob banner (Android app only) - shown above the bottom nav on the feed
+ *    and explore screens, hidden elsewhere, while a popup is open, and while
+ *    the keyboard is up. The website's AdSense can't run inside the app.
  *
  * Mounted once in src/app/layout.tsx, which never unmounts, so the
  * listeners stay registered for the whole session (login pages included).
@@ -178,6 +279,32 @@ export default function NativeBootstrap() {
       removers.forEach(r => r())
     }
   }, [router])
+
+  // AdMob banner: on the feed and explore screens only, and out of the way of
+  // popups and the keyboard. Android app only - the website uses AdSense.
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') return
+
+    const onAdRoute = AD_ROUTES.includes(pathname)
+    let tallest = window.innerHeight
+    let keyboardOpen = false
+
+    const apply = () => setBanner(onAdRoute && !keyboardOpen && !hasBackHandlers())
+    const onResize = () => {
+      // The window shrinks a lot when the keyboard opens.
+      tallest = Math.max(tallest, window.innerHeight)
+      keyboardOpen = window.innerHeight < tallest * 0.75
+      apply()
+    }
+
+    apply()
+    const offStack = onBackStackChange(apply)   // a popup opened or closed
+    window.addEventListener('resize', onResize)
+    return () => {
+      offStack()
+      window.removeEventListener('resize', onResize)
+    }
+  }, [pathname])
 
   return null
 }

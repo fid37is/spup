@@ -16,6 +16,15 @@
 # next.js
 /.next/
 /out/
+/export-2026-10-12T23_37_24.073Z.csv
+/migrate.js
+
+/rewrite.sql
+/rollback.sql
+/db-urls.json
+/bunny-missing.csv
+/scripts/bunny-verify.mjs
+
 
 # production
 /build

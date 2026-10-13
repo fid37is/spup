@@ -143,22 +143,23 @@ export async function toggleFollowAction(targetUserId: string, desired?: boolean
     return { following: false, changed: true }
   }
 
-  // A "follow back": they already follow me, so this follow is my answer to theirs.
-  // The notification says so ("followed you back") instead of a plain new follower.
-  const { data: theyFollowMe } = await supabase
-    .from('follows').select('id')
-    .match({ follower_id: targetUserId, following_id: profile.id })
-    .maybeSingle()
-
   const { error } = await supabase.from('follows').insert({ follower_id: profile.id, following_id: targetUserId })
   if (error?.code === '23505') return { following: true, changed: false }
   if (error?.code === '42501') return { error: 'Permission denied. Please log out and back in.' }
   if (error) return { error: `Could not follow: ${error.message}` }
 
+  // Is this a follow-BACK? i.e. the person being followed already follows the follower.
+  // Recorded on the notification itself (not worked out later when it is displayed), so
+  // it keeps saying "followed you back" even if either of you unfollows afterwards.
+  const { data: alreadyFollowsMe } = await supabase
+    .from('follows').select('id')
+    .match({ follower_id: targetUserId, following_id: profile.id })
+    .maybeSingle()
+
   void createNotification({
     recipientId: targetUserId, actorId: profile.id,
     type: 'new_follower', entityId: profile.id, entityType: 'user',
-    metadata: theyFollowMe ? { follow_back: true } : {},
+    metadata: alreadyFollowsMe ? { follow_back: true } : {},
   })
   revalidatePath('/profile')
   revalidatePath(`/user/${targetUsername}`)
@@ -319,25 +320,56 @@ export async function getSuggestedAccountsAction(interestIds: string[] = []): Pr
 // ─── Toggle post notifications for a user ────────────────────────────────────
 // Inserts or deletes a row in user_notifications_settings.
 // Returns the new state.
-export async function togglePostNotificationsAction(targetUserId: string): Promise<
+//
+// `desired` (true = on) makes it idempotent, like toggleLikeAction: a double tap or a stale
+// screen can't flip it back. Without it, plain toggle.
+//
+// This used to ignore the result of the insert/delete and answer "enabled: true" no matter
+// what, so when the database refused the write the bell looked ON until the app was
+// reloaded and then read back OFF. Every write is now checked, and a failure is returned
+// (the bell reverts and shows a message) and logged with the real database error.
+export async function togglePostNotificationsAction(targetUserId: string, desired?: boolean): Promise<
   { enabled: boolean } | { error: string }
 > {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
+  if (profile.id === targetUserId) return { error: "You can't turn on post notifications for yourself." }
 
-  const { data: existing } = await supabase
-    .from('user_notification_preferences')
+  const { data: existing, error: lookupError } = await supabase
+    .from('post_notification_subscriptions')
     .select('id')
     .match({ user_id: profile.id, target_user_id: targetUserId, type: 'post' })
     .maybeSingle()
+  if (lookupError) {
+    console.error('togglePostNotificationsAction lookup failed:', lookupError)
+    return { error: 'Could not update post notifications. Please try again.' }
+  }
 
-  if (existing) {
-    await supabase.from('user_notification_preferences').delete().eq('id', existing.id)
+  const turnOn = desired ?? !existing
+
+  if (!turnOn) {
+    if (existing) {
+      const { error } = await supabase.from('post_notification_subscriptions').delete().eq('id', existing.id)
+      if (error) {
+        console.error('togglePostNotificationsAction delete failed:', error)
+        return { error: 'Could not turn off post notifications. Please try again.' }
+      }
+    }
+    revalidatePath('/notifications', 'layout')
     return { enabled: false }
   }
-  await supabase.from('user_notification_preferences').insert({
-    user_id: profile.id, target_user_id: targetUserId, type: 'post',
-  })
+
+  if (!existing) {
+    const { error } = await supabase.from('post_notification_subscriptions').insert({
+      user_id: profile.id, target_user_id: targetUserId, type: 'post',
+    })
+    // 23505 = it already exists (a double tap raced us): that is the state we wanted.
+    if (error && error.code !== '23505') {
+      console.error('togglePostNotificationsAction insert failed:', error)
+      return { error: 'Could not turn on post notifications. Please try again.' }
+    }
+  }
+  revalidatePath('/notifications', 'layout')
   return { enabled: true }
 }
 
@@ -345,7 +377,7 @@ export async function getPostNotificationsStatusAction(targetUserId: string): Pr
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return false
   const { data } = await supabase
-    .from('user_notification_preferences')
+    .from('post_notification_subscriptions')
     .select('id')
     .match({ user_id: profile.id, target_user_id: targetUserId, type: 'post' })
     .maybeSingle()
