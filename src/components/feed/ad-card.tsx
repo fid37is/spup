@@ -2,6 +2,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 
 interface InternalAd {
   id: string
@@ -30,7 +31,9 @@ export default function AdSlot({ postId, position }: AdSlotProps) {
       .then(r => r.json())
       .then(data => {
         if (data.ad) setAd(data.ad)
-        else if (data.use_adsense) setUseAdsense(true)
+        // AdSense is for websites; Google doesn't allow it inside apps. In the
+        // Android app the fallback is the AdMob banner (see NativeBootstrap).
+        else if (data.use_adsense && !Capacitor.isNativePlatform()) setUseAdsense(true)
       })
       .catch(() => {})
       .finally(() => setLoading(false))

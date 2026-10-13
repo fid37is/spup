@@ -76,12 +76,9 @@ async function pushSnippet(
 ): Promise<string | undefined> {
   if (!PREVIEW_TYPES.has(type)) return undefined
   // A reply / quote notification previews the reply itself, not the parent.
-  // A repost's preview is the post that was reposted, not the empty repost row.
   const postId = (type === 'post_comment' || type === 'post_quote')
     ? (metadata as { reply_id?: string }).reply_id
-    : (type === 'new_post' && (metadata as { is_repost?: boolean }).is_repost)
-      ? (metadata as { reposted_id?: string }).reposted_id
-      : entityId
+    : entityId
   if (!postId) return undefined
 
   const { data } = await admin
@@ -110,7 +107,7 @@ function buildPushPayload(
   type: NotificationType,
   actorName: string | null,   // the sender's display name (falls back to @username)
   entityId: string | undefined,
-  extras: { snippet?: string; avatarUrl?: string; actorUsername?: string; followBack?: boolean; isRepost?: boolean } = {},
+  extras: { snippet?: string; avatarUrl?: string; actorUsername?: string; followBack?: boolean } = {},
 ): PushPayload {
   const copy: Record<NotificationType, PushCopy> = {
     new_follower: withActor('started following you'),
@@ -150,13 +147,14 @@ function buildPushPayload(
     body = entry.text
   }
 
-  // Same event, more specific wording.
-  if (type === 'new_follower' && extras.followBack) body = actorName ? 'followed you back' : 'Someone followed you back'
-  if (type === 'new_post' && extras.isRepost) body = actorName ? 'reposted a post' : 'Someone reposted a post'
+  // A follow that is the other side of an existing follow says so.
+  if (type === 'new_follower' && extras.followBack && entry?.withActor && actorName) {
+    body = 'followed you back'
+  }
 
   // X-style: where the content is the point, show it instead of a generic line.
   if (extras.snippet && entry?.withActor && actorName) {
-    if (type === 'new_post') body = extras.isRepost ? `reposted: ${extras.snippet}` : extras.snippet
+    if (type === 'new_post') body = extras.snippet
     else if (type === 'mention') body = `mentioned you: ${extras.snippet}`
     else if (type === 'post_comment') body = `replied: ${extras.snippet}`
     else if (type === 'post_quote') body = `quoted your post: ${extras.snippet}`
@@ -335,16 +333,17 @@ export async function createNotification({
   if (!delivery.push) return
 
   // A reply's push should open the reply itself, not the post it replied to.
-  const meta = metadata as { reply_id?: string; is_repost?: boolean; reposted_id?: string; follow_back?: boolean }
-  // ...and a repost's push opens the post that was reposted.
-  const pushEntityId = meta?.reply_id ?? (meta?.is_repost ? meta.reposted_id : undefined) ?? entityId
+  const pushEntityId = (metadata as { reply_id?: string })?.reply_id ?? entityId
 
   // Fire-and-forget - a push failure should never affect the caller, which
   // is why sendPushToUser itself never throws.
   const snippet = await pushSnippet(admin, type, entityId, metadata)
   const pushJob = sendPushToUser(
     recipientId,
-    buildPushPayload(type, actorLabel, pushEntityId, { snippet, avatarUrl, actorUsername, followBack: !!meta?.follow_back, isRepost: !!meta?.is_repost }),
+    buildPushPayload(type, actorLabel, pushEntityId, {
+      snippet, avatarUrl, actorUsername,
+      followBack: (metadata as { follow_back?: boolean })?.follow_back === true,
+    }),
   )
   // after() keeps the serverless worker alive until the push has actually
   // been sent. A bare un-awaited promise can be cancelled the moment the

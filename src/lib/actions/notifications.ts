@@ -56,8 +56,6 @@ export interface NotificationItem {
   post: NotificationPostPreview | null
   /** For replies: the reply itself (metadata.reply_id). */
   reply: NotificationPostPreview | null
-  /** For a repost alert: the post that was reposted (metadata.reposted_id). */
-  reposted?: NotificationPostPreview | null
 }
 
 export interface NewPostUser extends NotificationActor {
@@ -147,7 +145,7 @@ export async function getNotificationsAction(
   let priorityIds: string[] | null = null
   if (tab === 'priority') {
     const { data: targets } = await supabase
-      .from('user_notification_preferences')
+      .from('post_notification_subscriptions')
       .select('target_user_id')
       .match({ user_id: profile.id, type: 'post' })
     priorityIds = (targets || []).map((t: any) => t.target_user_id)
@@ -216,7 +214,6 @@ async function hydrate(
   for (const r of rows) {
     if (r.entity_type === 'post' && r.entity_id) postIds.add(r.entity_id)
     if (r.metadata?.reply_id) postIds.add(r.metadata.reply_id)
-    if (r.metadata?.reposted_id) postIds.add(r.metadata.reposted_id)
   }
 
   const previews = new Map<string, NotificationPostPreview>()
@@ -253,7 +250,6 @@ async function hydrate(
     actor: one<NotificationActor>(r.actor),
     post: r.entity_type === 'post' && r.entity_id ? (previews.get(r.entity_id) ?? null) : null,
     reply: r.metadata?.reply_id ? (previews.get(r.metadata.reply_id) ?? null) : null,
-    reposted: r.metadata?.reposted_id ? (previews.get(r.metadata.reposted_id) ?? null) : null,
   }))
 }
 

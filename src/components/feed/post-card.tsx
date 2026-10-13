@@ -47,6 +47,7 @@ import { ProgressiveImage } from '@/components/media/progressive-image'
 import { publishFeedEvent } from '@/lib/feed-local-events'
 import { linkifyPostText, closeCutBold } from '@/components/shared/linkify'
 import LinkPreviewCard from '@/components/feed/link-preview-card'
+import { extractFirstUrl } from '@/lib/urls'
 import ConfirmModal from '@/components/ui/confirm-modal'
 import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
 import VerifiedBadge from '@/components/ui/verified-badge'
@@ -426,6 +427,9 @@ function MediaRow({ media, postId, post, compact = false, bleed = false }: { med
 // dark mode (both #1E1E26), so inside the quote composer it is passed a stronger one.
 function QuotedEmbed({ q, onOpen, borderColor = 'var(--color-border)' }: { q: NonNullable<FeedPost['quoted_post']>; onOpen?: () => void; borderColor?: string }) {
   const single = (q.media?.length ?? 0) === 1
+  // A quoted post whose text has a link shows that link's Open Graph card too, as the post
+  // does on its own (it was missing here, so a quoted link showed as bare text).
+  const hasLinkPreview = !q.media?.length && !!extractFirstUrl(q.body)
   return (
     <div
       onClick={onOpen ? (e => { e.stopPropagation(); onOpen() }) : undefined}
@@ -451,7 +455,13 @@ function QuotedEmbed({ q, onOpen, borderColor = 'var(--color-border)' }: { q: No
           <MediaRow media={q.media} postId={q.id} post={q as unknown as FeedPost} compact bleed={single} />
         </div>
       )}
-      {!(single && q.media?.length) && <div style={{ height: 10 }} />}
+      {hasLinkPreview && (
+        // The card carries its own 10px bottom margin, so no extra spacer below it.
+        <div style={{ padding: '10px 12px 0' }}>
+          <LinkPreviewCard body={q.body} />
+        </div>
+      )}
+      {!(single && q.media?.length) && !hasLinkPreview && <div style={{ height: 10 }} />}
     </div>
   )
 }

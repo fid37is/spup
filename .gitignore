@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /out/
+/export-2026-10-12T23_37_24.073Z.csv
+/migrate.js
 
 # production
 /build

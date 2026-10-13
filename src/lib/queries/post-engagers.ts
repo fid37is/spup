@@ -7,7 +7,14 @@
 //   is_following - the viewer follows them
 //   follows_me   - they follow the viewer (-> the button reads "Follow back")
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
+
+// Reads use the service-role client on purpose. The people who liked/reposted a post
+// are public information, but the user-scoped client is subject to row-level
+// security, and with it this list only ever came back with the viewer's OWN row
+// (so the post owner saw only themselves). Everything is still scoped to one
+// post, deleted/banned accounts are excluded here, and the page itself already
+// requires a signed-in viewer.
 
 export interface PostPerson {
   id: string
@@ -28,7 +35,7 @@ export interface PostQuote {
   author: PostPerson
 }
 
-type Supa = Awaited<ReturnType<typeof createClient>>
+type Supa = ReturnType<typeof createAdminClient>
 
 async function loadPeople(supabase: Supa, ids: string[], viewerAuthId: string | null): Promise<Map<string, PostPerson>> {
   const out = new Map<string, PostPerson>()
@@ -38,6 +45,8 @@ async function loadPeople(supabase: Supa, ids: string[], viewerAuthId: string | 
     .from('users')
     .select('id, username, display_name, avatar_url, verification_tier, followers_count')
     .in('id', ids)
+    .is('deleted_at', null)
+    .neq('status', 'banned')
   if (error) { console.error('[post-engagers] users query failed:', error.message); return out }
 
   let following = new Set<string>()
@@ -67,13 +76,14 @@ async function loadPeople(supabase: Supa, ids: string[], viewerAuthId: string | 
 export async function getPostRepostersList(
   postId: string, viewerAuthId: string | null, sort: 'recent' | 'top' = 'recent', limit = 50,
 ): Promise<PostPerson[]> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: rows, error } = await supabase
     .from('posts')
     .select('user_id, created_at')
     .eq('quoted_post_id', postId)
     .eq('post_type', 'repost')
     .is('deleted_at', null)
+    .lte('created_at', new Date().toISOString())
     .order('created_at', { ascending: false })
     .limit(limit)
   if (error) { console.error('[getPostRepostersList] query failed:', error.message); return [] }
@@ -88,13 +98,14 @@ export async function getPostRepostersList(
 export async function getPostQuotesList(
   postId: string, viewerAuthId: string | null, sort: 'recent' | 'top' = 'recent', limit = 50,
 ): Promise<PostQuote[]> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: rows, error } = await supabase
     .from('posts')
     .select('id, body, created_at, likes_count, user_id')
     .eq('quoted_post_id', postId)
     .eq('post_type', 'quote')
     .is('deleted_at', null)
+    .lte('created_at', new Date().toISOString())
     .order('created_at', { ascending: false })
     .limit(limit)
   if (error) { console.error('[getPostQuotesList] query failed:', error.message); return [] }

@@ -9,7 +9,14 @@
 //   is_following - the viewer follows them
 //   follows_me   - they follow the viewer (-> the button reads "Follow back")
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
+
+// Reads use the service-role client on purpose. The people who liked/reposted a post
+// are public information, but the user-scoped client is subject to row-level
+// security, and with it this list only ever came back with the viewer's OWN row
+// (so the post owner saw only themselves). Everything is still scoped to one
+// post, deleted/banned accounts are excluded here, and the page itself already
+// requires a signed-in viewer.
 
 export interface PostLiker {
   id: string
@@ -28,7 +35,7 @@ export async function getPostLikersList(
   sort: 'recent' | 'top' = 'recent',
   limit = 50,
 ): Promise<PostLiker[]> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: likeRows, error: likesError } = await supabase
     .from('likes')
@@ -45,6 +52,8 @@ export async function getPostLikersList(
     .from('users')
     .select('id, username, display_name, avatar_url, verification_tier, followers_count')
     .in('id', ids)
+    .is('deleted_at', null)
+    .neq('status', 'banned')
   if (usersError) { console.error('[getPostLikersList] users query failed:', usersError.message); return [] }
 
   const byId = new Map((users ?? []).map(u => [u.id as string, u]))
