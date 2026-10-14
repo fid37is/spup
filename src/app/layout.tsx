@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import Script from 'next/script'
 import './globals.css'
 import PWAProvider from '@/components/layout/pwa-provider'
 import { WaitlistProvider } from '@/components/landing/waitlist-context'
@@ -11,6 +10,7 @@ import NativeSplashHider from '@/components/layout/native-splash-hider'
 import { AppThemeProvider } from '@/components/layout/theme-provider'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://spup.live'
+const ADSENSE_CLIENT = process.env.NEXT_PUBLIC_ADSENSE_PUBLISHER_ID ?? 'ca-pub-5970584938854119'
 
 export const viewport: Viewport = {
   themeColor: '#1A7A4A',
@@ -224,6 +224,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             `,
           }}
         />
+        {/* AdSense loader. A plain <script> in <head> so it is in the raw server HTML,
+            which is what AdSense site verification and the crawler look for. */}
+        <script
+          async
+          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
+          crossOrigin="anonymous"
+        />
       </head>
       <body>
         <PWAProvider />
@@ -239,14 +246,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </AppThemeProvider>
         {process.env.NEXT_PUBLIC_GA_ID && (
           <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
-        )}
-        {process.env.NEXT_PUBLIC_ADSENSE_PUBLISHER_ID && (
-          <Script
-            async
-            strategy="afterInteractive"
-            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${process.env.NEXT_PUBLIC_ADSENSE_PUBLISHER_ID}`}
-            crossOrigin="anonymous"
-          />
         )}
       </body>
     </html>
