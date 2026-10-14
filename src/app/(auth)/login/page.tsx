@@ -9,7 +9,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { loginSchema, type LoginSchema } from '@/lib/validations/schemas'
 import { loginAction } from '@/lib/actions'
 import { AuthCard, Alert } from '@/components/auth/form-field'
-import OAuthButtons, { AuthDivider } from '@/components/auth/oauth-buttons'
+import OAuthButtons, { AuthDivider, RecentBadge } from '@/components/auth/oauth-buttons'
+import { readLastLoginMethod, type LoginMethod } from '@/lib/auth-last-login'
 import { useWaitlist } from '@/components/landing/waitlist-context'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { tv } from '@/lib/i18n/validation'
@@ -48,6 +49,9 @@ function LoginForm() {
   const hostErrorParam = searchParams.get('error')
   // /api/auth/callback adds ?reason=... saying why a Google/Facebook sign-in failed.
   const reasonParam = searchParams.get('reason')
+  // Set by /api/auth/callback when a Google/Facebook sign-in was refused because
+  // the email already belongs to an email + password account.
+  const providerParam = searchParams.get('provider')
   const hostErrorMessage = useMemo(() => {
     if (hostErrorParam === 'admin_only') return t('auth.admin_only_notice')
     if (hostErrorParam === 'use_admin_domain') return t('auth.admin_only_desc')
@@ -56,15 +60,24 @@ function LoginForm() {
     if (hostErrorParam === 'auth_failed') {
       return `Sign-in did not finish. Please try again.${reasonParam ? ` (${reasonParam})` : ''}`
     }
+    if (hostErrorParam === 'use_email') {
+      const name = providerParam === 'facebook' ? 'Facebook' : 'Google'
+      return `This email already has a Spup account that uses email and password, so ${name} sign-in can't be used with it. Please sign in with your email and password below.`
+    }
     if (hostErrorParam === 'no_code') {
       return `Sign-in was interrupted before it finished. Please try again.${reasonParam ? ` (${reasonParam})` : ''}`
     }
     return ''
-  }, [hostErrorParam, reasonParam, t])
+  }, [hostErrorParam, reasonParam, providerParam, t])
 
   const [serverError, setServerError] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [isPending, startT] = useTransition()
+
+  // Which method was used last on this device. Read after mount so the server
+  // and first client render match.
+  const [recent, setRecent] = useState<LoginMethod | null>(null)
+  useEffect(() => { setRecent(readLastLoginMethod()) }, [])
 
   const {
     register,
@@ -92,13 +105,16 @@ function LoginForm() {
       {(serverError || hostErrorMessage) && <Alert type="error" message={serverError || hostErrorMessage} />}
 
       {/* Social auth */}
-      <OAuthButtons mode="login" />
+      <OAuthButtons mode="login" recent={recent === 'google' || recent === 'facebook' ? recent : null} />
       <AuthDivider />
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         {/* Email or username */}
         <div style={{ marginBottom: 14 }}>
-          <label style={lbl}>{t('auth.email_or_username')}</label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <label style={{ ...lbl, marginBottom: 0 }}>{t('auth.email_or_username')}</label>
+            {recent === 'email' && <RecentBadge />}
+          </div>
           <input
             {...register('identifier')}
             type="text"
