@@ -21,11 +21,61 @@ import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-dr
 import { useTranslation } from '@/lib/i18n/language-context'
 import { QuoteModal } from './quote-modal'
 
-// Bright red for a liked heart - same on light and dark themes and on the
-// media viewer's black background.
-const LIKE_RED = '#FF1744'
+// Liked heart colour - matches the like notification (PINK in notifications-client.tsx).
+// Same on light and dark themes and on the media viewer's black background.
+const LIKE_RED = '#F91880'
 // Green for a reposted post (icon and count), readable on light, dark and the viewer.
 const REPOST_GREEN = '#00BA7C'
+
+// ── LikeBurst ─────────────────────────────────────────────────────────────────
+// The burst behind the heart when a post is liked, in the style of X: a soft
+// circle swells out from behind the heart, and a ring of small dots drifts
+// outward and fades. Subtle on purpose - the heart's own pop (actionPop) does
+// most of the work. The keyframes (likeRing, likeDot) are in globals.css.
+// Dot positions are fixed, so the burst looks the same every time.
+const BURST_DOTS = Array.from({ length: 8 }, (_, i) => {
+  const a = (i / 8) * 2 * Math.PI - Math.PI / 2   // start at 12 o'clock
+  const near = i % 2 === 0                         // alternate bigger/closer and smaller/softer
+  const r1 = near ? 22 : 19
+  return {
+    x0: Math.cos(a) * 10, y0: Math.sin(a) * 10,    // start just outside the heart
+    x1: Math.cos(a) * r1, y1: Math.sin(a) * r1,    // drift out to here
+    size: near ? 4 : 3,
+    opacity: near ? 1 : 0.6,
+  }
+})
+
+function LikeBurst({ color }: { color: string }) {
+  return (
+    <>
+      <span
+        aria-hidden
+        data-like-burst
+        style={{
+          position: 'absolute', top: '50%', left: '50%',
+          width: 26, height: 26, borderRadius: '50%',
+          background: color, pointerEvents: 'none',
+          animation: 'likeRing 0.45s ease-out forwards',
+        }}
+      />
+      {BURST_DOTS.map((d, i) => (
+        <span
+          key={i}
+          aria-hidden
+          data-like-burst
+          style={{
+            position: 'absolute', top: '50%', left: '50%',
+            width: d.size, height: d.size, borderRadius: '50%',
+            background: color, opacity: d.opacity, pointerEvents: 'none',
+            ['--x0' as any]: `${d.x0}px`, ['--y0' as any]: `${d.y0}px`,
+            ['--x1' as any]: `${d.x1}px`, ['--y1' as any]: `${d.y1}px`,
+            animation: 'likeDot 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) 0.04s both',
+          }}
+        />
+      ))}
+    </>
+  )
+}
 
 function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero = false, burst = false, onDark = false }: {
   icon: React.ReactNode; count: number | null; active: boolean; activeColor: string
@@ -44,14 +94,13 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
   useEffect(() => {
     if (burst && active && !wasActive.current) {
       setAnimating(true)
-      const t = setTimeout(() => setAnimating(false), 550)
+      const t = setTimeout(() => setAnimating(false), 600)
       return () => clearTimeout(t)
     }
     wasActive.current = active
   }, [active, burst])
 
-  const particles = animating ? Array.from({ length: 6 }) : []
-  // No count, no space: an empty count used to reserve a fixed-width gap after the
+    // No count, no space: an empty count used to reserve a fixed-width gap after the
   // icon, which is what made the row look spread out across the width.
   const countText = count !== null ? (count > 0 ? formatNumber(count) : showZero ? '0' : '') : ''
   const idleColor = onDark ? 'var(--viewer-fg)' : 'var(--color-text-muted)'
@@ -78,30 +127,15 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
       onMouseEnter={e => { e.currentTarget.style.background = onDark ? 'var(--viewer-control-bg)' : 'var(--color-surface-3)' }}
       onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
     >
-      <span style={{
-        position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        animation: animating ? 'actionPop 0.5s ease' : 'none',
-      }}>
+      <span
+        data-like-pop={animating ? '' : undefined}
+        style={{
+          position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          animation: animating ? 'actionPop 0.45s ease-out' : 'none',
+        }}
+      >
+        {animating && <LikeBurst color={activeColor} />}
         {icon}
-        {particles.map((_, i) => {
-          const angle = (i / particles.length) * 2 * Math.PI
-          const dist = 14
-          const tx = Math.cos(angle) * dist
-          const ty = Math.sin(angle) * dist
-          return (
-            <span
-              key={i}
-              style={{
-                position: 'absolute', top: '50%', left: '50%',
-                width: 4, height: 4, borderRadius: '50%',
-                background: activeColor,
-                ['--tx' as any]: `${tx}px`,
-                ['--ty' as any]: `${ty}px`,
-                animation: 'particleBurst 0.5s ease-out forwards',
-              }}
-            />
-          )
-        })}
       </span>
       {countText && (
         <span style={{ fontSize: 12, textAlign: 'left', color: active ? activeColor : idleColor, transition: 'color 0.12s' }}>
