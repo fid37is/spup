@@ -4,6 +4,7 @@ import Link from 'next/link'
 import LandingCTA from '@/components/landing/landing-cta'
 import LandingFooter from '@/components/landing/landing-footer'
 import LandingNav from '@/components/landing/landing-nav'
+import LandingAd from '@/components/landing/landing-ad'
 import LandingHeroCards from '@/components/landing/landing-hero-cards'
 import { getActiveCreatorCountAction } from '@/lib/actions/creator-stats'
 import { getApprovedTestimonials } from '@/lib/actions/testimonials'
@@ -322,6 +323,9 @@ export default async function LandingPage() {
           </div>
         </section>
       )}
+
+      {/* ── AD (single AdSense display unit, web only) ── */}
+      <LandingAd />
 
       {/* ── FEATURES ── */}
       <section id="features" className="section-pad">
