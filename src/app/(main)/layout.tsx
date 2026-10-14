@@ -129,7 +129,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           .sidebar-right { display: none; }
           .main-content  {
             border: none;
-            padding-bottom: calc(64px + env(safe-area-inset-bottom));
+            padding-bottom: calc(88px + env(safe-area-inset-bottom));
           }
           .mobile-nav    { display: flex; }
           .mobile-header { display: block; }
@@ -178,4 +178,4 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       </PostingProvider>
     </LanguageProvider>
   )
-}
+}

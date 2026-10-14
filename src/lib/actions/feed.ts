@@ -11,6 +11,7 @@
 
 import { createClient, createAdminClient, getAuthUser } from '@/lib/supabase/server'
 import { scorePost, SCORE_WEIGHTS } from '@/lib/feed/scoring'
+import { seededUnit, shortPostId, type FeedSession } from '@/lib/feed/seen'
 
 const PAGE_SIZE = 20
 
@@ -31,18 +32,63 @@ const FEED_FRESHNESS = 3
 const FRESH_LANE_MS = 30 * 60_000
 const FRESH_LANE_MAX = 8
 
+// Variety between refreshes. Every feed session (each open / each refresh) gets
+// its own random seed; each post's score is nudged by up to +/- FEED_JITTER from
+// it, so near-equal posts trade places from one refresh to the next instead of
+// always landing in the same order. The seed is frozen for the life of a
+// session, so page 2, 3... continue the exact order page 1 started.
+const FEED_JITTER = 0.25
+
+// Posts matching the viewer's saved interests may fill at most this many slots
+// of the first page, so they enrich the feed instead of taking it over.
+const INTEREST_MAX = 10
+
+// "Seen" demotion: posts this person was already served recently (see
+// lib/feed/seen.ts) sort BELOW every post they haven't been served yet - same as
+// Facebook / X - so a refresh brings new material first. Nothing is removed:
+// once the unserved posts run out, the older ones come back.
 function withFreshLane<T extends { id: string; created_at: string }>(
   rows: T[],
   byRank: (a: T, b: T) => number,
+  isSeen: (p: T) => boolean = () => false,
 ): T[] {
   const cutoff = Date.now() - FRESH_LANE_MS
   const lane = rows
-    .filter(p => Date.parse(p.created_at) >= cutoff)
+    .filter(p => Date.parse(p.created_at) >= cutoff && !isSeen(p)) // an already-served post doesn't get the top slot again
     .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
     .slice(0, FRESH_LANE_MAX)
   const inLane = new Set(lane.map(p => p.id))
   const rest = rows.filter(p => !inLane.has(p.id)).sort(byRank)
   return [...lane, ...rest]
+}
+
+// Engagement-weighted ranking alone buries a post that just went up and has no
+// likes yet under older posts that do - the "people posted but I never saw it"
+// problem. So the newest posts this person has NOT been served yet are woven
+// through the ranked order, one for one (ranked, newest, ranked, newest...),
+// for the first NEWEST_SLOTS of them. Fresh posts are therefore always on page
+// 1 and strong older posts still sit right next to them. Same length and same
+// members as the input - only the order changes - so the offset cursor stays valid.
+const NEWEST_SLOTS = 10
+
+function interleaveNewest<T extends { id: string; created_at: string }>(
+  sorted: T[],
+  isSeen: (p: T) => boolean,
+): T[] {
+  const newest = sorted
+    .filter(p => !isSeen(p))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .slice(0, NEWEST_SLOTS)
+  if (!newest.length) return sorted
+  const out: T[] = []
+  const used = new Set<string>()
+  const push = (p: T) => { if (used.has(p.id)) return false; used.add(p.id); out.push(p); return true }
+  let i = 0, j = 0
+  while (i < sorted.length || j < newest.length) {
+    while (i < sorted.length && !push(sorted[i++])) { /* skip duplicates */ }
+    while (j < newest.length && !push(newest[j++])) { /* skip duplicates */ }
+  }
+  return out
 }
 
 // Scheduled posts carry a future created_at (see createPostAction) and must
@@ -216,10 +262,20 @@ export interface FeedPost {
 
 // ─── "For you" feed — algorithmic ────────────────────────────────────────────
 
-export async function getForYouFeedAction(cursor?: string): Promise<{
+export async function getForYouFeedAction(cursor?: string, session?: Partial<FeedSession>): Promise<{
   posts: FeedPost[]
   nextCursor: string | null
 }> {
+  // The session (seed + already-served post ids) comes from the caller and is
+  // the same for every page of one feed session. Treat it as untrusted input.
+  const seed = typeof session?.seed === 'string' ? session.seed.slice(0, 32) : ''
+  const servedSet = new Set<string>(
+    Array.isArray(session?.seen)
+      ? session!.seen!.filter((x): x is string => typeof x === 'string' && x.length <= 16).slice(0, 300)
+      : []
+  )
+  const isSeen = (p: { id: string }) => servedSet.size > 0 && servedSet.has(shortPostId(p.id))
+
   const supabase = await createClient()
   // getAuthUser() is request-cached: when the Feed page renders it has already
   // asked Supabase who the user is, so this reuses that answer instead of
@@ -246,10 +302,16 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   const offset = cursor && isRanked ? Number(cursor) : 0
   const windowStartIso = new Date(Date.now() - FEED_WINDOW_MS).toISOString()
   const scoreCtx = { followingIds: new Set(graph.following), mutualIds: new Set(graph.mutuals) }
+  const jitter = (p: { id: string }) => seed ? 1 + (seededUnit(seed, p.id) - 0.5) * 2 * FEED_JITTER : 1
   const rankScore = (p: any) =>
-    scorePost(p, scoreCtx, { decayRate: SCORE_WEIGHTS.CATCH_UP_DECAY_RATE })
-    + FEED_FRESHNESS * Math.exp(-SCORE_WEIGHTS.DECAY_RATE * (Date.now() - Date.parse(p.created_at)) / 3_600_000)
-  const byRank = (a: any, b: any) => rankScore(b) - rankScore(a) || (a.created_at < b.created_at ? 1 : -1)
+    (scorePost(p, scoreCtx, { decayRate: SCORE_WEIGHTS.CATCH_UP_DECAY_RATE })
+    + FEED_FRESHNESS * Math.exp(-SCORE_WEIGHTS.DECAY_RATE * (Date.now() - Date.parse(p.created_at)) / 3_600_000))
+    * jitter(p)
+  // Unserved posts first, then by score. (false < true, so seen posts sort last.)
+  const byRank = (a: any, b: any) =>
+    (Number(isSeen(a)) - Number(isSeen(b))) ||
+    rankScore(b) - rankScore(a) ||
+    (a.created_at < b.created_at ? 1 : -1)
 
   let query = supabase
     .from('posts')
@@ -289,11 +351,11 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
   let page: RawFeedRow[]
   let nextCursor: string | null
   if (isRanked) {
-    const sorted = withFreshLane(rawPosts, byRank)
+    const sorted = interleaveNewest(withFreshLane(rawPosts, byRank, isSeen), isSeen)
     page = sorted.slice(offset, offset + PAGE_SIZE)
     // Where the older-posts stretch begins: just below the pool if it was cut short, else the window edge.
     const tailCursor = rawPosts.length === FEED_POOL_SIZE ? rawPosts[rawPosts.length - 1].created_at : windowStartIso
-    if (!page.length) return getForYouFeedAction(tailCursor)
+    if (!page.length) return getForYouFeedAction(tailCursor, session)
     nextCursor = offset + PAGE_SIZE < sorted.length ? String(offset + PAGE_SIZE) : tailCursor
   } else {
     const hasMore = rawPosts.length > PAGE_SIZE
@@ -319,36 +381,50 @@ export async function getForYouFeedAction(cursor?: string): Promise<{
     const tagIds = (tags || []).map((t: any) => t.id)
 
     if (tagIds.length > 0) {
-      const { data: interestRows } = await supabase
-        .from('post_hashtags')
-        .select(`post:posts(
+      // Query POSTS (newest first, inside the same window as the ranked pool) and
+      // join to their hashtags - rather than reading post_hashtags rows and
+      // embedding the post. The old shape put .limit() on post_hashtags with no
+      // ordering, so the database handed back an arbitrary 40 rows (in practice
+      // the same old ones every time) and only THEN sorted them: people with
+      // saved interests kept seeing the same old interest posts at the top while
+      // everything newer was cut off before it could be considered.
+      let interestQuery = supabase
+        .from('posts')
+        .select(`
           id, body, post_type, parent_post_id, likes_count, comments_count, reposts_count,
           bookmarks_count, impressions_count, link_clicks_count, detail_expands_count,
           video_views_count, video_completions_count, created_at, edited_at,
           is_sensitive, is_pinned, quoted_post_id, is_selling,
           author:users!posts_user_id_fkey(id, username, display_name, avatar_url, verification_tier, is_monetised),
-          media:post_media(id, media_type, url, thumbnail_url, width, height, position)
-        )`)
-        .in('hashtag_id', tagIds)
-        .limit(PAGE_SIZE * 2) // fetch generously - most get filtered out below
+          media:post_media(id, media_type, url, thumbnail_url, width, height, position),
+          post_hashtags!inner(hashtag_id)
+        `)
+        .in('post_hashtags.hashtag_id', tagIds)
+        .is('deleted_at', null)
+        .is('parent_post_id', null)
+        .neq('post_type', 'repost')
+        .gte('created_at', windowStartIso)
+        .lte('created_at', nowIso())             // no not-yet-due scheduled posts, own included
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE * 3)                    // generous - blocked/seen ones are dropped below
+      if (excludeIds.length) interestQuery = interestQuery.not('user_id', 'in', `(${excludeIds.join(',')})`)
 
-      const seen = new Set<string>()
+      const { data: interestRows, error: interestErr } = await interestQuery
+      if (interestErr) console.error('[getForYouFeedAction] interest query failed:', interestErr.message)
+
       const matched: RawFeedRow[] = ((interestRows || []) as any[])
-        .map((r: any) => r.post as RawFeedRow)
-        .filter((p: any) =>
-          p && !p.parent_post_id && p.post_type !== 'repost' &&
-          p.created_at <= nowIso() &&                 // no not-yet-due scheduled posts, own included
-          !excludeIds.includes(p.author?.id) &&
-          (seen.has(p.id) ? false : (seen.add(p.id), true))  // a post can carry >1 matching hashtag
-        )
-        .sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1))
-        .slice(0, PAGE_SIZE)
+        .map((r: any) => { const post = { ...r }; delete post.post_hashtags; return post as RawFeedRow }) // drop the join helper column
+        .filter((p: any) => p.author && !excludeIds.includes(p.author.id))
+        // Not-yet-served first, newest first within each group.
+        .sort((a: any, b: any) =>
+          (Number(isSeen(a)) - Number(isSeen(b))) || (a.created_at < b.created_at ? 1 : -1))
+        .slice(0, INTEREST_MAX)
 
       if (matched.length > 0) {
         const matchedIds = new Set(matched.map((p: any) => p.id))
         const backfillNeeded = Math.max(0, PAGE_SIZE - matched.length)
         const backfill = page.filter((p: any) => !matchedIds.has(p.id)).slice(0, backfillNeeded)
-        finalPage = withFreshLane([...matched, ...backfill], byRank)
+        finalPage = withFreshLane([...matched, ...backfill], byRank, isSeen)
       }
     }
   }

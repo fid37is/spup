@@ -3,6 +3,14 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
+import { useTheme } from '@/components/layout/theme-provider'
+
+// One AdSense in-feed unit per theme. Google bakes the colours into the unit,
+// so the dark and light units are created with the matching theme colours.
+const ADSENSE_UNITS = {
+  dark:  { slot: '4249553928', layoutKey: '-fb+5w+4e-db+86' },
+  light: { slot: '3322203803', layoutKey: '-fb+5w+4e-db+86' },
+} as const
 
 interface InternalAd {
   id: string
@@ -25,6 +33,7 @@ export default function AdSlot({ postId, position }: AdSlotProps) {
   const [loading, setLoading] = useState(true)
   const adsenseRef = useRef<HTMLDivElement>(null)
   const clicked = useRef(false)
+  const { theme } = useTheme()
 
   useEffect(() => {
     fetch(`/api/ads/serve?post_id=${postId}`)
@@ -45,7 +54,7 @@ export default function AdSlot({ postId, position }: AdSlotProps) {
     try {
       ;(window.adsbygoogle = window.adsbygoogle || []).push({})
     } catch {}
-  }, [useAdsense])
+  }, [useAdsense, theme])
 
   if (loading) return null  // don't show skeleton for ads
 
@@ -109,17 +118,19 @@ export default function AdSlot({ postId, position }: AdSlotProps) {
 
   // ─── AdSense fallback ──────────────────────────────────────────────────────
   if (useAdsense && process.env.NEXT_PUBLIC_ADSENSE_PUBLISHER_ID) {
+    const unit = ADSENSE_UNITS[theme === 'light' ? 'light' : 'dark']
     return (
-      <div style={{ padding: '8px 20px', borderBottom: '1px solid #141414' }}>
-        <div style={{ fontSize: 11, color: '#3A3A40', marginBottom: 6, letterSpacing: '0.06em' }}>SPONSORED</div>
-        <div ref={adsenseRef}>
+      <div style={{ padding: '8px 20px', borderBottom: '1px solid var(--color-border)' }}>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, letterSpacing: '0.06em' }}>SPONSORED</div>
+        {/* key={theme} remounts the <ins> so the unit matching the new theme loads */}
+        <div ref={adsenseRef} key={theme}>
           <ins
             className="adsbygoogle"
             style={{ display: 'block' }}
             data-ad-client={process.env.NEXT_PUBLIC_ADSENSE_PUBLISHER_ID}
-            data-ad-slot={process.env.NEXT_PUBLIC_ADSENSE_SLOT_ID}
+            data-ad-slot={unit.slot}
             data-ad-format="fluid"
-            data-ad-layout-key="-fb+5w+4e-db+86"
+            data-ad-layout-key={unit.layoutKey}
           />
         </div>
       </div>
