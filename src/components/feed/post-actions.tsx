@@ -27,51 +27,153 @@ const LIKE_RED = '#F91880'
 // Green for a reposted post (icon and count), readable on light, dark and the viewer.
 const REPOST_GREEN = '#00BA7C'
 
-// ── LikeBurst ─────────────────────────────────────────────────────────────────
-// The burst behind the heart when a post is liked, in the style of X: a soft
-// circle swells out from behind the heart, and a ring of small dots drifts
-// outward and fades. Subtle on purpose - the heart's own pop (actionPop) does
-// most of the work. The keyframes (likeRing, likeDot) are in globals.css.
-// Dot positions are fixed, so the burst looks the same every time.
-const BURST_DOTS = Array.from({ length: 8 }, (_, i) => {
-  const a = (i / 8) * 2 * Math.PI - Math.PI / 2   // start at 12 o'clock
-  const near = i % 2 === 0                         // alternate bigger/closer and smaller/softer
-  const r1 = near ? 22 : 19
+// ── Like celebration ─────────────────────────────────────────────────────────
+// When a post is liked the heart pops and a small firework goes off around it,
+// like X: a bright flash and a shockwave ring, comets with glowing heads shooting
+// out, and a scatter of coloured sparks that twinkle and drift down a little as
+// they fade. All of it is done in about 0.9s.
+//
+// The keyframes live right here (injected once, the first time someone likes
+// something) so this one file is the whole animation - nothing to add to
+// globals.css. Tweak the feel with the numbers below.
+
+const LIKE_ANIM_CSS = `
+@keyframes likePop {
+  0%   { transform: scale(1); }
+  12%  { transform: scale(0.72); }
+  45%  { transform: scale(1.3); }
+  70%  { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+@keyframes likeFlash {
+  0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+@keyframes likeShock {
+  0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.55; }
+  100% { transform: translate(-50%, -50%) scale(1.9); opacity: 0; }
+}
+@keyframes likeComet {
+  0%   { transform: rotate(var(--a)) translateY(calc(var(--r0) * -1)) scaleY(1.8); opacity: 0; }
+  10%  { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { transform: rotate(var(--a)) translateY(calc(var(--r1) * -1)) scaleY(0.7); opacity: 0; }
+}
+@keyframes likeSpark {
+  0%   { transform: translate(-50%, -50%) translate(var(--x0), var(--y0)) scale(1); opacity: 0; }
+  15%  { opacity: 1; }
+  40%  { opacity: 0.35; }
+  55%  { opacity: 1; }
+  100% { transform: translate(-50%, -50%) translate(var(--x1), var(--y1)) scale(0.3); opacity: 0; }
+}
+@keyframes likeGlitter {
+  0%   { transform: translate(-50%, -50%) translate(var(--x0), var(--y0)) scale(1); opacity: 0; }
+  20%  { opacity: 1; }
+  40%  { opacity: 0.2; }
+  60%  { opacity: 1; }
+  80%  { opacity: 0.3; }
+  100% { transform: translate(-50%, -50%) translate(var(--x1), var(--y1)) scale(0.5); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-like-burst] { display: none !important; }
+  [data-like-pop]   { animation: none !important; }
+}
+`
+
+function ensureLikeAnimationCss() {
+  if (typeof document === 'undefined') return
+  if (document.querySelector('style[data-like-animation]')) return
+  const el = document.createElement('style')
+  el.setAttribute('data-like-animation', '')
+  el.textContent = LIKE_ANIM_CSS
+  document.head.appendChild(el)
+}
+
+// Firework colours: the like colour plus warm and purple accents.
+const FIREWORK_COLORS = (base: string) => [base, '#FF7A00', '#FFD400', '#FF3D6E', '#B84DFF']
+
+const rad = (deg: number) => (deg * Math.PI) / 180
+
+// 10 comets straight out from the heart (angle = degrees clockwise from 12 o'clock).
+const COMETS = Array.from({ length: 10 }, (_, i) => ({
+  angle: i * 36 + (i % 2 ? 7 : -4),
+  r1: i % 2 === 0 ? 38 : 30,
+}))
+
+// 18 twinkling sparks that drift out and sag a little (gravity) as they fade.
+const SPARKS = Array.from({ length: 18 }, (_, i) => {
+  const a = rad(i * 20 + 10)
+  const r1 = 26 + (i % 4) * 5
+  const grav = 9 + (i % 3) * 3
   return {
-    x0: Math.cos(a) * 10, y0: Math.sin(a) * 10,    // start just outside the heart
-    x1: Math.cos(a) * r1, y1: Math.sin(a) * r1,    // drift out to here
-    size: near ? 4 : 3,
-    opacity: near ? 1 : 0.6,
+    x0: Math.sin(a) * 10, y0: -Math.cos(a) * 10,
+    x1: Math.sin(a) * r1, y1: -Math.cos(a) * r1 + grav,
+    size: 2.6 + (i % 3) * 0.5,
+  }
+})
+
+// 12 tiny late glitter specks further out - the crackle after the bang.
+const GLITTER = Array.from({ length: 12 }, (_, i) => {
+  const a = rad(i * 30 + 22)
+  const r1 = 46 + (i % 3) * 4
+  return {
+    x0: Math.sin(a) * 24, y0: -Math.cos(a) * 24,
+    x1: Math.sin(a) * r1, y1: -Math.cos(a) * r1 + 14,
+    size: 2 + (i % 2) * 0.6,
+    delay: 0.14 + 0.02 * (i % 4),
   }
 })
 
 function LikeBurst({ color }: { color: string }) {
+  const pal = FIREWORK_COLORS(color)
+  const abs = { position: 'absolute', top: '50%', left: '50%', pointerEvents: 'none' } as const
+  const EASE = 'cubic-bezier(0.1, 0.8, 0.2, 1)'
   return (
     <>
-      <span
-        aria-hidden
-        data-like-burst
-        style={{
-          position: 'absolute', top: '50%', left: '50%',
-          width: 26, height: 26, borderRadius: '50%',
-          background: color, pointerEvents: 'none',
-          animation: 'likeRing 0.45s ease-out forwards',
-        }}
-      />
-      {BURST_DOTS.map((d, i) => (
-        <span
-          key={i}
-          aria-hidden
-          data-like-burst
-          style={{
-            position: 'absolute', top: '50%', left: '50%',
-            width: d.size, height: d.size, borderRadius: '50%',
-            background: color, opacity: d.opacity, pointerEvents: 'none',
-            ['--x0' as any]: `${d.x0}px`, ['--y0' as any]: `${d.y0}px`,
-            ['--x1' as any]: `${d.x1}px`, ['--y1' as any]: `${d.y1}px`,
-            animation: 'likeDot 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) 0.04s both',
-          }}
-        />
+      {/* the bang: a bright flash... */}
+      <span aria-hidden data-like-burst style={{
+        ...abs, width: 36, height: 36, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(255,200,225,0.95) 0%, rgba(249,24,128,0.4) 45%, rgba(249,24,128,0) 70%)',
+        animation: 'likeFlash 0.3s ease-out forwards',
+      }} />
+      {/* ...and a shockwave ring */}
+      <span aria-hidden data-like-burst style={{
+        ...abs, width: 28, height: 28, borderRadius: '50%', border: `2px solid ${color}`,
+        animation: 'likeShock 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) forwards',
+      }} />
+      {/* comets: glowing head, fading tail */}
+      {COMETS.map((c, i) => {
+        const col = pal[i % pal.length]
+        return (
+          <span key={`c${i}`} aria-hidden data-like-burst style={{
+            ...abs, width: 4.5, height: 8, marginLeft: -2.25, transformOrigin: '50% 0',
+            borderRadius: '50% 50% 50% 50% / 35% 35% 65% 65%',
+            background: `linear-gradient(to bottom, ${col} 0%, ${col} 35%, transparent 100%)`,
+            filter: `drop-shadow(0 0 3px ${col})`,
+            ['--a' as any]: `${c.angle}deg`, ['--r0' as any]: '7px', ['--r1' as any]: `${c.r1}px`,
+            animation: `likeComet 0.6s ${EASE} 0.02s both`,
+          }} />
+        )
+      })}
+      {/* sparks */}
+      {SPARKS.map((d, i) => (
+        <span key={`s${i}`} aria-hidden data-like-burst style={{
+          ...abs, width: d.size, height: d.size, borderRadius: '50%',
+          background: pal[(i + 2) % pal.length],
+          ['--x0' as any]: `${d.x0}px`, ['--y0' as any]: `${d.y0}px`,
+          ['--x1' as any]: `${d.x1}px`, ['--y1' as any]: `${d.y1}px`,
+          animation: `likeSpark 0.85s ${EASE} 0.06s both`,
+        }} />
+      ))}
+      {/* glitter */}
+      {GLITTER.map((d, i) => (
+        <span key={`g${i}`} aria-hidden data-like-burst style={{
+          ...abs, width: d.size, height: d.size, borderRadius: '50%',
+          background: pal[(i + 1) % pal.length],
+          ['--x0' as any]: `${d.x0}px`, ['--y0' as any]: `${d.y0}px`,
+          ['--x1' as any]: `${d.x1}px`, ['--y1' as any]: `${d.y1}px`,
+          animation: `likeGlitter 0.7s ${EASE} ${d.delay}s both`,
+        }} />
       ))}
     </>
   )
@@ -93,8 +195,9 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
 
   useEffect(() => {
     if (burst && active && !wasActive.current) {
+      ensureLikeAnimationCss()
       setAnimating(true)
-      const t = setTimeout(() => setAnimating(false), 600)
+      const t = setTimeout(() => setAnimating(false), 1000)
       return () => clearTimeout(t)
     }
     wasActive.current = active
@@ -131,7 +234,7 @@ function ActionBtn({ icon, count, active, activeColor, onClick, label, showZero 
         data-like-pop={animating ? '' : undefined}
         style={{
           position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          animation: animating ? 'actionPop 0.45s ease-out' : 'none',
+          animation: animating ? 'likePop 0.5s ease-out' : 'none',
         }}
       >
         {animating && <LikeBurst color={activeColor} />}
