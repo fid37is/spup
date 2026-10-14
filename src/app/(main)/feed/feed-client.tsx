@@ -8,12 +8,12 @@ import AdSlot from '@/components/feed/ad-card'
 import { FeedAnnouncementBanner, FeedAnnouncementStrip } from '@/components/feed/announcement-slots'
 import { Loader, Repeat2, Rss, Users, Sparkles, Tag, ArrowUp } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
-import FloatingComposeBtn from '@/components/feed/floating-compose-btn'
 import { NotifAvatar } from '@/components/notifications/avatar'
 import { useNetworkStatus } from '@/lib/network-status'
 import { subscribeFeedEvents, takeJustPosted } from '@/lib/feed-local-events'
 import { useOfflinePostSync } from '@/hooks/use-offline-post-sync'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { SEEN_COOKIE, SEEN_MAX_AGE_S, addServed, serializeSeen, makeSeed, type FeedSession } from '@/lib/feed/seen'
 
 type Tab = 'for-you' | 'following' | 'mutuals' | 'selling'
 const AD_EVERY = 5
@@ -42,15 +42,21 @@ const COUNT_POLL_MAX_IDS = 100
 const SEEN_AFTER_MS = 15_000
 const HEARTBEAT_MS  = 60_000
 
-// Pick-up-where-you-left-off. The For You feed is saved on this device (posts
-// already loaded + the post that was at the top of the screen). Coming back,
-// the feed reopens at that same post; whatever was posted since is NOT mixed
-// in - it waits behind the pill and is added only when the user taps the pill,
-// scrolls back up to it, or reloads. Nothing is re-downloaded to do this: the
-// first page the server already sent is simply compared against the saved one.
-const SNAPSHOT_VERSION = 1
-const SNAPSHOT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
+// Pick-up-where-you-left-off, for QUICK returns only. The For You feed is saved
+// on this device (posts already loaded + the post that was at the top of the
+// screen). Coming back within SNAPSHOT_MAX_AGE_MS - flipping to another app and
+// back, opening a post and going back - the feed reopens at that same post;
+// whatever was posted since is NOT mixed in, it waits behind the pill and is
+// added when the user taps the pill or scrolls back up to it.
+//
+// Anything older than that starts fresh from the server instead. This used to
+// be 3 days, which is why people who came back later were shown a days-old feed
+// first: Facebook, X and Threads resume a session only across a short absence.
+const SNAPSHOT_VERSION = 2   // v2 also stores the feed session; bumping this dropped every old (up to 3 day) snapshot
+const SNAPSHOT_MAX_AGE_MS = 10 * 60 * 1000
 const SNAPSHOT_MAX_POSTS = 120
+// Coming back to a tab/app that was away this long refreshes the feed (or raises the pill if reading).
+const RETURN_REFRESH_MS = 10 * 60 * 1000
 const snapshotKey = (userId: string) => `spup:feed-snapshot:v${SNAPSHOT_VERSION}:${userId}`
 
 type FeedSnapshot = {
@@ -58,6 +64,8 @@ type FeedSnapshot = {
   cursor: string | null
   hasMore: boolean
   anchor: { id: string; offset: number } | null
+  /** Seed + served-post list this feed was built with - page 2+ must keep using it. */
+  session: FeedSession
   savedAt: number
 }
 
@@ -67,7 +75,11 @@ function readSnapshot(userId: string): FeedSnapshot | null {
     if (!raw) return null
     const snap = JSON.parse(raw) as FeedSnapshot
     if (!Array.isArray(snap.posts) || snap.posts.length === 0) return null
-    if (Date.now() - snap.savedAt > SNAPSHOT_MAX_AGE_MS) return null
+    if (!snap.session || typeof snap.session.seed !== 'string' || !Array.isArray(snap.session.seen)) return null
+    if (Date.now() - snap.savedAt > SNAPSHOT_MAX_AGE_MS) {
+      try { localStorage.removeItem(snapshotKey(userId)) } catch { /* ignore */ }
+      return null
+    }
     return snap
   } catch { return null }
 }
@@ -82,6 +94,8 @@ function wasPageReload(): boolean {
 interface FeedClientProps {
   initialPosts: FeedPost[]
   initialCursor: string | null
+  /** The seed + already-served list the server built initialPosts with. */
+  initialSession: FeedSession
   currentUserId?: string
   currentUserAvatarUrl?: string | null
   currentUserDisplayName?: string | null
@@ -101,6 +115,11 @@ function getFeedFn(tab: Tab) {
   return getForYouFeedAction
 }
 
+// For You takes the feed session (see lib/feed/seen.ts); the other tabs are plain chronological.
+function fetchTab(tab: Tab, cursor?: string, session?: FeedSession) {
+  return tab === 'for-you' ? getForYouFeedAction(cursor, session) : getFeedFn(tab)(cursor)
+}
+
 const EMPTY: Record<Tab, { icon: React.ReactNode; titleKey: string; bodyKey: string }> = {
   'for-you':   { icon: <Sparkles size={32} />, titleKey: 'feed.empty_for_you_title',   bodyKey: 'feed.empty_for_you_desc' },
   'following': { icon: <Users size={32} />,    titleKey: 'feed.empty_following_title', bodyKey: 'feed.empty_following_desc' },
@@ -108,7 +127,7 @@ const EMPTY: Record<Tab, { icon: React.ReactNode; titleKey: string; bodyKey: str
   'selling':   { icon: <Tag size={32} />,      titleKey: 'feed.empty_selling',         bodyKey: 'feed.empty_selling_desc' },
 }
 
-export default function FeedClient({ initialPosts, initialCursor, currentUserId, currentUserAvatarUrl, currentUserDisplayName }: FeedClientProps) {
+export default function FeedClient({ initialPosts, initialCursor, initialSession, currentUserId }: FeedClientProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab]       = useState<Tab>('for-you')
   const [posts, setPosts]               = useState<FeedPost[]>(initialPosts)
@@ -124,6 +143,14 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
   const audienceRef = useRef<Promise<Audience | null> | null>(null)
   const pendingPostsRef = useRef<Map<string, FeedPost>>(new Map()) // new posts already in hand (from the server's first page)
   const restoreAnchorRef = useRef<{ id: string; offset: number } | null>(null)
+  // The feed session pages are built with: frozen for as long as this list is on
+  // screen so "load more" continues page 1's order. A refresh starts a new one.
+  const sessionRef = useRef<FeedSession>(initialSession)
+  // Posts served to this person recently, most recent first - mirrored to a cookie
+  // so the NEXT open/refresh ranks anything not yet served above them.
+  const servedRef = useRef<string[]>(initialSession.seen)
+  const hiddenAtRef = useRef<number | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const restoredRef = useRef<{ baseline: string; have: Set<string> } | null>(null)
   const [restoreTick, setRestoreTick] = useState(0)
   const [scrollTopTick, setScrollTopTick] = useState(0) // bumped after new posts are committed - see the layout effect below
@@ -188,6 +215,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
     setPosts(snap.posts)
     setCursor(snap.cursor)
     setHasMore(snap.hasMore)
+    sessionRef.current = snap.session
     queueNewFromServer(initialPosts)
     restoreAnchorRef.current = snap.anchor
     lastAnchorRef.current = snap.anchor
@@ -214,7 +242,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
   useEffect(() => {
     if (initialPosts.length === 0) {
       startTransition(async () => {
-        const { posts: fresh, nextCursor } = await getForYouFeedAction()
+        const { posts: fresh, nextCursor } = await getForYouFeedAction(undefined, sessionRef.current)
         if (restoredRef.current) { queueNewFromServer(fresh); return }
         // Keep anything already on screen (e.g. a post just written on /compose)
         setPosts(prev => [...prev.filter(p => !fresh.some(f => f.id === p.id)), ...fresh])
@@ -223,6 +251,47 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
       })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Remember what For You has served, in a cookie the server reads on the next
+  // open / refresh (see lib/feed/seen.ts). Recorded for what is actually in the
+  // list - posts held back behind the pill count only once they are shown.
+  useEffect(() => {
+    if (activeTab !== 'for-you' || posts.length === 0) return
+    const next = addServed(servedRef.current, posts)
+    if (next === servedRef.current) return
+    servedRef.current = next
+    try {
+      const secure = window.location.protocol === 'https:' ? '; secure' : ''
+      document.cookie = `${SEEN_COOKIE}=${serializeSeen(next)}; path=/feed; max-age=${SEEN_MAX_AGE_S}; samesite=lax${secure}`
+    } catch { /* ignore */ }
+  }, [posts, activeTab])
+
+  // Back after a long absence (app reopened from the background, tab left open
+  // overnight): the realtime connection may have dropped and missed posts, and
+  // the list on screen is stale. At the top of the feed it is simply refreshed;
+  // if the person is reading further down, the pill is raised instead so
+  // nothing moves under them.
+  useEffect(() => {
+    const markHidden = () => { hiddenAtRef.current = Date.now() }
+    const onBack = () => {
+      const at = hiddenAtRef.current
+      hiddenAtRef.current = null
+      if (!at || Date.now() - at < RETURN_REFRESH_MS) return
+      if (networkStatusRef.current !== 'online') return
+      if (window.scrollY < 300) refreshFeedRef.current()
+      else { pendingOverflowRef.current = true; setHasNew(true) }
+    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') markHidden(); else onBack() }
+    const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) onBack() }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', markHidden)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', markHidden)
+      window.removeEventListener('pageshow', onPageShow)
+    }
   }, [])
 
   // Heartbeat: tell the server the user is actively on the feed, so the next
@@ -266,8 +335,48 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
     })
   }, [])
 
+  // A brand-new feed session: new seed, and everything served so far counts as seen.
+  function newSession(): FeedSession {
+    return { seed: makeSeed(), seen: servedRef.current.slice() }
+  }
+
+  // Refresh the tab on screen: fetch a new first page and replace the list.
+  // Tapping the tab you're already on does this (same as X / Threads), and so
+  // does coming back after a long absence. The old list stays visible until the
+  // new one arrives. For You is rebuilt from a new session, so it comes back as
+  // a different set: what was already served sinks below what hasn't been.
+  function refreshFeed() {
+    if (isPending || isFetchingNew || networkStatusRef.current !== 'online') return
+    const tab = tabRef.current
+    const session = tab === 'for-you' ? newSession() : sessionRef.current
+    window.scrollTo(0, 0)
+    setIsRefreshing(true)
+    startTransition(async () => {
+      try {
+        const { posts: fresh, nextCursor } = await fetchTab(tab, undefined, session)
+        if (tabRef.current !== tab) return // user switched tabs while loading
+        sessionRef.current = session
+        restoredRef.current = null
+        pendingIdsRef.current = []
+        pendingOverflowRef.current = false
+        pendingPostsRef.current = new Map()
+        seenAuthorsRef.current = new Set()
+        setNewAuthors([])
+        setHasNew(false)
+        setPosts(fresh)
+        setCursor(nextCursor)
+        setHasMore(!!nextCursor)
+        setFadeInIds(new Set(fresh.map(p => p.id)))
+        setTimeout(() => setFadeInIds(new Set()), 900)
+        setScrollTopTick(n => n + 1)
+      } catch { /* keep what's on screen */ } finally { setIsRefreshing(false) }
+    })
+  }
+  const refreshFeedRef = useRef(refreshFeed)
+  refreshFeedRef.current = refreshFeed
+
   function switchTab(tab: Tab) {
-    if (tab === activeTab) return
+    if (tab === activeTab) { refreshFeed(); return }
     if (networkStatusRef.current === 'offline') return
     setActiveTab(tab)
     setPosts([])
@@ -280,7 +389,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
     setCursor(null)
     setHasMore(true)
     startTransition(async () => {
-      const { posts: fresh, nextCursor } = await getFeedFn(tab)()
+      const { posts: fresh, nextCursor } = await fetchTab(tab, undefined, sessionRef.current)
       setPosts(fresh)
       setCursor(nextCursor)
       setHasMore(!!nextCursor)
@@ -291,7 +400,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
     if (isPending || !hasMore || !cursor) return
     if (networkStatusRef.current !== 'online') return
     startTransition(async () => {
-      const { posts: more, nextCursor } = await getFeedFn(tabRef.current)(cursor)
+      const { posts: more, nextCursor } = await fetchTab(tabRef.current, cursor, sessionRef.current)
       setPosts(prev => {
         const seen = new Set(prev.map(p => p.id))
         return [...prev, ...more.filter(p => !seen.has(p.id))]
@@ -534,7 +643,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
         // Too many to patch in (or nothing tracked): refresh the top of the feed.
         // That page comes back in ranked order (and may carry an ad), so put it
         // newest-first and leave the ad out - the pill is for NEW posts.
-        incoming = (await getFeedFn(tab)()).posts
+        incoming = (await fetchTab(tab, undefined, tab === 'for-you' ? newSession() : undefined)).posts
           .filter(p => !p.is_promoted)
           .sort((x, y) => (x.created_at < y.created_at ? 1 : x.created_at > y.created_at ? -1 : 0))
       } else {
@@ -638,7 +747,7 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
       }
       const a = anchor && keep.some(p => p.id === anchor!.id) ? anchor : null
       try {
-        const snap: FeedSnapshot = { posts: keep, cursor: cursorOut, hasMore: hasMoreOut, anchor: a, savedAt: Date.now() }
+        const snap: FeedSnapshot = { posts: keep, cursor: cursorOut, hasMore: hasMoreOut, anchor: a, session: sessionRef.current, savedAt: Date.now() }
         localStorage.setItem(snapshotKey(userId), JSON.stringify(snap))
       } catch {
         try { localStorage.removeItem(snapshotKey(userId)) } catch { /* ignore */ }
@@ -700,6 +809,12 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
 
       {/* New-feature announcement: in the page flow under the tabs, scrolls away with the posts */}
       <FeedAnnouncementBanner />
+
+      {isRefreshing && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
+          <Loader size={18} color="var(--color-brand)" style={{ animation: 'spin 0.8s linear infinite' }} />
+        </div>
+      )}
 
       {/* New posts pill */}
       {hasNew && (
@@ -805,16 +920,6 @@ export default function FeedClient({ initialPosts, initialCursor, currentUserId,
         </div>
       )}
 
-      <FloatingComposeBtn
-        authorAvatarUrl={currentUserAvatarUrl}
-        authorName={currentUserDisplayName || t('feed.you')}
-        userId={currentUserId}
-        onPosted={post => {
-          if (!post) return
-          setPosts(prev => [post as FeedPost, ...prev])
-          feedTopRef.current?.scrollIntoView({ behavior: 'smooth' })
-        }}
-      />
 
       <style>{`
         @keyframes spin   { to { transform: rotate(360deg) } }
