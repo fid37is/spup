@@ -364,6 +364,7 @@
   "auth.terms_notice": "By continuing, you agree to Spup's {terms} and {privacy}.",
   "auth.or": "OR",
   "auth.continue_google": "Continue with Google",
+  "auth.recent": "Recent",
   "auth.signup_google": "Sign up with Google",
   "auth.continue_facebook": "Continue with Facebook",
   "auth.signup_facebook": "Sign up with Facebook",

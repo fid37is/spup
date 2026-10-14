@@ -28,9 +28,26 @@ const FACEBOOK_ICON = (
 
 interface OAuthButtonsProps {
   mode: 'signup' | 'login'
+  /** Login page only: the method used last time on this device. */
+  recent?: 'google' | 'facebook' | null
 }
 
-export default function OAuthButtons({ mode }: OAuthButtonsProps) {
+// Small pill shown on the sign-in method the person used last.
+export function RecentBadge() {
+  const { t } = useTranslation()
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+      color: 'var(--color-brand)', background: 'rgba(26, 158, 95, 0.12)',
+      border: '1px solid rgba(26, 158, 95, 0.35)', borderRadius: 999,
+      padding: '2px 8px', lineHeight: 1.4, whiteSpace: 'nowrap',
+    }}>
+      {t('auth.recent')}
+    </span>
+  )
+}
+
+export default function OAuthButtons({ mode, recent = null }: OAuthButtonsProps) {
   const { t } = useTranslation()
   const [loading, setLoading] = useState<'google' | 'facebook' | null>(null)
   const [error, setError] = useState('')
@@ -136,12 +153,16 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
         type="button"
         onClick={() => handleOAuth('google')}
         disabled={!!loading}
-        style={{ ...btnBase, opacity: loading && loading !== 'google' ? 0.5 : 1 }}
+        style={{
+          ...btnBase, position: 'relative', opacity: loading && loading !== 'google' ? 0.5 : 1,
+          ...(recent === 'google' ? { borderColor: 'var(--color-brand)' } : null),
+        }}
       >
         {loading === 'google' ? (
           <Spinner />
         ) : GOOGLE_ICON}
         {mode === 'signup' ? t('auth.signup_google') : t('auth.continue_google')}
+        {recent === 'google' && <span style={{ position: 'absolute', right: 12 }}><RecentBadge /></span>}
       </button>
 
       {/* Facebook */}
@@ -149,12 +170,16 @@ export default function OAuthButtons({ mode }: OAuthButtonsProps) {
         type="button"
         onClick={() => handleOAuth('facebook')}
         disabled={!!loading}
-        style={{ ...btnBase, marginBottom: 0, opacity: loading && loading !== 'facebook' ? 0.5 : 1 }}
+        style={{
+          ...btnBase, marginBottom: 0, position: 'relative', opacity: loading && loading !== 'facebook' ? 0.5 : 1,
+          ...(recent === 'facebook' ? { borderColor: 'var(--color-brand)' } : null),
+        }}
       >
         {loading === 'facebook' ? (
           <Spinner />
         ) : FACEBOOK_ICON}
         {mode === 'signup' ? t('auth.signup_facebook') : t('auth.continue_facebook')}
+        {recent === 'facebook' && <span style={{ position: 'absolute', right: 12 }}><RecentBadge /></span>}
       </button>
 
       {error && (

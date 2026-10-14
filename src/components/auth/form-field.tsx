@@ -1,6 +1,7 @@
- 'use client'
+'use client'
 
-import { forwardRef } from 'react'
+import { forwardRef, useEffect, useRef } from 'react'
+import { useToast } from '@/components/layout/toast'
 
 interface FormFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label: string
@@ -71,22 +72,23 @@ interface AlertProps {
   message: string
 }
 
+// Auth-page notices are shown as toasts. The old inline box pushed the form
+// down whenever it appeared, which made the page jump. Kept under the name
+// <Alert> so every auth page keeps working unchanged; it renders nothing in
+// the layout. Pages clear their message when the person submits again, which
+// unmounts and remounts this, so the same error shows again on a retry.
 export function Alert({ type, message }: AlertProps) {
-  const isError = type === 'error'
-  return (
-    <div style={{
-      background: isError ? 'var(--color-error-muted)' : 'var(--color-brand-muted)',
-      border: `1px solid ${isError ? 'var(--color-error-border)' : 'var(--color-brand-border)'}`,
-      borderRadius: 10,
-      padding: '12px 16px',
-      marginBottom: 20,
-      fontSize: 14,
-      color: isError ? 'var(--color-error)' : 'var(--color-brand)',
-      lineHeight: 1.5,
-    }}>
-      {message}
-    </div>
-  )
+  const toast = useToast()
+  const lastShown = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!message || lastShown.current === message) return
+    lastShown.current = message
+    if (type === 'error') toast.error(message, 6000)
+    else toast.success(message)
+  }, [type, message, toast])
+
+  return null
 }
 
 interface SubmitButtonProps {

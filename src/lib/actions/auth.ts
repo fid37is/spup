@@ -9,6 +9,7 @@ import { checkRateLimit } from '@/lib/rate-limit'
 import { generateUniqueUsername, suggestUsernames } from '@/lib/username'
 import { usernameLengthError } from '@/lib/validations/username-length'
 import { getCookieLocale } from '@/lib/i18n/locale-cookie.server'
+import { LAST_LOGIN_COOKIE, lastLoginCookieOptions } from '@/lib/auth-last-login'
 import { processLinks } from '@/lib/link-safety/service'
 import {
   signupSchema, loginSchema, emailOtpSchema,
@@ -294,6 +295,9 @@ export async function loginAction(data: LoginSchema, redirectTo = '/feed') {
     await supabase.auth.signOut()
     return { error: 'Admin accounts must sign in at the admin portal.' }
   }
+
+  // Remember this method for the login page's "Recent" badge.
+  if (!isAdminRole) (await cookies()).set(LAST_LOGIN_COOKIE, 'email', lastLoginCookieOptions())
 
   revalidatePath('/', 'layout')
   if (isAdminRole) redirect('/dashboard')
