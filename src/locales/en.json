@@ -828,5 +828,9 @@
   "premium.gate_desc": "Verifying your phone and NIN is how you unlock withdrawals, and it comes with Spup Premium. Premium also lets you earn ad revenue on your posts.",
   "premium.gate_lapsed": "Your Premium ended on {date}.",
   "premium.learn_more": "Learn more",
-  "settings.requires_premium": "Requires Spup Premium"
+  "settings.requires_premium": "Requires Spup Premium",
+  "wallet.premium_criterion": "Spup Premium",
+  "wallet.premium_active_short": "Active",
+  "wallet.premium_subscribe_link": "Subscribe",
+  "premium.how_it_works": "How Premium works"
 }

@@ -4,15 +4,15 @@
 //
 // Sits in the wallet where the "verify phone" banner used to be.
 //  - Not subscribed + still needs verification -> explains Premium and offers
-//    a Subscribe button (verification is only available to subscribers).
+//    a small right-aligned Subscribe button that goes straight to payment, and a
+//    "How Premium works" link to the full explainer (/premium/learn).
 //  - Subscribed -> small "active until" line.
 //  - Opted into monetisation but Premium lapsed -> "ad earnings paused, renew".
 //  - Everyone else (never earned, nothing to verify) -> nothing at all.
 
-import { useState } from 'react'
 import Link from 'next/link'
-import { Crown, Check, Loader2 } from 'lucide-react'
-import { isNativeApp, openCheckout } from '@/lib/native'
+import { Crown, Check } from 'lucide-react'
+import SubscribeButton from '@/components/premium/subscribe-button'
 import { formatNaira } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/language-context'
 
@@ -26,39 +26,9 @@ interface Props {
 
 export default function PremiumCard({ active, premiumUntil, priceKobo, isMonetised, needsVerification }: Props) {
   const { t } = useTranslation()
-  const [paying, setPaying] = useState(false)
-  const [error, setError] = useState('')
-
   const fmt = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
   const price = formatNaira(priceKobo)
   const lapsed = !active && !!premiumUntil
-
-  async function subscribe() {
-    setError('')
-    setPaying(true)
-    try {
-      const res = await fetch('/api/premium/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ app: isNativeApp() }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error || t('premium.pay_start_failed')); return }
-      await openCheckout(data.authorization_url)   // web: redirect · app: system browser
-    } catch {
-      setError(t('wallet.network_error_retry'))
-    } finally {
-      setPaying(false)
-    }
-  }
-
-  const btn: React.CSSProperties = {
-    width: '100%', background: 'var(--color-brand)', color: 'white', border: 'none',
-    borderRadius: 12, padding: '12px', fontFamily: "'Syne', sans-serif",
-    fontWeight: 700, fontSize: 14, cursor: paying ? 'not-allowed' : 'pointer',
-    opacity: paying ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-  }
-  const errBox = error && <p style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 8 }}>{error}</p>
 
   // Subscribed: just a quiet status line.
   if (active && premiumUntil) {
@@ -95,14 +65,12 @@ export default function PremiumCard({ active, premiumUntil, priceKobo, isMonetis
                 </li>
               ))}
             </ul>
-            <button onClick={subscribe} disabled={paying} style={btn}>
-              {paying && <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} />}
-              {paying ? t('premium.redirecting') : t('premium.cta_subscribe', { price })}
-            </button>
-            {errBox}
-            <Link href="/premium" style={{ display: 'block', textAlign: 'center', marginTop: 10, fontSize: 12, color: 'var(--color-text-muted)', textDecoration: 'underline' }}>
-              {t('premium.learn_more')}
-            </Link>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <Link href="/premium/learn" style={{ fontSize: 13, color: 'var(--color-text-muted)', textDecoration: 'underline' }}>
+                {t('premium.how_it_works')}
+              </Link>
+              <SubscribeButton priceKobo={priceKobo} />
+            </div>
           </div>
         </div>
       </div>
@@ -114,10 +82,7 @@ export default function PremiumCard({ active, premiumUntil, priceKobo, isMonetis
     return (
       <div style={{ border: '1px solid rgba(212,160,23,0.3)', background: 'rgba(212,160,23,0.06)', borderRadius: 14, padding: '14px 16px', marginBottom: 12 }}>
         <div style={{ fontSize: 13, color: 'var(--color-text-primary)', marginBottom: 10, lineHeight: 1.5 }}>{t('premium.card_paused')}</div>
-        <button onClick={subscribe} disabled={paying} style={btn}>
-          {paying ? t('premium.redirecting') : t('premium.cta_renew', { price })}
-        </button>
-        {errBox}
+        <SubscribeButton priceKobo={priceKobo} renew />
       </div>
     )
   }

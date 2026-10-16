@@ -57,6 +57,7 @@ export type KycStatus =
   | { error: string }
   | {
       premium_active: boolean
+      premium_price_kobo: number
       phone_verified: boolean
       already_verified: boolean
       attempts_left: number
@@ -81,6 +82,7 @@ export async function getKycStatusAction(kind: string): Promise<KycStatus> {
   const until = await getPremiumUntil(profile.id)
   return {
     premium_active: !!until && until.getTime() > Date.now(),
+    premium_price_kobo: await getPremiumPriceKobo(),
     phone_verified: !!profile.phone_verified,
     already_verified: kind === 'nin' ? !!profile.nin_verified : !!profile.bvn_verified,
     attempts_left: await kycAttemptsLeft(profile.id, kind),

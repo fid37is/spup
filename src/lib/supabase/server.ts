@@ -39,7 +39,14 @@ export async function createClient() {
  */
 export const getAuthUser = cache(async () => {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  // Say WHY there's no user. "Auth session missing" is just a logged-out visitor
+  // (normal, stays quiet). Anything else is a real problem: a network failure
+  // reads "fetch failed"/"AuthRetryableFetchError"; a cookie from another
+  // Supabase project or an expired token reads "invalid JWT"/"user not found".
+  if (!user && error && error.name !== 'AuthSessionMissingError') {
+    console.warn(`[getAuthUser] ${error.name}${'status' in error ? ` (${(error as { status?: number }).status})` : ''}: ${error.message}`)
+  }
   return user
 })
 

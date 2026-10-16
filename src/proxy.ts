@@ -5,6 +5,7 @@ import { authCookieOptions } from '@/lib/supabase/cookie-options'
 const PROTECTED_ROUTES = ['/feed', '/profile', '/notifications', '/messages', '/settings', '/onboarding', '/wallet', '/explore']
 const AUTH_ROUTES = ['/login', '/signup', '/verify-otp', '/forgot-password']
 const ADMIN_ROLES = ['admin', 'moderator']
+const BOUNCE_COOKIE = 'spup_auth_bounce'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -48,8 +49,20 @@ export async function proxy(request: NextRequest) {
   // sensitive data) does its own independent getUser() call server-side
   // rather than trusting this one. Falls back to null on any verification
   // failure, same as an absent user.
-  const { data: claims } = await supabase.auth.getClaims()
-  const user = claims?.claims ? { id: claims.claims.sub } : null
+  //
+  // Wrapped in try/catch: if Supabase can't be reached getClaims() throws
+  // "fetch failed". We log one short line and carry on. `authUnreachable` is
+  // true ONLY in that case, so "couldn't check" is never mistaken for "logged out".
+  let user: { id: string } | null = null
+  let authUnreachable = false
+  try {
+    const { data: claims } = await supabase.auth.getClaims()
+    user = claims?.claims ? { id: claims.claims.sub } : null
+  } catch (err) {
+    authUnreachable = true
+    const code = (err as { cause?: { code?: string } })?.cause?.code ?? (err as Error)?.message
+    console.warn(`[proxy] Supabase auth unreachable (${code}) - skipping login redirects for ${pathname}`)
+  }
 
   // Carries the refreshed session cookies (if any were reissued above) onto
   // whatever final response this request ends up producing.
@@ -200,17 +213,30 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  if (!user && PROTECTED_ROUTES.some(route => pathname.startsWith(route))) {
+  if (!user && !authUnreachable && PROTECTED_ROUTES.some(route => pathname.startsWith(route))) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = '/login'
     redirectUrl.searchParams.set('redirectTo', pathname)
     return withRefreshedCookies(NextResponse.redirect(redirectUrl))
   }
 
+  // Signed-in (per the local token check) people never see the auth pages.
+  // LOOP BREAKER: that check only reads the token locally. If the app then rejects
+  // the session (server getUser() fails, no users row, ...) it redirects to /login,
+  // which used to bounce straight back to /feed forever. We remember the bounce for
+  // 15s: landing on an auth page again within that time means it didn't work, so
+  // the page is allowed to render.
   if (user && AUTH_ROUTES.some(route => pathname.startsWith(route))) {
-    const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = '/feed'
-    return withRefreshedCookies(NextResponse.redirect(redirectUrl))
+    const lastBounce = Number(request.cookies.get(BOUNCE_COOKIE)?.value ?? 0)
+    if (Date.now() - lastBounce >= 15_000) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = '/feed'
+      redirectUrl.search = ''
+      const response = withRefreshedCookies(NextResponse.redirect(redirectUrl))
+      response.cookies.set(BOUNCE_COOKIE, String(Date.now()), { path: '/', maxAge: 15, sameSite: 'lax', httpOnly: true })
+      return response
+    }
+    console.warn(`[proxy] auth-page bounce loop stopped at ${pathname} - the app rejected a session the proxy accepted`)
   }
 
   return refreshedResponse

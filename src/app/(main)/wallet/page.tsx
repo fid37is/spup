@@ -31,12 +31,16 @@ function MonetisationChecklist({
     followers: { met: false, value: 0 },
     account_age: { met: false, value: 0 },
     posts: { met: false, value: 0 },
+    premium: { met: false, value: 0 },
   }
 
   const items = [
     { label: t('wallet.followers_criterion'),   ...safeCriteria.followers,    display: `${formatNumber(safeCriteria.followers.value as number)} / 500` },
     { label: t('wallet.account_age_criterion'), ...safeCriteria.account_age,  display: t('wallet.account_age_display', { value: Math.min(safeCriteria.account_age.value as number, 90) }) },
     { label: t('wallet.posts_criterion'),       ...safeCriteria.posts,        display: `${formatNumber(safeCriteria.posts.value as number)} / 100` },
+    { label: t('wallet.premium_criterion'),     ...safeCriteria.premium,      display: safeCriteria.premium.met
+        ? t('wallet.premium_active_short')
+        : <Link href="/premium" style={{ color: 'var(--color-brand)', fontWeight: 600, textDecoration: 'underline' }}>{t('wallet.premium_subscribe_link')}</Link> },
   ]
   const metCount = items.filter(i => i.met).length
   const pct = Math.round((metCount / items.length) * 100)

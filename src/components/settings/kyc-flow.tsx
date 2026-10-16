@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, ShieldCheck, CheckCircle, Lock, Camera, Loader2, Crown } from 'lucide-react'
+import SubscribeButton from '@/components/premium/subscribe-button'
 import { verifyNinAction } from '@/lib/actions/nin-kyc'
 import { verifyBvnAction } from '@/lib/actions/bvn-kyc'
 import { getKycStatusAction } from '@/lib/actions/premium'
@@ -25,12 +26,14 @@ const INP: React.CSSProperties = {
   outline: 'none', fontFamily: "'DM Sans', sans-serif",
   transition: 'border-color 0.15s', letterSpacing: '0.1em',
 }
+// Buttons are always small and right-aligned (wrap in ROW_RIGHT).
 const PRIMARY_BTN: React.CSSProperties = {
-  width: '100%', background: '#1A9E5F', color: 'white', border: 'none',
-  borderRadius: 10, padding: '13px', fontFamily: "'Syne', sans-serif",
-  fontWeight: 700, fontSize: 15, cursor: 'pointer', letterSpacing: '0.01em',
-  transition: 'opacity 0.15s',
+  background: '#1A9E5F', color: 'white', border: 'none',
+  borderRadius: 10, padding: '8px 18px', fontFamily: "'Syne', sans-serif",
+  fontWeight: 700, fontSize: 13, cursor: 'pointer', letterSpacing: '0.01em',
+  transition: 'opacity 0.15s', display: 'inline-block', textDecoration: 'none', whiteSpace: 'nowrap',
 }
+const ROW_RIGHT: React.CSSProperties = { display: 'flex', justifyContent: 'flex-end' }
 
 // Shrink the selfie before upload: phone cameras produce 3–8 MB photos, which
 // are slow on mobile data and would exceed the server-action size limit.
@@ -61,6 +64,7 @@ export default function KycFlow({ kind }: { kind: Kind }) {
 
   const [stage, setStage] = useState<Stage>('loading')
   const [attemptsLeft, setAttemptsLeft] = useState(0)
+  const [priceKobo, setPriceKobo] = useState(0)
   const [idNumber, setIdNumber] = useState('')
   const [selfie, setSelfie] = useState('')           // raw base64 JPEG
   const [submitting, setSubmitting] = useState(false)
@@ -70,6 +74,7 @@ export default function KycFlow({ kind }: { kind: Kind }) {
     getKycStatusAction(kind).then(s => {
       if ('error' in s) { setError(s.error); setStage('premium'); return }
       setAttemptsLeft(s.attempts_left)
+      setPriceKobo(s.premium_price_kobo)
       if (s.already_verified) { setStage('already'); return }
       if (!s.premium_active) { setStage('premium'); return }
       if (!s.phone_verified) { setStage('phone-first'); return }
@@ -146,7 +151,7 @@ export default function KycFlow({ kind }: { kind: Kind }) {
         <div style={{ textAlign: 'center', padding: '32px 0' }}>
           <CheckCircle size={36} color="#1A9E5F" style={{ marginBottom: 16 }} />
           <p style={{ fontSize: 15, color: '#F0F0EC', marginBottom: 24 }}>{t('kyc.already_verified')}</p>
-          <button onClick={() => router.push('/wallet')} style={{ ...PRIMARY_BTN, width: 'auto', padding: '13px 32px' }}>{t('wallet.back_to_wallet')}</button>
+          <div style={ROW_RIGHT}><button onClick={() => router.push('/wallet')} style={PRIMARY_BTN}>{t('wallet.back_to_wallet')}</button></div>
         </div>
       )}
 
@@ -158,9 +163,12 @@ export default function KycFlow({ kind }: { kind: Kind }) {
             <Crown size={18} color="#D4A017" style={{ flexShrink: 0, marginTop: 2 }} />
             <p style={{ fontSize: 14, color: '#F0F0EC', lineHeight: 1.6, margin: 0 }}>{error || t('kyc.premium_needed')}</p>
           </div>
-          <Link href="/premium" style={{ ...PRIMARY_BTN, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>
-            {t('premium.see_premium')}
-          </Link>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <Link href="/premium/learn" style={{ fontSize: 13, color: '#8A8A85', textDecoration: 'underline' }}>{t('premium.how_it_works')}</Link>
+            {priceKobo > 0
+              ? <SubscribeButton priceKobo={priceKobo} />
+              : <Link href="/premium" style={PRIMARY_BTN}>{t('premium.see_premium')}</Link>}
+          </div>
         </div>
       )}
 
@@ -168,9 +176,9 @@ export default function KycFlow({ kind }: { kind: Kind }) {
         <div>
           <Header />
           <p style={{ fontSize: 15, color: '#F0F0EC', lineHeight: 1.6, marginBottom: 20 }}>{t('kyc.phone_first')}</p>
-          <Link href="/settings/verify-phone" style={{ ...PRIMARY_BTN, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>
-            {t('kyc.phone_first_cta')}
-          </Link>
+          <div style={ROW_RIGHT}>
+            <Link href="/settings/verify-phone" style={PRIMARY_BTN}>{t('kyc.phone_first_cta')}</Link>
+          </div>
         </div>
       )}
 
@@ -211,9 +219,11 @@ export default function KycFlow({ kind }: { kind: Kind }) {
             <p style={{ fontSize: 12, color: '#44444A', marginTop: 8, lineHeight: 1.5 }}>{t('kyc.selfie_hint')}</p>
           </div>
 
-          <button onClick={handleSubmit} disabled={!canSubmit} style={{ ...PRIMARY_BTN, opacity: canSubmit ? 1 : 0.5 }}>
-            {submitting ? t('wallet.verifying') : t(`wallet.verify_${kind}_cta`)}
-          </button>
+          <div style={ROW_RIGHT}>
+            <button onClick={handleSubmit} disabled={!canSubmit} style={{ ...PRIMARY_BTN, opacity: canSubmit ? 1 : 0.5 }}>
+              {submitting ? t('wallet.verifying') : t(`wallet.verify_${kind}_cta`)}
+            </button>
+          </div>
         </div>
       )}
 
@@ -226,7 +236,7 @@ export default function KycFlow({ kind }: { kind: Kind }) {
             {t(`wallet.${kind}_verified_title`)}
           </h1>
           <p style={{ fontSize: 15, color: '#6A6A60', lineHeight: 1.6, marginBottom: 32 }}>{t(`wallet.${kind}_verified_desc`)}</p>
-          <button onClick={() => router.push('/wallet')} style={{ ...PRIMARY_BTN, width: 'auto', padding: '13px 32px' }}>{t('wallet.back_to_wallet')}</button>
+          <div style={ROW_RIGHT}><button onClick={() => router.push('/wallet')} style={PRIMARY_BTN}>{t('wallet.back_to_wallet')}</button></div>
         </div>
       )}
     </div>

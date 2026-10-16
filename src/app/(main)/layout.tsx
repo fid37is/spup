@@ -43,7 +43,10 @@ async function countMutuals(admin: ReturnType<typeof createAdminClient>, profile
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const user = await getAuthUser()
-  if (!user) redirect('/login')
+  if (!user) {
+    console.warn('[main layout] getUser() returned no user (expired/invalid session or Supabase unreachable) -> /login')
+    redirect('/login')
+  }
 
   // ── Step 1: profile + onboarding in parallel (both need auth_id, not profile.id) ──
   const [profile, onboarding] = await Promise.all([
@@ -53,7 +56,10 @@ export default async function MainLayout({ children }: { children: React.ReactNo
     Promise.resolve(null), // placeholder — see step 2
   ])
 
-  if (!profile) redirect('/login')
+  if (!profile) {
+    console.warn(`[main layout] signed in (auth id ${user.id}) but no row in public.users for it -> /login`)
+    redirect('/login')
+  }
   if (profile.status === 'banned') redirect('/banned')
 
   // The DB (not a cookie) is the source of truth for locale: this layout is
@@ -88,7 +94,10 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   ])
   const dismissedAnnouncements = parseDismissed((await cookies()).get(DISMISSED_COOKIE)?.value)
 
-  if (!onboardingProgress?.completed_at) redirect('/onboarding')
+  if (!onboardingProgress?.completed_at) {
+    console.warn('[main layout] onboarding not completed -> /onboarding')
+    redirect('/onboarding')
+  }
 
   return (
     <LanguageProvider initialLocale={locale} initialMessages={initialMessages}>

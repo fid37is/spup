@@ -8,6 +8,7 @@ import {
 import { formatNaira, formatNumber } from '@/lib/utils'
 import { createAdminClient } from '@/lib/supabase/server'
 import { getSuggestedUsers } from '@/lib/queries/users'
+import { isPremiumActive } from '@/lib/premium'
 import SidebarFollowBtn from './sidebar-follow-btn'
 import { SidebarAnnouncementCard } from '@/components/feed/announcement-slots'
 import type { User } from '@/types'
@@ -105,7 +106,7 @@ function ProgressBar({ pct }: { pct: number }) {
 
 // ─── Creator Programme widget ─────────────────────────────────────────────────
 // Deliberately mirrors lib/actions/monetisation.ts: eligibility is growth
-// criteria only (followers, posts, account age). NIN is shown separately,
+// criteria (followers, posts, account age) plus active Spup Premium. NIN is shown separately,
 // informationally — it's required at withdrawal, not for monetisation itself.
 // BVN (the extra check for large withdrawals) stays out of this widget
 // entirely — it only comes up in the wallet flow if/when it's relevant.
@@ -135,7 +136,8 @@ async function MonetisationProgress({ profile }: { profile: User }) {
   const followersPct = Math.min(100, Math.round((followersVal / REQUIRED_FOLLOWERS) * 100))
   const postsPct = Math.min(100, Math.round((postsVal / REQUIRED_POSTS) * 100))
   const agePct = Math.min(100, Math.round((accountAgeDays / REQUIRED_ACCOUNT_AGE_DAYS) * 100))
-  const eligibleToAccept = followersPct >= 100 && postsPct >= 100 && agePct >= 100
+  const premiumActive = await isPremiumActive(profile.id)
+  const eligibleToAccept = followersPct >= 100 && postsPct >= 100 && agePct >= 100 && premiumActive
 
   return (
     <Card>
@@ -172,7 +174,7 @@ async function MonetisationProgress({ profile }: { profile: User }) {
           <ProgressBar pct={postsPct} />
         </div>
 
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
             <span style={{ color: 'var(--color-text-secondary)' }}>Account age</span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: agePct >= 100 ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
@@ -181,6 +183,15 @@ async function MonetisationProgress({ profile }: { profile: User }) {
             </span>
           </div>
           <ProgressBar pct={agePct} />
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+            <span style={{ color: 'var(--color-text-secondary)' }}>Spup Premium</span>
+            {premiumActive
+              ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: 'var(--color-brand)' }}><CheckCircle2 size={13} /> Active</span>
+              : <Link href="/premium" style={{ fontWeight: 600, color: 'var(--color-brand)', textDecoration: 'underline' }}>Subscribe</Link>}
+          </div>
         </div>
 
         {/* Informational only — never gates the CTA below. NIN is required
