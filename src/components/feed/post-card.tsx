@@ -518,7 +518,7 @@ function TruncatedBody({ text, limit = 240, postId, fontSize = 15 }: { text: str
   const [expanded, setExpanded] = useState(false)
   const truncated = truncateText(text, limit)
   const needsTruncation = truncated !== null
-  const pStyle = { fontSize, color: 'var(--color-text-primary)', lineHeight: 1.6, wordBreak: 'break-word' as const, whiteSpace: 'pre-wrap' as const }
+  const pStyle = { fontSize, color: 'var(--color-text-primary)', lineHeight: 1.35, wordBreak: 'break-word' as const, whiteSpace: 'pre-wrap' as const }
 
   if (!needsTruncation || expanded) {
     return (

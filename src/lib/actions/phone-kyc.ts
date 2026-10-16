@@ -3,6 +3,7 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { z } from 'zod'
+import { premiumGateForPhone } from '@/lib/premium'
 
 const nigerianPhoneRegex = /^(\+234|0)[789][01]\d{8}$/
 
@@ -32,6 +33,10 @@ export async function sendPhoneOtpAction(phone: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
+
+  // Premium is required to start phone verification (once verified it is permanent).
+  const gate = await premiumGateForPhone(user.id)
+  if (gate) return gate
 
   const e164 = toE164(phone)
 
@@ -112,6 +117,10 @@ export async function resendPhoneOtpAction(phone: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
+
+  // Premium is required to start phone verification (once verified it is permanent).
+  const gate = await premiumGateForPhone(user.id)
+  if (gate) return gate
 
   const { error } = await supabase.auth.resend({
     type: 'sms',

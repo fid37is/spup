@@ -10,6 +10,8 @@ import WithdrawButton from './withdraw-button'
 import SendButton from './send-button'
 import TopUpButton from './topup-button'
 import AcceptMonetisationButton from './accept-monetisation-button'
+import PremiumCard from '@/components/wallet/premium-card'
+import { getPremiumUntil, getPremiumPriceKobo } from '@/lib/premium'
 import Link from 'next/link'
 import { isLocale, DEFAULT_LOCALE, loadDictionary, translate } from '@/lib/i18n/dictionaries'
 
@@ -204,6 +206,14 @@ export default async function WalletPage() {
     paystack_recipient_code: wallet.paystack_recipient_code,
   } : null
 
+  // Premium gates verification (phone / NIN / BVN) and ad earnings.
+  const [premiumUntil, premiumPriceKobo] = await Promise.all([getPremiumUntil(profile.id), getPremiumPriceKobo()])
+  const premiumActive = !!premiumUntil && premiumUntil.getTime() > Date.now()
+  const needsVerification =
+    !profile.phone_verified ||
+    !profile.nin_verified ||
+    (!profile.bvn_verified && balance >= BIG_TRANSACTION_THRESHOLD_KOBO)
+
   return (
     <div>
       {/* Sticky header */}
@@ -247,7 +257,7 @@ export default async function WalletPage() {
             <StatCard label={t('wallet.withdrawn')} value={formatNaira(totalWithdrawn)} />
           </div>
 
-          <WithdrawButton canWithdraw={canWithdraw} balance={balance} ninVerified={profile.nin_verified} bvnVerified={profile.bvn_verified} savedBank={savedBank} nextEligibleAt={nextPayout.next_eligible_at} />
+          <WithdrawButton premiumActive={premiumActive} canWithdraw={canWithdraw} balance={balance} ninVerified={profile.nin_verified} bvnVerified={profile.bvn_verified} savedBank={savedBank} nextEligibleAt={nextPayout.next_eligible_at} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             <TopUpButton t={t} />
             <SendButton balance={balance} />
@@ -257,11 +267,19 @@ export default async function WalletPage() {
           </div>
         </div>
 
+        <PremiumCard
+          active={premiumActive}
+          premiumUntil={premiumUntil ? premiumUntil.toISOString() : null}
+          priceKobo={premiumPriceKobo}
+          isMonetised={!!eligibility?.is_monetised}
+          needsVerification={needsVerification}
+        />
+
         {/* Phone/NIN/BVN banners - shown in dependency order. NIN is the
             baseline required before any withdrawal (see nin-kyc.ts); BVN
             only shows up once the balance is large enough to need it
             (see bvn-kyc.ts, lib/constants.ts) - it stays silent otherwise. */}
-        {!profile.phone_verified && (
+        {premiumActive && !profile.phone_verified && (
           <div style={{
             border: '1px solid var(--color-border)',
             borderRadius: 14,
@@ -284,7 +302,7 @@ export default async function WalletPage() {
           </div>
         )}
 
-        {profile.phone_verified && !profile.nin_verified && (
+        {premiumActive && profile.phone_verified && !profile.nin_verified && (
           <div style={{
             border: '1px solid var(--color-border)',
             borderRadius: 14,
@@ -309,7 +327,7 @@ export default async function WalletPage() {
 
         {/* BVN stays silent until it's actually relevant - only surfaces
             once the balance itself is large enough to need it. */}
-        {profile.nin_verified && !profile.bvn_verified && balance >= BIG_TRANSACTION_THRESHOLD_KOBO && (
+        {premiumActive && profile.nin_verified && !profile.bvn_verified && balance >= BIG_TRANSACTION_THRESHOLD_KOBO && (
           <div style={{
             border: '1px solid var(--color-border)',
             borderRadius: 14,

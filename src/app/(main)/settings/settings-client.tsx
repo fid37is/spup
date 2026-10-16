@@ -176,7 +176,7 @@ function Card({ children }: { children: React.ReactNode }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function SettingsClient({ profile, interests: initialInterests }: { profile: SettingsProfile; interests: string[] }) {
+export default function SettingsClient({ profile, interests: initialInterests, premiumActive }: { profile: SettingsProfile; interests: string[]; premiumActive: boolean }) {
   const { t, setLocale: setAppLocale } = useTranslation()
   const [panel,      setPanel]    = useState<Panel>(null)
   const [isPending,  startT]      = useTransition()
@@ -644,9 +644,10 @@ export default function SettingsClient({ profile, interests: initialInterests }:
         <Row
           icon={Phone}
           label={t('settings.phone_nin')}
-          desc={profile.nin_verified ? t('settings.verified_withdrawals') : t('settings.tap_to_verify')}
+          desc={profile.nin_verified ? t('settings.verified_withdrawals') : premiumActive ? t('settings.tap_to_verify') : t('settings.requires_premium')}
           accentDesc={profile.nin_verified}
-          onClick={() => router.push('/settings/verify-phone')}
+          // Verification is only available to Premium subscribers.
+          onClick={() => router.push(profile.nin_verified || premiumActive ? '/settings/verify-phone' : '/premium')}
           last
         />
       </Card>

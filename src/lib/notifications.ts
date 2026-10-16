@@ -12,6 +12,7 @@ import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { sendPushToUser, type PushPayload } from '@/lib/push/send'
 import type { NotificationType } from '@/types'
+import { MEDIA_CDN_URL } from '@/lib/media-config'
 import {
   DEFAULT_NOTIFICATION_SETTINGS, TYPE_TO_PREF, SOCIAL_TYPES, NEW_ACCOUNT_DAYS,
   type NotificationSettings,
@@ -57,6 +58,10 @@ function pushAvatarUrl(url?: string | null): string | undefined {
   if (!url || !url.startsWith('https://')) return undefined
   if (url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
     return url.replace('/image/upload/', '/image/upload/w_160,h_160,c_fill,g_face,f_jpg/')
+  }
+  // Our media CDN: avatars are stored as 400px squares, so a width is all that is needed.
+  if (url.startsWith(`${MEDIA_CDN_URL}/`) && !url.includes('?') && /\.(jpe?g|png|webp)$/i.test(url)) {
+    return `${url}?width=160`
   }
   return url // e.g. Google profile pictures - already small
 }
@@ -107,7 +112,7 @@ function buildPushPayload(
   type: NotificationType,
   actorName: string | null,   // the sender's display name (falls back to @username)
   entityId: string | undefined,
-  extras: { snippet?: string; avatarUrl?: string; actorUsername?: string; followBack?: boolean } = {},
+  extras: { snippet?: string; avatarUrl?: string; actorUsername?: string } = {},
 ): PushPayload {
   const copy: Record<NotificationType, PushCopy> = {
     new_follower: withActor('started following you'),
@@ -145,11 +150,6 @@ function buildPushPayload(
     body = `Someone ${entry.text}`
   } else {
     body = entry.text
-  }
-
-  // A follow that is the other side of an existing follow says so.
-  if (type === 'new_follower' && extras.followBack && entry?.withActor && actorName) {
-    body = 'followed you back'
   }
 
   // X-style: where the content is the point, show it instead of a generic line.
@@ -340,10 +340,7 @@ export async function createNotification({
   const snippet = await pushSnippet(admin, type, entityId, metadata)
   const pushJob = sendPushToUser(
     recipientId,
-    buildPushPayload(type, actorLabel, pushEntityId, {
-      snippet, avatarUrl, actorUsername,
-      followBack: (metadata as { follow_back?: boolean })?.follow_back === true,
-    }),
+    buildPushPayload(type, actorLabel, pushEntityId, { snippet, avatarUrl, actorUsername }),
   )
   // after() keeps the serverless worker alive until the push has actually
   // been sent. A bare un-awaited promise can be cancelled the moment the

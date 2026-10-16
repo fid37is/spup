@@ -15,10 +15,8 @@ import { createPostSchema, type CreatePostSchema } from '@/lib/validations/schem
 import { getPostById } from '@/lib/queries/posts'
 import { screenContent, recordContentFlag } from '@/lib/content-rules'
 import { extractFirstUrl } from '@/lib/urls'
-import { processLinks } from '@/lib/link-safety/service'
-import { parseShortLink } from '@/lib/link-safety/short-link'
-import { APPEAL_URL } from '@/lib/link-safety/config'
 import { getLinkPreview } from '@/lib/link-preview'
+import { MEDIA_CDN_URL } from '@/lib/media-config'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Fire-and-forget counter bump that still logs failures instead of swallowing
@@ -89,38 +87,23 @@ export async function createPostAction(data: CreatePostSchema) {
     return { error: "This contains language that isn't allowed on Spup. Please edit it and try again.", code: 'content_blocked' as const }
   }
 
-  // Link safety: every link in the text is checked and stored; the text is saved with each one
-  // replaced by its short link (spup.live/l/<slug>). An unsafe link refuses the whole post - the
-  // message is generic on purpose, and the attempt is logged as a strike. If a check we depend on
-  // is down the post still goes out, with that link as plain, non-clickable text.
-  let postBody = body
-  let previewTarget: string | null = null
-  if (body?.trim()) {
-    const linked = await processLinks(body, { userId: profile.id, context: parent_post_id ? 'reply' : quoted_post_id ? 'quote' : 'post' })
-    if (linked.blocked) {
-      return { error: "This link can't be shared on Spup", code: 'link_blocked' as const, appealUrl: APPEAL_URL }
-    }
-    postBody = linked.text
-    const limit = parent_post_id ? 500 : 1000
-    if (postBody.length > limit) return { error: `Max ${limit.toLocaleString('en-US')} characters` }
-    // The preview card is for the first link; a short link points at the real page.
-    const first = extractFirstUrl(postBody)
-    const slug = first ? parseShortLink(first) : null
-    previewTarget = slug ? (linked.links.find(l => l.slug === slug)?.resolved ?? null) : first
-  }
-
-  // Uploads now go straight from the phone to Cloudinary, so this action no
-  // longer sees the file - only the details the client reports back. Make sure
-  // every item really is in *this* user's post folder on *our* Cloudinary
-  // account, so a post can't be pointed at someone else's media or an
-  // arbitrary URL. (Folder name matches /api/upload and /api/upload/signature.)
+  // The file is uploaded before this action runs, so it only sees the details the
+  // client reports back. Make sure every item really is in *this* user's post folder
+  // on *our* media CDN, so a post can't be pointed at someone else's media or an
+  // arbitrary URL. (The folder matches /api/upload and /api/upload/bunny.)
+  // Links to our old Cloudinary account are still accepted, for posts that were
+  // queued offline before the switch to Bunny; remove that once nothing queued remains.
   if (media?.length) {
-    const cloudBase = `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/`
     const folderPrefix = `para/${profile.id}/posts/`
+    const cdnFolder = `${MEDIA_CDN_URL}/${folderPrefix}`
+    const cloudBase = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+      ? `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/`
+      : null
+    const isOurs = (u: string) => u.startsWith(cdnFolder) || (!!cloudBase && u.startsWith(cloudBase))
     const invalid = media.some(m =>
       !m.cloudinary_id.startsWith(folderPrefix) ||
-      !m.url.startsWith(cloudBase) ||
-      (m.thumbnail_url && !m.thumbnail_url.startsWith(cloudBase))
+      !isOurs(m.url) ||
+      (m.thumbnail_url && !isOurs(m.thumbnail_url))
     )
     if (invalid) return { error: 'Some media could not be verified. Please remove it and upload it again.' }
   }
@@ -130,7 +113,7 @@ export async function createPostAction(data: CreatePostSchema) {
     .from('posts')
     .insert({
       user_id: profile.id,
-      body: postBody?.trim() || '',
+      body: body?.trim() || '',
       post_type: postType,
       parent_post_id: parent_post_id || null,
       quoted_post_id: quoted_post_id || null,
@@ -156,22 +139,18 @@ export async function createPostAction(data: CreatePostSchema) {
   // hashtags/post_hashtags stayed permanently empty and every feature
   // reading from them was silently a no-op. Fire-and-forget: a failure
   // here shouldn't block the post itself.
-  if (postBody?.trim()) {
-    void supabase.rpc('process_post_hashtags', { p_post_id: post.id, p_body: postBody })
+  if (body?.trim()) {
+    void supabase.rpc('process_post_hashtags', { p_post_id: post.id, p_body: body })
       .then(({ error }) => { if (error) console.error('process_post_hashtags failed:', error.message) })
   }
 
   // Fetch the first link's preview card now, in the background, so it is already
   // cached by the time anyone opens the post. A failure only means the card is
   // fetched on first view instead.
-  if (previewTarget) {
-    const target = previewTarget
-    after(async () => { try { await getLinkPreview(target) } catch { /* fetched on first view instead */ } })
+  const firstUrl = extractFirstUrl(body)
+  if (firstUrl) {
+    after(async () => { try { await getLinkPreview(firstUrl) } catch { /* fetched on first view instead */ } })
   }
-
-  // These links are checked now (the backfill job skips them).
-  void createAdminClient().from('posts').update({ links_scanned_at: new Date().toISOString() }).eq('id', post.id)
-    .then(({ error: scanError }) => { if (scanError) console.error('links_scanned_at update failed:', scanError.message) })
 
   // Insert post_media rows now that we have a real post_id
   if (media?.length) {
@@ -216,8 +195,8 @@ export async function createPostAction(data: CreatePostSchema) {
   // Mentions notify their recipients immediately - that only makes sense
   // once the post is actually visible, so a scheduled post's @mentions wait
   // and fire when it goes live (queued below, sent by the scheduled-post cron).
-  if (postBody?.trim() && !isScheduled) {
-    void notifyMentions(postBody.trim(), post.id, profile.id, profile.username, profile.display_name)
+  if (body?.trim() && !isScheduled) {
+    void notifyMentions(body.trim(), post.id, profile.id, profile.username, profile.display_name)
   }
   // Everyone who turned on post notifications (the bell on this author's
   // profile) gets a "new post" notification. Replies are excluded - those

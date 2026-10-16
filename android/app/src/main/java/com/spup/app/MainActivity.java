@@ -201,7 +201,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
          * Returns true when the save was started; the outcome arrives afterwards as a
          * "spup:media-saved" event on window with detail { id, ok }. Returns false when
          * this phone or URL isn't supported (Android 9 and older, or a URL that isn't
-         * https://res.cloudinary.com/...) - the web app then falls back to downloading
+         * https://cdn.spup.live/... or Cloudinary) - the web app then falls back to downloading
          * through the system browser.
          */
         @JavascriptInterface
@@ -216,14 +216,19 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         }
     }
 
-    // Only Cloudinary-hosted media (what posts and chats use) can be saved through the
-    // bridge, so a page can't make the app download arbitrary files.
-    private static final String MEDIA_HOST = "res.cloudinary.com";
+    // Only our own media hosts (what posts and chats use) can be saved through the
+    // bridge, so a page can't make the app download arbitrary files. cdn.spup.live is
+    // the bunny.net CDN; res.cloudinary.com stays for old posts until they are migrated.
+    private static final String[] MEDIA_HOSTS = { "cdn.spup.live", "res.cloudinary.com" };
 
     private boolean isMediaUrl(String url) {
         try {
             Uri u = Uri.parse(url);
-            return "https".equals(u.getScheme()) && MEDIA_HOST.equals(u.getHost());
+            if (!"https".equals(u.getScheme()) || u.getHost() == null) return false;
+            for (String host : MEDIA_HOSTS) {
+                if (host.equals(u.getHost())) return true;
+            }
+            return false;
         } catch (Exception e) {
             return false;
         }

@@ -160,6 +160,11 @@ export default function VerifyPhonePage() {
           {error && (
             <div style={{ background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 14, color: '#E57373' }}>
               {error}
+              {error.includes('Premium') && (
+                <div style={{ marginTop: 8 }}>
+                  <a href="/premium" style={{ color: '#1A9E5F', fontWeight: 600, textDecoration: 'underline' }}>{t('premium.see_premium')}</a>
+                </div>
+              )}
             </div>
           )}
 
