@@ -9,6 +9,7 @@
  * Cursor-based pagination so the client can implement infinite scroll.
  */
 
+import { unstable_cache } from 'next/cache'
 import { createClient, createAdminClient, getAuthUser } from '@/lib/supabase/server'
 import { scorePost, SCORE_WEIGHTS } from '@/lib/feed/scoring'
 import { seededUnit, shortPostId, type FeedSession } from '@/lib/feed/seen'
@@ -260,6 +261,105 @@ export interface FeedPost {
   promotion_id?: string
 }
 
+// The ranked "For you" pool is needed by EVERY page request (pages 2..10 slice the
+// same ranked list at a different offset), so it must cost almost nothing:
+//
+//  1. Ranking only needs counts, age and who wrote the post - not bodies, avatars
+//     or media - so the pool is read with FOR_YOU_RANK_SELECT (a few bytes/post)
+//     and the heavy columns are loaded for just the 20 posts being returned.
+//  2. That light pool is the SAME for every viewer, so it is read ONCE per
+//     POOL_CACHE_SECONDS for everybody (Next data cache) instead of once per page
+//     per user. Per-viewer parts (blocks/mutes, follows, seen posts, jitter) are
+//     applied afterwards in memory. It's read with the service role so the cached
+//     copy doesn't depend on any one viewer's permissions; that's safe because the
+//     pool is only IDs + counts used for ordering - what the viewer actually gets
+//     is loaded by loadFeedRows() with THEIR session, so row-level security still
+//     decides which posts they can see.
+const POOL_CACHE_SECONDS = 30
+const WINDOW_BUCKET_MS = 60_000          // keeps the cache key stable (see windowStartIso)
+
+const FOR_YOU_RANK_SELECT = `
+  id, created_at, user_id, likes_count, comments_count, reposts_count, bookmarks_count, is_sensitive,
+  author:users!posts_user_id_fkey(id, is_monetised)
+`
+
+const getSharedRankPool = unstable_cache(
+  async (windowStartIso: string): Promise<RawFeedRow[]> => {
+    const { data, error } = await createAdminClient()
+      .from('posts')
+      .select(FOR_YOU_RANK_SELECT)
+      .is('deleted_at', null)
+      .is('parent_post_id', null)
+      .lte('created_at', new Date().toISOString())   // not-yet-due scheduled posts
+      .gte('created_at', windowStartIso)
+      .order('created_at', { ascending: false })
+      .limit(FEED_POOL_SIZE)
+    // Throw, never return []: a thrown error is NOT cached, an empty list would
+    // be, and everyone would get an empty feed for the next 30 seconds.
+    if (error) throw new Error(error.message)
+    return asRawRows(data)
+  },
+  ['for-you-rank-pool'],
+  { revalidate: POOL_CACHE_SECONDS },
+)
+
+/**
+ * The ranked pool for this viewer: the shared pool minus people they've
+ * blocked/muted, plus where the "older posts" stretch begins.
+ */
+async function loadRankPool(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  windowStartIso: string,
+  excludeIds: string[],
+): Promise<{ rows: RawFeedRow[]; tailCursor: string }> {
+  let all: RawFeedRow[]
+  try {
+    all = await getSharedRankPool(windowStartIso)
+  } catch (err) {
+    console.error('[getForYouFeedAction] shared pool failed, reading directly:', err)
+    const { data } = await supabase
+      .from('posts')
+      .select(FOR_YOU_RANK_SELECT)
+      .is('deleted_at', null)
+      .is('parent_post_id', null)
+      .lte('created_at', nowIso())
+      .gte('created_at', windowStartIso)
+      .order('created_at', { ascending: false })
+      .limit(FEED_POOL_SIZE)
+    all = asRawRows(data)
+  }
+  // Measured BEFORE removing anyone: the older stretch must start below the
+  // oldest post of the pool, not below the oldest one this viewer can see.
+  const tailCursor = all.length === FEED_POOL_SIZE ? all[all.length - 1].created_at : windowStartIso
+  const hide = new Set(excludeIds)
+  const rows = hide.size ? all.filter(p => !hide.has(p.author?.id ?? (p as unknown as { user_id?: string }).user_id ?? '')) : all
+  return { rows, tailCursor }
+}
+
+const FOR_YOU_FULL_SELECT = `
+      id, body, post_type, likes_count, comments_count, reposts_count,
+      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
+      author:users!posts_user_id_fkey(
+        id, username, display_name, avatar_url, verification_tier, is_monetised
+      ),
+      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
+    `
+
+/** Full feed rows for these post ids, in the SAME order as `ids`. */
+async function loadFeedRows(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ids: string[],
+): Promise<RawFeedRow[]> {
+  if (!ids.length) return []
+  const { data } = await supabase
+    .from('posts')
+    .select(FOR_YOU_FULL_SELECT)
+    .in('id', ids)
+    .is('deleted_at', null)          // deleted between ranking and now
+  const byId = new Map(asRawRows(data).map(r => [r.id, r]))
+  return ids.map(id => byId.get(id)).filter((r): r is RawFeedRow => !!r)
+}
+
 // ─── "For you" feed — algorithmic ────────────────────────────────────────────
 
 export async function getForYouFeedAction(cursor?: string, session?: Partial<FeedSession>): Promise<{
@@ -289,9 +389,13 @@ export async function getForYouFeedAction(cursor?: string, session?: Partial<Fee
 
   // Saved interests + blocked/muted graph don't depend on each other: one
   // round trip instead of two in a row.
+  // Saved interests only matter on the FIRST page (see the interest block below),
+  // so later pages don't ask for them at all.
   const [{ data: savedInterests }, graph] = await Promise.all([
-    supabase.from('user_interests').select('interest').eq('user_id', profile.id),
-    loadViewerGraph(supabase, profile.id),
+    cursor
+      ? Promise.resolve({ data: [] as { interest: string }[] })
+      : supabase.from('user_interests').select('interest').eq('user_id', profile.id),
+    loadViewerGraph(supabase, profile.id, { cacheFollows: true }),
   ])
   const interestIds = (savedInterests || []).map((r: any) => r.interest)
   const excludeIds = graph.hidden
@@ -300,7 +404,9 @@ export async function getForYouFeedAction(cursor?: string, session?: Partial<Fee
   // or a created_at once the feed has moved on to older posts.
   const isRanked = !cursor || /^\d+$/.test(cursor)
   const offset = cursor && isRanked ? Number(cursor) : 0
-  const windowStartIso = new Date(Date.now() - FEED_WINDOW_MS).toISOString()
+  // Rounded down to the minute so every request in that minute (and every viewer)
+  // uses the same value: it is part of the shared pool's cache key.
+  const windowStartIso = new Date(Math.floor((Date.now() - FEED_WINDOW_MS) / WINDOW_BUCKET_MS) * WINDOW_BUCKET_MS).toISOString()
   const scoreCtx = { followingIds: new Set(graph.following), mutualIds: new Set(graph.mutuals) }
   const jitter = (p: { id: string }) => seed ? 1 + (seededUnit(seed, p.id) - 0.5) * 2 * FEED_JITTER : 1
   const rankScore = (p: any) =>
@@ -313,49 +419,43 @@ export async function getForYouFeedAction(cursor?: string, session?: Partial<Fee
     rankScore(b) - rankScore(a) ||
     (a.created_at < b.created_at ? 1 : -1)
 
-  let query = supabase
-    .from('posts')
-    .select(`
-      id, body, post_type, likes_count, comments_count, reposts_count,
-      bookmarks_count, impressions_count, link_clicks_count, detail_expands_count, video_views_count, video_completions_count, created_at, edited_at, is_sensitive, is_pinned, quoted_post_id, is_selling,
-      author:users!posts_user_id_fkey(
-        id, username, display_name, avatar_url, verification_tier, is_monetised
-      ),
-      media:post_media(id, media_type, url, thumbnail_url, width, height, position)
-    `)
-    .is('deleted_at', null)
-    .is('parent_post_id', null)          // top-level posts only
-    // Repost rows (post_type: 'repost') used to be excluded here entirely,
-    // which is why reposts/quotes never showed up in the feed at all - not
-    // even out of position, just missing. hydrateEngagement() below already
-    // resolves quoted_post for them (it was written to), and PostCard
-    // already renders them as RepostCard - this filter was the only thing
-    // stopping that pipeline from ever running. Removed so a repost surfaces
-    // like any other post, at its own created_at (i.e. when it happened).
-    .lte('created_at', nowIso())         // exclude scheduled posts not yet due
-    .order('created_at', { ascending: false })
-    .limit(isRanked ? FEED_POOL_SIZE : PAGE_SIZE + 1)   // ranked: the whole pool; else one extra to know if there's a next page
-
-  if (excludeIds.length) {
-    query = query.not('user_id', 'in', `(${excludeIds.join(',')})`)
-  }
+  let rawPosts: RawFeedRow[] = []
+  let poolTailCursor = windowStartIso
   if (isRanked) {
-    query = query.gte('created_at', windowStartIso)
+    // No database read per page: the pool is shared and cached (see loadRankPool).
+    const pool = await loadRankPool(supabase, windowStartIso, excludeIds)
+    rawPosts = pool.rows
+    poolTailCursor = pool.tailCursor
   } else {
-    query = query.lt('created_at', cursor!)
+    // Past the ranked pool: plain newest-first, one extra row to know if there's a next page.
+    let query = supabase
+      .from('posts')
+      .select(FOR_YOU_FULL_SELECT)
+      .is('deleted_at', null)
+      .is('parent_post_id', null)          // top-level posts only
+      // Repost rows (post_type: 'repost') are INCLUDED: hydrateEngagement() below
+      // resolves quoted_post for them and PostCard renders them as RepostCard, so
+      // a repost surfaces like any other post, at its own created_at.
+      .lte('created_at', nowIso())         // exclude scheduled posts not yet due
+      .lt('created_at', cursor!)
+      .order('created_at', { ascending: false })
+      .limit(PAGE_SIZE + 1)
+    if (excludeIds.length) {
+      query = query.not('user_id', 'in', `(${excludeIds.join(',')})`)
+    }
+    const { data: posts } = await query
+    rawPosts = asRawRows(posts)
   }
-
-  const { data: posts } = await query
-  const rawPosts = asRawRows(posts)
 
   let page: RawFeedRow[]
   let nextCursor: string | null
   if (isRanked) {
     const sorted = interleaveNewest(withFreshLane(rawPosts, byRank, isSeen), isSeen)
-    page = sorted.slice(offset, offset + PAGE_SIZE)
+    const picked = sorted.slice(offset, offset + PAGE_SIZE)
     // Where the older-posts stretch begins: just below the pool if it was cut short, else the window edge.
-    const tailCursor = rawPosts.length === FEED_POOL_SIZE ? rawPosts[rawPosts.length - 1].created_at : windowStartIso
-    if (!page.length) return getForYouFeedAction(tailCursor, session)
+    const tailCursor = poolTailCursor
+    if (!picked.length) return getForYouFeedAction(tailCursor, session)
+    page = await loadFeedRows(supabase, picked.map(p => p.id))
     nextCursor = offset + PAGE_SIZE < sorted.length ? String(offset + PAGE_SIZE) : tailCursor
   } else {
     const hasMore = rawPosts.length > PAGE_SIZE
@@ -860,26 +960,68 @@ export async function dismissCatchUpAction(): Promise<void> {
 // catch-up ranking and by the client's realtime "new posts" filter, so both
 // agree with what the feed queries themselves include.
 
+// Who the viewer follows / is followed by is only used by the For-you RANKING to
+// boost posts, it's the biggest read in the feed (whole follower lists) and changes
+// rarely, so for that one caller (`cacheFollows: true`) it's kept for
+// FOLLOW_GRAPH_CACHE_SECONDS per viewer instead of being re-read on every page.
+// Read with the service role but always filtered to this viewer's own id.
+// Trade-off: a follow/unfollow shifts the boost up to 3 minutes later.
+// Everything else (the Following tab, catch-up, the realtime "new posts" check)
+// still reads the live lists, and blocks/mutes are never cached - hiding someone
+// must take effect immediately.
+const FOLLOW_GRAPH_CACHE_SECONDS = 180
+
+function getFollowGraph(profileId: string) {
+  return unstable_cache(
+    async (): Promise<{ following: string[]; followers: string[] }> => {
+      const admin = createAdminClient()
+      const [{ data: following, error: e1 }, { data: followers, error: e2 }] = await Promise.all([
+        admin.from('follows').select('following_id').eq('follower_id', profileId),
+        admin.from('follows').select('follower_id').eq('following_id', profileId),
+      ])
+      if (e1 || e2) throw new Error((e1 ?? e2)!.message)   // errors must not be cached
+      return {
+        following: (following || []).map((f: { following_id: string }) => f.following_id),
+        followers: (followers || []).map((f: { follower_id: string }) => f.follower_id),
+      }
+    },
+    ['viewer-follow-graph', profileId],
+    { revalidate: FOLLOW_GRAPH_CACHE_SECONDS },
+  )()
+}
+
 async function loadViewerGraph(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  profileId: string
+  profileId: string,
+  opts: { cacheFollows?: boolean } = {},
 ): Promise<{ hidden: string[]; following: string[]; mutuals: string[] }> {
-  const [{ data: blocks }, { data: mutes }, { data: following }, { data: followers }] = await Promise.all([
+  const readFollowsLive = async () => {
+    const [{ data: following }, { data: followers }] = await Promise.all([
+      supabase.from('follows').select('following_id').eq('follower_id', profileId),
+      supabase.from('follows').select('follower_id').eq('following_id', profileId),
+    ])
+    return {
+      following: (following || []).map((f: { following_id: string }) => f.following_id),
+      followers: (followers || []).map((f: { follower_id: string }) => f.follower_id),
+    }
+  }
+  const [{ data: blocks }, { data: mutes }, follow] = await Promise.all([
     supabase.from('user_blocks').select('blocked_id').eq('blocker_id', profileId),
     supabase.from('user_mutes').select('muted_id').eq('muter_id', profileId),
-    supabase.from('follows').select('following_id').eq('follower_id', profileId),
-    supabase.from('follows').select('follower_id').eq('following_id', profileId),
+    opts.cacheFollows
+      ? getFollowGraph(profileId).catch(err => {
+          console.error('[loadViewerGraph] cached follow graph failed, reading directly:', err)
+          return readFollowsLive()
+        })
+      : readFollowsLive(),
   ])
   const hidden: string[] = [
     ...(blocks || []).map((b: { blocked_id: string }) => b.blocked_id),
     ...(mutes || []).map((m: { muted_id: string }) => m.muted_id),
   ]
-  const followingIds: string[] = (following || []).map((f: { following_id: string }) => f.following_id)
-  const followingSet = new Set<string>(followingIds)
-  const mutuals: string[] = (followers || [])
-    .map((f: { follower_id: string }) => f.follower_id)
-    .filter((id: string) => followingSet.has(id))
-  return { hidden, following: followingIds, mutuals }
+  const followingSet = new Set<string>(follow.following)
+  const mutuals: string[] = follow.followers.filter((id: string) => followingSet.has(id))
+  return { hidden, following: follow.following, mutuals }
 }
 
 /**

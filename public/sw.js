@@ -143,20 +143,27 @@ self.addEventListener('sync', (event) => {
 //     request fails, or when the network hasn't answered in NETWORK_TIMEOUT ms.
 //   - Signed out is detected here (any visit to /login, /signup ...): saved pages are
 //     wiped, so the next person on the device never sees the previous account's pages.
-//   - Cross-origin media (Cloudinary / Bunny / Supabase) is left to the browser's own
-//     HTTP cache; caching it here would store opaque responses at a large quota cost.
+//   - Photos and avatars from our CDNs (Bunny / Cloudinary / Supabase storage) are kept too,
+//     so a visited page does not come back with blank pictures. They are fetched with CORS
+//     so the saved copy is a real response with its real size (an opaque one is counted as
+//     ~7 MB by the browser's quota). A host that sends no CORS headers is detected and
+//     simply left to the browser's HTTP cache. Videos are never kept.
 
 const SW_V = 'v1'
 const PAGES  = 'spup-pages-' + SW_V   // HTML documents
 const RSC    = 'spup-rsc-' + SW_V     // in-app navigation payloads
 const STATIC = 'spup-static-' + SW_V  // /_next/static (hashed, immutable)
 const IMAGES = 'spup-img-' + SW_V     // same-origin images / icons
-const OWN = [PAGES, RSC, STATIC, IMAGES]
+const MEDIA  = 'spup-media-' + SW_V   // post photos, avatars, thumbnails from our CDNs
+const OWN = [PAGES, RSC, STATIC, IMAGES, MEDIA]
 
 const NETWORK_TIMEOUT = 6000          // slower than this AND a saved copy exists -> show the saved copy
 const MAX_PAGES = 60
 const MAX_RSC = 120
 const MAX_IMAGES = 150
+const MAX_MEDIA = 300                  // entries
+const MAX_MEDIA_BYTES = 1.5 * 1024 * 1024   // a single photo bigger than this is shown but not kept
+const MEDIA_REVALIDATE_MS = 24 * 60 * 60 * 1000
 
 const APP_PREFIXES = [
   '/feed', '/explore', '/notifications', '/messages', '/post', '/user', '/profile',
@@ -209,10 +216,14 @@ function rscKey(url) {
 //   { none }   request failed and nothing is saved
 function networkFirst(event, cacheName, key, max) {
   const req = event.request
+  let saving = Promise.resolve()
   const net = fetch(req).then((res) => {
-    if (res.ok && res.type === 'basic') event.waitUntil(store(cacheName, key, res.clone(), max))
+    if (res.ok && res.type === 'basic') saving = store(cacheName, key, res.clone(), max).catch(() => {})
     return res
   })
+  // Registered now, while the event is still alive: when the saved copy wins the race the
+  // slow network answer still lands in the cache for next time.
+  event.waitUntil(net.then(() => saving, () => {}))
   const saved = caches.open(cacheName).then((c) => c.match(key, { ignoreVary: true }))
 
   return new Promise((resolve) => {
@@ -229,19 +240,27 @@ function networkFirst(event, cacheName, key, max) {
   })
 }
 
-const OFFLINE_HTML = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-  '<title>Spup</title><body style="margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;' +
-  'background:#0A0A0A;color:#F5F5F0;font-family:system-ui,sans-serif;text-align:center;padding:24px">' +
-  '<h1 style="font-size:24px;margin:0 0 10px">You\'re offline</h1>' +
-  '<p style="color:#8A8A80;max-width:300px;line-height:1.6;margin:0 0 24px">This page hasn\'t been opened on this device yet, so there\'s no saved copy. Pages you\'ve already visited still open.</p>' +
-  '<button onclick="location.reload()" style="background:#1A7A4A;color:#fff;border:0;border-radius:24px;padding:12px 30px;font-size:15px;font-weight:600">Try again</button>' +
-  '<script>addEventListener("online",function(){location.reload()})</script>'
+function offlineHtml(canGoToFeed) {
+  return '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>Spup</title><body style="margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+    'background:#0A0A0A;color:#F5F5F0;font-family:system-ui,sans-serif;text-align:center;padding:24px">' +
+    '<h1 style="font-size:24px;margin:0 0 10px">You\'re offline</h1>' +
+    '<p style="color:#8A8A80;max-width:300px;line-height:1.6;margin:0 0 24px">This page hasn\'t been opened on this device yet, so there\'s no saved copy. Pages you\'ve already visited still open.</p>' +
+    (canGoToFeed ? '<a href="/feed" style="background:#1A7A4A;color:#fff;border-radius:24px;padding:12px 30px;font-size:15px;font-weight:600;text-decoration:none;margin-bottom:14px">Back to your feed</a>' : '') +
+    '<button onclick="location.reload()" style="background:none;color:#8A8A80;border:0;padding:10px 20px;font-size:14px">Try again</button>' +
+    '<script>addEventListener("online",function(){location.reload()})</script>'
+}
 
-async function pageFallback() {
+// Offline, and nothing is saved for this exact page.
+async function pageFallback(url) {
   const c = await caches.open(PAGES)
   const feed = await c.match('/feed', { ignoreSearch: true, ignoreVary: true })
-  if (feed) return markStale(feed)
-  return new Response(OFFLINE_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+  // Cold start: the app opens at "/", which online sends signed-in people to /feed. Do the
+  // same from the saved copy instead of showing the feed's HTML under the address "/".
+  if (feed && url.pathname === '/') return Response.redirect(new URL('/feed', self.location.origin).href, 302)
+  // Any other page that was never opened here: say so, instead of showing a different
+  // page's content under this page's address.
+  return new Response(offlineHtml(!!feed), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }
 
 async function cacheFirst(event, name) {
@@ -251,6 +270,51 @@ async function cacheFirst(event, name) {
   const res = await fetch(event.request)
   if (res.ok && res.type === 'basic') event.waitUntil(c.put(event.request, res.clone()))
   return res
+}
+
+// Cross-origin images (post photos, avatars). Saved once, shown from the device after that,
+// refreshed in the background at most once a day. See the header notes for why CORS.
+const noCorsHosts = new Set()   // hosts that answered a CORS request with an error (in memory only)
+
+function isMediaImage(req, url) {
+  if (req.destination !== 'image') return false
+  if (url.hostname === 'cdn.spup.live' || url.hostname === 'res.cloudinary.com') return true
+  return url.hostname.endsWith('.supabase.co') && url.pathname.startsWith('/storage/')
+}
+
+async function fetchMedia(href) {
+  const res = await fetch(href, { mode: 'cors', credentials: 'omit' })
+  const type = res.headers.get('Content-Type') || ''
+  if (res.status !== 200 || !type.startsWith('image/')) throw new Error('not a cacheable image')
+  const blob = await res.blob()
+  const make = () => new Response(blob, {
+    status: 200,
+    headers: { 'Content-Type': type, 'X-Spup-Cached-At': String(Date.now()) },
+  })
+  if (blob.size <= MAX_MEDIA_BYTES) await store(MEDIA, href, make(), MAX_MEDIA).catch(() => {})
+  return make()
+}
+
+async function mediaImage(event, url) {
+  const c = await caches.open(MEDIA)
+  const hit = await c.match(url.href)
+  if (hit) {
+    const age = Date.now() - Number(hit.headers.get('X-Spup-Cached-At') || 0)
+    if (age > MEDIA_REVALIDATE_MS) event.waitUntil(fetchMedia(url.href).catch(() => {}))
+    return hit
+  }
+  let corsFailure = false
+  if (!noCorsHosts.has(url.hostname)) {
+    try { return await fetchMedia(url.href) } catch (err) { corsFailure = err instanceof TypeError }
+  }
+  try {
+    const res = await fetch(event.request)
+    // The CORS request failed but the plain one worked: this host sends no CORS headers.
+    if (corsFailure && res.type === 'opaque') noCorsHosts.add(url.hostname)
+    return res
+  } catch {
+    return Response.error()
+  }
 }
 
 async function staleWhileRevalidate(event, name, max) {
@@ -268,7 +332,10 @@ self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
   const url = new URL(req.url)
-  if (url.origin !== self.location.origin) return
+  if (url.origin !== self.location.origin) {
+    if (isMediaImage(req, url)) event.respondWith(mediaImage(event, url))
+    return
+  }
   const path = url.pathname
 
   // Signed out (or about to sign in): drop the previous account's saved pages.
@@ -306,7 +373,7 @@ self.addEventListener('fetch', (event) => {
       const r = await networkFirst(event, PAGES, req.url, MAX_PAGES)
       if (r.fresh) return r.fresh
       if (r.stale) return markStale(r.stale)
-      return pageFallback()
+      return pageFallback(url)
     })())
   }
 })

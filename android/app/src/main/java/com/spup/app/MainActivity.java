@@ -2,15 +2,11 @@ package com.spup.app;
 
 import android.content.ContentResolver;
 import android.content.ContentValues;
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -84,13 +80,16 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             }
         });
 
-        // If the live site can't be reached (no internet, dropped connection, DNS
-        // failure) show the app's own offline page instead of Android's "Webpage not
-        // available". Two independent triggers:
-        //   1. At launch with no network at all: show it straight away, without
-        //      waiting for the failed load to report back.
-        //   2. Any main-frame load that fails (offline mid-session, tapping a link,
-        //      weak connection that times out, DNS failure).
+        // Offline is the website's job, not this file's: the service worker
+        // (public/sw.js) keeps the app code and every page the person has opened, so
+        // with no internet the app still starts and visited pages open. Nothing here
+        // may get in its way, so the app never checks the network at launch and never
+        // swaps in a page by itself.
+        //
+        // The offline page below is only the LAST RESORT, for when the worker has
+        // nothing to show: the very first launch ever with no connection (nothing has
+        // been saved yet and no worker is installed). A main-frame load that fails then
+        // gets the bundled offline page instead of Android's "Webpage not available".
         // The page that failed is passed along as ?u=, so once the connection is back
         // the person lands where they were heading. Only main-frame failures count
         // (a broken image or script doesn't replace the screen), and the offline page
@@ -127,14 +126,9 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         };
         bridge.getWebView().setWebViewClient(offlineClient);
 
-        // Lets the web app ask for the offline page directly (used by pull-to-refresh
-        // when the phone is offline, instead of reloading into an error page).
+        // Native helpers for the web app (window.SpupNative): save-to-gallery, and show()
+        // to open the offline page on request.
         bridge.getWebView().addJavascriptInterface(new OfflineBridge(), "SpupNative");
-
-        final boolean online = hasInternetTransport();
-        if (!online) {
-            showOfflinePage(bridge.getWebView(), SITE_URL);
-        }
 
         // App was closed and a notification tap started it.
         openFromNotification(getIntent());
@@ -351,21 +345,6 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
             return out.toString("UTF-8");
         } catch (Exception e) {
             return null;
-        }
-    }
-
-    // True when the phone has a network that claims internet access. (Wi-Fi with no
-    // actual internet still counts as true - the load-failure trigger covers that.)
-    private boolean hasInternetTransport() {
-        try {
-            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return true;               // can't tell - let the load decide
-            Network active = cm.getActiveNetwork();
-            if (active == null) return false;
-            NetworkCapabilities caps = cm.getNetworkCapabilities(active);
-            return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-        } catch (Exception e) {
-            return true;
         }
     }
 
