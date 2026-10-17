@@ -37,7 +37,7 @@ function ResetPasswordForm() {
   const searchParams = useSearchParams()
   const { t } = useTranslation()
 
-  const [status, setStatus] = useState<'exchanging' | 'ready' | 'invalid'>(
+  const [status, setStatus] = useState<'exchanging' | 'ready' | 'invalid' | 'social'>(
     () => (searchParams.get('code') ? 'exchanging' : 'invalid')
   )
   const [password, setPassword] = useState('')
@@ -53,8 +53,17 @@ function ResetPasswordForm() {
     if (!code) return
 
     const supabase = createBrowserClient()
-    supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-      setStatus(error ? 'invalid' : 'ready')
+    supabase.auth.exchangeCodeForSession(code).then(async ({ error }) => {
+      if (error) { setStatus('invalid'); return }
+      // Second lock (the first is on the forgot-password page): a Google/Facebook-only
+      // account must not be given a password here, or it would have two sign-in methods.
+      const { data } = await supabase.auth.getUser()
+      if (!(data.user?.identities ?? []).some(i => i.provider === 'email')) {
+        await supabase.auth.signOut()
+        setStatus('social')
+        return
+      }
+      setStatus('ready')
     })
   }, [searchParams])
 
@@ -80,6 +89,19 @@ function ResetPasswordForm() {
     return (
       <AuthCard title={t('auth.reset_password_title')}>
         <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', textAlign: 'center' }}>{t('auth.verifying_link')}</p>
+      </AuthCard>
+    )
+  }
+
+  if (status === 'social') {
+    return (
+      <AuthCard title={t('auth.reset_social_only_title')}>
+        <p style={{ fontSize: 15, color: 'var(--color-text-secondary)', lineHeight: 1.6, textAlign: 'center', marginBottom: 24 }}>
+          {t('auth.reset_social_only_body')}
+        </p>
+        <Link href="/login" className="para-btn-primary" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>
+          {t('auth.back_to_signin')}
+        </Link>
       </AuthCard>
     )
   }

@@ -220,6 +220,12 @@ export async function changePasswordAction(oldPassword: string, newPassword: str
   const { data: { user } } = await supabase.auth.getUser()
   if (!user?.email) return { error: 'Not authenticated' }
 
+  // One sign-in method per account: someone who signs in with Google/Facebook has
+  // no password, and setting one here would give the account a second method.
+  if (!(user.identities ?? []).some(i => i.provider === 'email')) {
+    return { error: 'You sign in with Google or Facebook, so this account has no password to change.' }
+  }
+
   const { error: signInError } = await supabase.auth.signInWithPassword({
     email: user.email,
     password: oldPassword,

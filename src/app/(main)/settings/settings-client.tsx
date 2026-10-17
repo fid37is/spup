@@ -1,11 +1,11 @@
 'use client'
 
 import { usernameLengthError, clampUsername } from '@/lib/validations/username-length'
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronRight, LogOut, Shield, Bell, Globe, AlertTriangle, Lock,
-  X, Check, Eye, EyeOff, Loader, Moon, Sun, Monitor, Play, User, Phone, Sparkles,
+  X, Check, Eye, EyeOff, Loader, Moon, Sun, Monitor, Play, User, Phone, Sparkles, Volume2,
 } from 'lucide-react'
 import { signOutAction, saveInterestsAction } from '@/lib/actions'
 import { updateProfileAction, deleteAccountAction, changePasswordAction, changeUsernameAction } from '@/lib/actions/profiles'
@@ -16,6 +16,7 @@ import { isLocale } from '@/lib/i18n/dictionaries'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { NIGERIAN_INTERESTS } from '@/types'
 import { interestLabel } from '@/lib/i18n/interests'
+import { isSoundEnabled, setSoundEnabled, playLikeSound } from '@/lib/like-sound'
 
 type Panel = null | 'language' | 'theme' | 'password' | 'autoplay' | 'username' | 'interests'
 
@@ -176,7 +177,7 @@ function Card({ children }: { children: React.ReactNode }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function SettingsClient({ profile, interests: initialInterests, premiumActive }: { profile: SettingsProfile; interests: string[]; premiumActive: boolean }) {
+export default function SettingsClient({ profile, interests: initialInterests, premiumActive, hasPassword }: { profile: SettingsProfile; interests: string[]; premiumActive: boolean; hasPassword: boolean }) {
   const { t, setLocale: setAppLocale } = useTranslation()
   const [panel,      setPanel]    = useState<Panel>(null)
   const [isPending,  startT]      = useTransition()
@@ -186,6 +187,9 @@ export default function SettingsClient({ profile, interests: initialInterests, p
   const [notifEmail, setNotifEmail] = useState(profile.notif_email ?? true)
   const [lang,       setLang]       = useState(profile.language_preference || 'en')
   const [autoplay,   setAutoplay]   = useState(profile.autoplay_preference || 'wifi')
+  // Sounds: stored on this device (the setting is read at the moment of a like). Read after mount so the server render matches.
+  const [soundOn,    setSoundOn]    = useState(true)
+  useEffect(() => { setSoundOn(isSoundEnabled()) }, [])
   const [showDelete,  setShowDelete]  = useState(false)
   const [deleteInput, setDeleteInput] = useState('')
   const [deleting,    setDeleting]    = useState(false)
@@ -489,6 +493,18 @@ export default function SettingsClient({ profile, interests: initialInterests, p
         )}
       </Card>
 
+      {/* ── SOUND ───────────────────────────────────────────────────────── */}
+      <SectionLabel label={t('settings.sound')} />
+      <Card>
+        <Row
+          icon={Volume2}
+          label={t('settings.interaction_sounds')}
+          desc={t('settings.interaction_sounds_desc')}
+          right={<Toggle checked={soundOn} onChange={v => { setSoundOn(v); setSoundEnabled(v); if (v) playLikeSound() }} />}
+          last
+        />
+      </Card>
+
       {/* ── VIDEO ───────────────────────────────────────────────────────── */}
       <SectionLabel label={t('settings.video')} />
       <Card>
@@ -655,14 +671,25 @@ export default function SettingsClient({ profile, interests: initialInterests, p
       {/* ── SECURITY ─────────────────────────────────────────────────────── */}
       <SectionLabel label={t('settings.security')} />
       <Card>
-        <Row
-          icon={Lock}
-          label={t('settings.change_password')}
-          desc={t('settings.change_password_desc')}
-          onClick={() => togglePanel('password')}
-          last={panel !== 'password'}
-        />
-        {panel === 'password' && (
+        {hasPassword ? (
+          <Row
+            icon={Lock}
+            label={t('settings.change_password')}
+            desc={t('settings.change_password_desc')}
+            onClick={() => togglePanel('password')}
+            last={panel !== 'password'}
+          />
+        ) : (
+          // Signed in with Google/Facebook: there is no password, and adding one would
+          // give the account two sign-in methods. Nothing to tap.
+          <Row
+            icon={Lock}
+            label={t('settings.change_password')}
+            desc={t('settings.password_social_only')}
+            last
+          />
+        )}
+        {hasPassword && panel === 'password' && (
           <InlinePanel>
             <FieldLabel>{t('settings.current_password_label')}</FieldLabel>
             <div style={{ position: 'relative', marginBottom: 14 }}>

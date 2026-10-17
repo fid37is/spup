@@ -408,6 +408,36 @@ export async function handleOAuthCallbackAction() {
 
 // ── Complete social profile (name + DoB after OAuth) ─────────────────────────
 
+// ── Forgot password: is this email a password account? ───────────────────────
+// A reset email lets the person SET a password. For an account that only signs in
+// with Google/Facebook that would quietly give it a second sign-in method, so we
+// stop it before the email goes out and point them back to the social button.
+// (This does tell someone typing an email whether it is a Google/Facebook account;
+// that is the trade-off for not leaving them waiting for an email that never comes.)
+// If the lookup isn't available (migration 061 not run) it lets the reset through.
+export async function checkPasswordResetAction(email: string): Promise<{ ok: true } | { error: string }> {
+  const clean = email.trim().toLowerCase()
+  if (!clean.includes('@') || clean.length > 254) return { ok: true }
+  try {
+    const admin = createAdminClient()
+    const { data, error } = await admin.rpc('auth_account_methods', { p_email: clean })
+    if (error) { console.error('[forgot-password] auth_account_methods failed (is migration 061 applied?):', error.message); return { ok: true } }
+    const d = data as { exists?: boolean; providers?: string[] } | null
+    const providers = d?.providers ?? []
+    if (d?.exists && !providers.includes('email')) {
+      const name = providers.includes('google') ? 'Google' : providers.includes('facebook') ? 'Facebook' : null
+      return {
+        error: name
+          ? `This account signs in with ${name}, so it has no password to reset. Go back and tap "Continue with ${name}".`
+          : 'This account signs in with a social account, so it has no password to reset. Go back and use that sign-in button.',
+      }
+    }
+  } catch (e) {
+    console.error('[forgot-password] check failed:', e instanceof Error ? e.message : e)
+  }
+  return { ok: true }
+}
+
 export async function completeSocialProfileAction(data: CompleteSocialProfileSchema) {
   const parsed = completeSocialProfileSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
