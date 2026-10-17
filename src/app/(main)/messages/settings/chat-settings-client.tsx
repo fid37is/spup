@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Bell, Mail, Video, RectangleEllipsis, ChartPie, Database, Wrench, ChevronRight } from 'lucide-react'
 import { ChangeChatPinSheet } from '@/components/settings/change-chat-pin'
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
 
 interface Row {
   key: string
@@ -64,11 +65,13 @@ export default function ChatSettingsClient({ username }: { username: string }) {
 
   return (
     <div>
+      <HideMobileHeader />
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
         backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
         borderBottom: '1px solid var(--color-border)',
-        padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 22,
+        // The app's top bar is hidden on this screen (HideMobileHeader), so clear the status bar here.
+        padding: 'calc(env(safe-area-inset-top, 0px) + 10px) 16px 10px', display: 'flex', alignItems: 'center', gap: 22,
       }}>
         <button
           type="button" aria-label="Back"

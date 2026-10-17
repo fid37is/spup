@@ -4,9 +4,12 @@
 // wrapper around a '10px 16px 10px 40px' input), and the following-list
 // rows (46px avatar, '14px 20px' padding - see new-chat-client.tsx).
 
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
+
 export default function NewChatLoading() {
   return (
     <div>
+      <HideMobileHeader />
       <style>{`
         @keyframes newchat-sk-shimmer {
           0%   { opacity: 1;    }
@@ -17,7 +20,7 @@ export default function NewChatLoading() {
       `}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 'calc(env(safe-area-inset-top, 0px) + 14px) 20px 14px', borderBottom: '1px solid var(--color-border)' }}>
         <div className="newchat-sk" style={{ width: 34, height: 34, borderRadius: '50%' }} />
         <div className="newchat-sk" style={{ height: 17, width: 110 }} />
       </div>
