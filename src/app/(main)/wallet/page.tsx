@@ -40,7 +40,7 @@ function MonetisationChecklist({
     { label: t('wallet.posts_criterion'),       ...safeCriteria.posts,        display: `${formatNumber(safeCriteria.posts.value as number)} / 100` },
     { label: t('wallet.premium_criterion'),     ...safeCriteria.premium,      display: safeCriteria.premium.met
         ? t('wallet.premium_active_short')
-        : <Link href="/premium" style={{ color: 'var(--color-brand)', fontWeight: 600, textDecoration: 'underline' }}>{t('wallet.premium_subscribe_link')}</Link> },
+        : <Link href="/wallet#premium" style={{ color: 'var(--color-brand)', fontWeight: 600, textDecoration: 'underline' }}>{t('wallet.premium_subscribe_link')}</Link> },
   ]
   const metCount = items.filter(i => i.met).length
   const pct = Math.round((metCount / items.length) * 100)

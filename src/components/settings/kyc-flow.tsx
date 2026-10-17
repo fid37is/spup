@@ -167,7 +167,7 @@ export default function KycFlow({ kind }: { kind: Kind }) {
             <Link href="/premium/learn" style={{ fontSize: 13, color: '#8A8A85', textDecoration: 'underline' }}>{t('premium.how_it_works')}</Link>
             {priceKobo > 0
               ? <SubscribeButton priceKobo={priceKobo} />
-              : <Link href="/premium" style={PRIMARY_BTN}>{t('premium.see_premium')}</Link>}
+              : <Link href="/wallet#premium" style={PRIMARY_BTN}>{t('premium.see_premium')}</Link>}
           </div>
         </div>
       )}

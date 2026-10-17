@@ -41,7 +41,7 @@ export default async function PremiumLearnPage() {
         position: 'sticky', top: 0, zIndex: 10, backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
         borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px',
       }}>
-        <BackButton variant="bare" fallbackHref="/premium" />
+        <BackButton variant="bare" fallbackHref="/wallet" />
         <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 18, color: 'var(--color-text-primary)', margin: 0 }}>
           How Spup Premium works
         </h1>

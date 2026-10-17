@@ -220,7 +220,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                 {needsBvnForAmount && (
                   <p style={{ fontSize: 12, color: 'var(--color-gold)', marginTop: 8, lineHeight: 1.5 }}>
                     {t('wallet.needs_bvn_for_amount', { amount: formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO) })}{' '}
-                    <Link href={premiumActive ? '/settings/verify-bvn' : '/premium'} style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>{premiumActive ? t('wallet.verify_bvn_cta') : t('premium.see_premium')}</Link>
+                    <Link href={premiumActive ? '/settings/verify-bvn' : '/wallet#premium'} style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>{premiumActive ? t('wallet.verify_bvn_cta') : t('premium.see_premium')}</Link>
                   </p>
                 )}
               </div>

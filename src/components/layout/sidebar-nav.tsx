@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTransition, useState, useEffect } from 'react'
-import { Home, Bell, User, Search, Wallet, Settings, PenSquare, MessageSquare } from 'lucide-react'
+import { Home, Bell, User, Search, Wallet, Settings, PenSquare, MessageSquare, BarChart3 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
@@ -18,6 +18,7 @@ const NAV = [
   { href: '/notifications', icon: Bell,          labelKey: 'nav.notifications', badge: 'alerts' },
   { href: '/messages',      icon: MessageSquare, labelKey: 'nav.chat',          badge: 'chat' },
   { href: '/wallet',        icon: Wallet,        labelKey: 'nav.wallet' },
+  { href: '/analytics',     icon: BarChart3,     labelKey: 'nav.analytics' },
   { href: '/settings',      icon: Settings,      labelKey: 'nav.settings' },
 ]
 

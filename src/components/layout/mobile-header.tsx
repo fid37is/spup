@@ -4,7 +4,7 @@ import { useState, useEffect, use, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { X, Home, Search, Bell, Wallet, User, Settings, PenSquare } from 'lucide-react'
+import { X, Home, Search, Bell, Wallet, User, Settings, PenSquare, BarChart3 } from 'lucide-react'
 import PostModal from '@/components/feed/post-modal'
 import { ThemeToggle, useTheme } from '@/components/layout/theme-provider'
 import { formatNumber } from '@/lib/utils'
@@ -12,10 +12,11 @@ import { lockBodyScroll } from '@/lib/scroll-lock'
 
 const NAV = [
   { href: '/feed',          icon: Home,     label: 'Home' },
+  { href: '/profile',       icon: User,     label: 'Profile' },
   { href: '/explore',       icon: Search,   label: 'Explore' },
   { href: '/notifications', icon: Bell,     label: 'Notifications', badge: true },
   { href: '/wallet',        icon: Wallet,   label: 'Wallet' },
-  { href: '/profile',       icon: User,     label: 'Profile' },
+  { href: '/analytics',     icon: BarChart3, label: 'Analytics' },
   { href: '/settings',      icon: Settings, label: 'Settings' },
 ]
 

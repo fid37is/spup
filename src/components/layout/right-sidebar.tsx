@@ -190,7 +190,7 @@ async function MonetisationProgress({ profile }: { profile: User }) {
             <span style={{ color: 'var(--color-text-secondary)' }}>Spup Premium</span>
             {premiumActive
               ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: 'var(--color-brand)' }}><CheckCircle2 size={13} /> Active</span>
-              : <Link href="/premium" style={{ fontWeight: 600, color: 'var(--color-brand)', textDecoration: 'underline' }}>Subscribe</Link>}
+              : <Link href="/wallet#premium" style={{ fontWeight: 600, color: 'var(--color-brand)', textDecoration: 'underline' }}>Subscribe</Link>}
           </div>
         </div>
 

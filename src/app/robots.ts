@@ -24,6 +24,7 @@ export default function robots(): MetadataRoute.Robots {
           '/notifications',
           '/profile',
           '/wallet',
+          '/analytics',
           '/settings',
           '/compose',
           '/admin',

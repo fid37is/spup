@@ -26,7 +26,14 @@ const otpSchema = z.object({
 
 // ─── Step 1: Send OTP to phone number ─────────────────────────────────────────
 
-export async function sendPhoneOtpAction(phone: string) {
+// Spelled out on purpose. Without it TypeScript infers the result from every
+// `return` and gets one member without `phone` (the premium gate's
+// `{ error, premium_required }`), so `r.phone` fails to compile in the page.
+type SendPhoneOtpResult =
+  | { success: true; phone: string; error?: undefined; premium_required?: undefined }
+  | { error: string; premium_required?: true; success?: undefined; phone?: undefined }
+
+export async function sendPhoneOtpAction(phone: string): Promise<SendPhoneOtpResult> {
   const parsed = phoneSchema.safeParse({ phone })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 

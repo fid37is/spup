@@ -8,13 +8,13 @@ import { creditPremiumPayment } from '@/lib/premium'
 export async function GET(request: NextRequest) {
   const isApp = request.nextUrl.searchParams.get('app') === '1'
   const reference = request.nextUrl.searchParams.get('reference')
-  if (!reference) return paymentRedirect('/premium', isApp)
+  if (!reference) return paymentRedirect('/wallet', isApp)
 
   try {
     const { ok } = await creditPremiumPayment(reference)
-    return paymentRedirect(`/premium?paid=${ok ? '1' : 'failed'}`, isApp)
+    return paymentRedirect(`/wallet?premium=${ok ? '1' : 'failed'}`, isApp)
   } catch (error) {
     console.error('Premium payment verify error:', error)
-    return paymentRedirect('/premium?paid=failed', isApp)
+    return paymentRedirect('/wallet?premium=failed', isApp)
   }
 }

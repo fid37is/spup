@@ -162,7 +162,7 @@ export default function VerifyPhonePage() {
               {error}
               {error.includes('Premium') && (
                 <div style={{ marginTop: 8 }}>
-                  <a href="/premium" style={{ color: '#1A9E5F', fontWeight: 600, textDecoration: 'underline' }}>{t('premium.see_premium')}</a>
+                  <a href="/wallet#premium" style={{ color: '#1A9E5F', fontWeight: 600, textDecoration: 'underline' }}>{t('premium.see_premium')}</a>
                 </div>
               )}
             </div>

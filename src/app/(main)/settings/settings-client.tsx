@@ -647,7 +647,7 @@ export default function SettingsClient({ profile, interests: initialInterests, p
           desc={profile.nin_verified ? t('settings.verified_withdrawals') : premiumActive ? t('settings.tap_to_verify') : t('settings.requires_premium')}
           accentDesc={profile.nin_verified}
           // Verification is only available to Premium subscribers.
-          onClick={() => router.push(profile.nin_verified || premiumActive ? '/settings/verify-phone' : '/premium')}
+          onClick={() => router.push(profile.nin_verified || premiumActive ? '/settings/verify-phone' : '/wallet#premium')}
           last
         />
       </Card>
