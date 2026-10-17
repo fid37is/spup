@@ -115,13 +115,12 @@ export default function NativePullToRefresh() {
       if (!wasPulling) return
 
       if (pull >= THRESHOLD) {
-        // Offline: don't reload into Android's "Webpage not available" - ask the app
-        // shell to show its own offline page (it brings the person back here when the
-        // connection returns). Only exists inside the native app.
-        const native = (window as unknown as { SpupNative?: { show: (url: string) => void } }).SpupNative
-        if (native && navigator.onLine === false) {
+        // Offline: there is nothing to refresh from. Reloading would only reopen the
+        // saved copy of this page (and lose the scroll position), and the app must never
+        // swap a page you can read for an offline screen - so just snap back. The page
+        // refreshes itself when the connection returns (see OfflineSync).
+        if (navigator.onLine === false) {
           render(0, true)
-          native.show(window.location.href)
           return
         }
         refreshing = true

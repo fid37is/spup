@@ -411,12 +411,21 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
   }, [isPending, hasMore, cursor])
 
   // Infinite scroll
+  //
+  // The next page starts loading while the reader is still ~3 screens above the
+  // end of the list, so by the time they get there it has already arrived and
+  // they never wait. (It used to start at 400px - about one post - so on a slow
+  // connection people hit the bottom and then stared at a spinner.)
+  //
+  // This does NOT fetch more overall: loadMore() still ignores calls while a page
+  // is in flight and the sentinel sits after the last loaded post, so at most ONE
+  // page is ever fetched ahead of where the reader is.
   useEffect(() => {
     const el = sentinelRef.current
     if (!el) return
     const obs = new IntersectionObserver(
       e => { if (e[0].isIntersecting) loadMore() },
-      { rootMargin: '400px' }
+      { rootMargin: '0px 0px 300% 0px' }   // 300% of the screen height, below the viewport
     )
     obs.observe(el)
     return () => obs.disconnect()
