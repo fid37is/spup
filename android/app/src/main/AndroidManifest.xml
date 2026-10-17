@@ -56,4 +56,20 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Android 13+: the app asks for this at runtime before registering for push (use-push-notifications.ts). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Camera and gallery need NO permission in this app: photo/video pickers and "take a photo"
+         go through the system picker and the system camera app (the FileProvider above is for that).
+         Saving to the gallery uses MediaStore on Android 10+. Declaring these would trigger Google
+         Play's photo/video and camera permission reviews, so a plugin or library that tries to add
+         one is stripped from the merged manifest here. If the app ever records or captures inside
+         the app itself (e.g. video calls), revisit this block. -->
+    <uses-permission android:name="android.permission.CAMERA" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
 </manifest>
