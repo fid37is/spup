@@ -4,14 +4,26 @@
 // the Web Audio API, so there is no audio file to download or host. Browsers
 // only allow sound after a tap/click, which is exactly when this is called.
 //
-// To let people turn it off later: localStorage 'spup-sound' = 'off'.
+// People turn it off in Settings > Sound (localStorage 'spup-sound' = 'off').
 
 let ctx: AudioContext | null = null
+
+/** Same key the settings page writes. Missing = on. */
+export const SOUND_STORAGE_KEY = 'spup-sound'
+
+export function isSoundEnabled(): boolean {
+  if (typeof window === 'undefined') return true
+  try { return window.localStorage.getItem(SOUND_STORAGE_KEY) !== 'off' } catch { return true }
+}
+
+export function setSoundEnabled(on: boolean) {
+  try { window.localStorage.setItem(SOUND_STORAGE_KEY, on ? 'on' : 'off') } catch { /* private mode: the switch just won't persist */ }
+}
 
 export function playLikeSound() {
   if (typeof window === 'undefined') return
   try {
-    if (window.localStorage.getItem('spup-sound') === 'off') return
+    if (!isSoundEnabled()) return
 
     const AC: typeof AudioContext | undefined =
       window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext

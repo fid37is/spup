@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { AuthCard, Alert } from '@/components/auth/form-field'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { checkPasswordResetAction } from '@/lib/actions/auth'
 import { ArrowLeft, CheckCircle } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { tRich } from '@/lib/i18n/rich'
@@ -27,6 +28,8 @@ export default function ForgotPasswordPage() {
     if (!email.trim() || !email.includes('@')) { setError(t('auth.invalid_email')); return }
     setError('')
     startT(async () => {
+      const check = await checkPasswordResetAction(email)
+      if ('error' in check) { setError(check.error); return }
       const supabase = createBrowserClient()
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,

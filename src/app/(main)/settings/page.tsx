@@ -49,6 +49,10 @@ export default async function SettingsPage() {
 
   const premiumActive = await isPremiumActive(profile.id)
 
+  // Accounts that sign in with Google/Facebook only have no password to change.
+  // (An 'email' identity is what a password sign-in looks like in Supabase.)
+  const hasPassword = (user.identities ?? []).some(i => i.provider === 'email')
+
   return (
     <div>
       {/* Sticky header */}
@@ -71,7 +75,7 @@ export default async function SettingsPage() {
         </h1>
       </div>
 
-      <SettingsClient profile={profile} interests={interests} premiumActive={premiumActive} />
+      <SettingsClient profile={profile} interests={interests} premiumActive={premiumActive} hasPassword={hasPassword} />
     </div>
   )
 }
