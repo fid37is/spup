@@ -10,6 +10,7 @@ import Link from 'next/link'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { useToast } from '@/components/layout/toast'
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
 
 const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
 
@@ -49,12 +50,14 @@ export default function NewChatClient({ following }: { following: FollowUser[] }
 
   return (
     <div>
+      <HideMobileHeader />
       {/* Header */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
         backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
         borderBottom: '1px solid var(--color-border)',
-        padding: '14px 20px',
+        // The app's top bar is hidden on this screen (HideMobileHeader), so clear the status bar here.
+        padding: 'calc(env(safe-area-inset-top, 0px) + 14px) 20px 14px',
         display: 'flex', alignItems: 'center', gap: 14,
       }}>
         <Link href="/messages" style={{ color: 'var(--color-text-primary)', display: 'flex', flexShrink: 0 }}>
