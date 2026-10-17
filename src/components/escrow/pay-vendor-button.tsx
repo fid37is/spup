@@ -1,10 +1,11 @@
 'use client'
 
 // src/components/escrow/pay-vendor-button.tsx
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { ShieldCheck, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
 import { formatNaira } from '@/lib/utils'
-import { payVendorAction } from '@/lib/actions/escrow'
+import { payVendorAction, getEscrowFeeBpsAction } from '@/lib/actions/escrow'
+import { computeEscrowFeeKobo, DEFAULT_ESCROW_FEE_BPS } from '@/lib/escrow-fee'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { BottomDrawer, DrawerBody } from '@/components/ui/bottom-drawer'
@@ -31,7 +32,14 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
   const [orderId, setOrderId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
+  const [feeBps, setFeeBps] = useState(DEFAULT_ESCROW_FEE_BPS)
 
+  // Fetch the live fee when the dialog opens, so what's shown is what's charged.
+  useEffect(() => { if (open) getEscrowFeeBpsAction().then(setFeeBps).catch(() => {}) }, [open])
+
+  const feeKobo = computeEscrowFeeKobo(amountKobo, feeBps)
+  const totalKobo = amountKobo + feeKobo
+  const feePct = feeBps / 100
 
   function handleClose() {
     setOpen(false)
@@ -112,6 +120,14 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
                 />
               </div>
 
+              {amountKobo >= 10_000 && feeBps > 0 && (
+                <div style={{ padding: '12px 14px', background: 'var(--color-surface-2)', borderRadius: 12, marginBottom: 16, fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Order amount</span><span>{formatNaira(amountKobo)}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Escrow fee ({feePct}%)</span><span>{formatNaira(feeKobo)}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--color-text-primary)' }}><span>You pay</span><span>{formatNaira(totalKobo)}</span></div>
+                </div>
+              )}
+
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 8 }}>
                 Note to vendor (optional)
               </label>
@@ -143,7 +159,7 @@ export default function PayVendorButton({ sellerUsername, sellerDisplayName, pos
                 }}
               >
                 {isPending && <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />}
-                {isPending ? 'Processing…' : `Pay ${amountKobo ? formatNaira(amountKobo) : ''}`}
+                {isPending ? 'Processing…' : `Pay ${amountKobo ? formatNaira(totalKobo) : ''}`}
               </button>
             </div>
           )}

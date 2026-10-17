@@ -46,9 +46,11 @@ interface WithdrawButtonProps {
   bvnVerified: boolean
   savedBank?: { bank_name: string; bank_account_number: string; bank_account_name: string; paystack_recipient_code: string } | null
   nextEligibleAt?: string | null
+  /** Verification is only available to Premium subscribers. */
+  premiumActive?: boolean
 }
 
-export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnVerified, savedBank, nextEligibleAt }: WithdrawButtonProps) {
+export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnVerified, savedBank, nextEligibleAt, premiumActive = true }: WithdrawButtonProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
@@ -218,7 +220,7 @@ export default function WithdrawButton({ canWithdraw, balance, ninVerified, bvnV
                 {needsBvnForAmount && (
                   <p style={{ fontSize: 12, color: 'var(--color-gold)', marginTop: 8, lineHeight: 1.5 }}>
                     {t('wallet.needs_bvn_for_amount', { amount: formatNaira(BIG_TRANSACTION_THRESHOLD_KOBO) })}{' '}
-                    <Link href="/settings/verify-bvn" style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>{t('wallet.verify_bvn_cta')}</Link>
+                    <Link href={premiumActive ? '/settings/verify-bvn' : '/wallet#premium'} style={{ color: 'var(--color-gold)', fontWeight: 700, textDecoration: 'underline' }}>{premiumActive ? t('wallet.verify_bvn_cta') : t('premium.see_premium')}</Link>
                   </p>
                 )}
               </div>

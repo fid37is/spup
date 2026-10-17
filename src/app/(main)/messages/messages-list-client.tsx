@@ -13,7 +13,7 @@ import Link from 'next/link'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction, unhideConversationAction, markAllConversationsReadAction } from '@/lib/actions/messages'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
-import { Check, ChevronDown, ChevronRight, MessageSquare, MessageSquarePlus, MessageCircle, MessageSquareDot, User, Settings, CheckCheck } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, MessageSquare, Plus, MessageCircle, MessageSquareDot, User, Settings, CheckCheck, Search, X } from 'lucide-react'
 import {
   getStoredKeyPair, deriveSharedKey, decryptMessage, isEncrypted, UNDECRYPTABLE,
   getCachedPeerPublicKey, setCachedPeerPublicKey,
@@ -23,6 +23,7 @@ import {
   sortConversations, hasMessage, type ChatListConversation,
 } from '@/lib/chat-list-cache'
 import ConversationRow from '@/components/chat/conversation-row'
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
 import { useTranslation } from '@/lib/i18n/language-context'
 
 const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
@@ -41,9 +42,12 @@ interface HeaderProps {
   onFilterChange?: (f: ChatFilter) => void
   onMarkAllRead?: () => void
   canMarkAllRead?: boolean
+  /** Search box under the title row. Without onSearchChange it is drawn inert (loading screen). */
+  search?: string
+  onSearchChange?: (q: string) => void
 }
 
-function FilterMenu({ filter, onFilterChange, onMarkAllRead, canMarkAllRead }: Required<Omit<HeaderProps, never>>) {
+function FilterMenu({ filter, onFilterChange, onMarkAllRead, canMarkAllRead }: Required<Pick<HeaderProps, 'filter' | 'onFilterChange' | 'onMarkAllRead' | 'canMarkAllRead'>>) {
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
 
@@ -113,33 +117,60 @@ function FilterMenu({ filter, onFilterChange, onMarkAllRead, canMarkAllRead }: R
   )
 }
 
-export function ChatListHeader({ filter, onFilterChange, onMarkAllRead, canMarkAllRead }: HeaderProps = {}) {
+export function ChatListHeader({ filter, onFilterChange, onMarkAllRead, canMarkAllRead, search = '', onSearchChange }: HeaderProps = {}) {
   const { t } = useTranslation()
   return (
     <div style={{
       position: 'sticky', top: 0, zIndex: 10,
       backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
       borderBottom: '1px solid var(--color-border)',
-      padding: '16px 20px',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+      // The app's own top bar is hidden on this screen (HideMobileHeader), so clear the status bar here.
+      padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 20px 12px',
     }}>
-      <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)', margin: 0 }}>
-        {t('chat.title')}
-      </h1>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {filter && onFilterChange && onMarkAllRead && (
-          <FilterMenu filter={filter} onFilterChange={onFilterChange} onMarkAllRead={onMarkAllRead} canMarkAllRead={!!canMarkAllRead} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <h1 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--color-text-primary)', margin: 0 }}>
+          {t('chat.title')}
+        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {filter && onFilterChange && onMarkAllRead && (
+            <FilterMenu filter={filter} onFilterChange={onFilterChange} onMarkAllRead={onMarkAllRead} canMarkAllRead={!!canMarkAllRead} />
+          )}
+          <Link href="/messages/new" aria-label={t('chat.new_chat')} title={t('chat.new_chat')} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 34, height: 34, borderRadius: '50%',
+            background: 'var(--color-brand)', color: 'white', textDecoration: 'none',
+          }}>
+            <Plus size={18} strokeWidth={2.4} />
+          </Link>
+        </div>
+      </div>
+
+      <div style={{
+        marginTop: 10, display: 'flex', alignItems: 'center', gap: 8,
+        background: 'var(--color-surface-2)', border: '1px solid var(--color-border)',
+        borderRadius: 22, padding: '0 12px', height: 38,
+      }}>
+        <Search size={16} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
+        <input
+          type="text" inputMode="search" enterKeyHint="search"
+          value={search}
+          onChange={e => onSearchChange?.(e.target.value)}
+          readOnly={!onSearchChange}
+          placeholder="Search chats"
+          aria-label="Search chats"
+          autoComplete="off" autoCorrect="off" spellCheck={false}
+          style={{
+            flex: 1, minWidth: 0, background: 'none', border: 'none', outline: 'none',
+            color: 'var(--color-text-primary)', fontSize: 14, fontFamily: "'DM Sans', sans-serif",
+          }}
+        />
+        {search && onSearchChange && (
+          <button type="button" onClick={() => onSearchChange('')} aria-label="Clear search" style={{
+            background: 'none', border: 'none', padding: 2, display: 'flex', cursor: 'pointer', color: 'var(--color-text-muted)',
+          }}>
+            <X size={15} />
+          </button>
         )}
-        <Link href="/messages/new" style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          background: 'var(--color-brand)', color: 'white',
-          borderRadius: 20, padding: '8px 16px',
-          textDecoration: 'none', fontSize: 13,
-          fontFamily: "'Syne', sans-serif", fontWeight: 700,
-        }}>
-          <MessageSquarePlus size={14} />
-          {t('chat.new_chat')}
-        </Link>
       </div>
     </div>
   )
@@ -206,6 +237,7 @@ export default function MessagesListClient({ currentUserId }: Props) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const busy = useRef(false)
   const [filter, setFilter] = useState<ChatFilter>('all')
+  const [search, setSearch] = useState('')
   const [showInactive, setShowInactive] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   const [, bumpPreviews] = useState(0)
@@ -232,57 +264,57 @@ export default function MessagesListClient({ currentUserId }: Props) {
   useEffect(() => {
     if (!conversations) return
     let cancelled = false
-    ;(async () => {
-      const keyPair = await getStoredKeyPair(currentUserId)
-      if (!keyPair || cancelled) return // no local key cached yet on this device - leave previews as the generic label
+      ; (async () => {
+        const keyPair = await getStoredKeyPair(currentUserId)
+        if (!keyPair || cancelled) return // no local key cached yet on this device - leave previews as the generic label
 
-      async function decryptWith(cipher: string, key: CryptoKey) {
-        const plain = await decryptMessage(cipher, key)
-        if (!cancelled && plain !== UNDECRYPTABLE && decryptedPreviews.get(cipher) !== plain) {
-          decryptedPreviews.set(cipher, plain)
-          bumpPreviews(n => n + 1)
-        }
-      }
-
-      for (const conv of conversations) {
-        if (cancelled) return
-        const cipher = conv.last_message_preview
-        const peerId = conv.other?.id
-        if (!peerId || !isEncrypted(cipher)) continue
-        if (decryptedPreviews.has(cipher!)) continue // already decrypted this exact ciphertext
-
-        const keyId = `${currentUserId}:${peerId}`
-        const cachedKey = sharedPreviewKeys.get(keyId)
-        if (cachedKey) {
-          void decryptWith(cipher!, cachedKey)
-        } else {
-          const cachedPub = getCachedPeerPublicKey(currentUserId, peerId)
-          if (cachedPub) {
-            try {
-              const key = await deriveSharedKey(keyPair.privateKey, cachedPub)
-              sharedPreviewKeys.set(keyId, key)
-              void decryptWith(cipher!, key)
-            } catch { /* fall through to the server fetch below */ }
+        async function decryptWith(cipher: string, key: CryptoKey) {
+          const plain = await decryptMessage(cipher, key)
+          if (!cancelled && plain !== UNDECRYPTABLE && decryptedPreviews.get(cipher) !== plain) {
+            decryptedPreviews.set(cipher, plain)
+            bumpPreviews(n => n + 1)
           }
         }
 
-        // Verify/refresh against the server in the background - reconciles a
-        // rotated key without blocking every other row's decryption on it.
-        // Skipped once this peer's key has been confirmed this session.
-        if (sharedPreviewKeys.get(`${keyId}:confirmed`) !== undefined) continue
-        ;(async () => {
-          try {
-            const { publicKey } = await getPublicKeyAction(peerId)
-            if (!publicKey || cancelled) return
-            setCachedPeerPublicKey(currentUserId, peerId, publicKey)
-            const key = await deriveSharedKey(keyPair.privateKey, publicKey)
-            sharedPreviewKeys.set(keyId, key)
-            sharedPreviewKeys.set(`${keyId}:confirmed`, null)
-            if (!cancelled) void decryptWith(cipher!, key)
-          } catch { /* best-effort preview - the thread itself still opens fine */ }
-        })()
-      }
-    })()
+        for (const conv of conversations) {
+          if (cancelled) return
+          const cipher = conv.last_message_preview
+          const peerId = conv.other?.id
+          if (!peerId || !isEncrypted(cipher)) continue
+          if (decryptedPreviews.has(cipher!)) continue // already decrypted this exact ciphertext
+
+          const keyId = `${currentUserId}:${peerId}`
+          const cachedKey = sharedPreviewKeys.get(keyId)
+          if (cachedKey) {
+            void decryptWith(cipher!, cachedKey)
+          } else {
+            const cachedPub = getCachedPeerPublicKey(currentUserId, peerId)
+            if (cachedPub) {
+              try {
+                const key = await deriveSharedKey(keyPair.privateKey, cachedPub)
+                sharedPreviewKeys.set(keyId, key)
+                void decryptWith(cipher!, key)
+              } catch { /* fall through to the server fetch below */ }
+            }
+          }
+
+          // Verify/refresh against the server in the background - reconciles a
+          // rotated key without blocking every other row's decryption on it.
+          // Skipped once this peer's key has been confirmed this session.
+          if (sharedPreviewKeys.get(`${keyId}:confirmed`) !== undefined) continue
+            ; (async () => {
+              try {
+                const { publicKey } = await getPublicKeyAction(peerId)
+                if (!publicKey || cancelled) return
+                setCachedPeerPublicKey(currentUserId, peerId, publicKey)
+                const key = await deriveSharedKey(keyPair.privateKey, publicKey)
+                sharedPreviewKeys.set(keyId, key)
+                sharedPreviewKeys.set(`${keyId}:confirmed`, null)
+                if (!cancelled) void decryptWith(cipher!, key)
+              } catch { /* best-effort preview - the thread itself still opens fine */ }
+            })()
+        }
+      })()
     return () => { cancelled = true }
   }, [conversations, currentUserId])
 
@@ -376,24 +408,45 @@ export default function MessagesListClient({ currentUserId }: Props) {
     </button>
   )
 
+  // Search narrows whatever the filter shows: matches the person's name or @username, and the
+  // message preview once it has been decrypted on this device (ciphertext is never searched).
+  const q = search.trim().toLowerCase()
+  const shown = conversations && q
+    ? conversations.filter(c => {
+      const cipher = c.last_message_preview
+      const preview = cipher ? (decryptedPreviews.get(cipher) ?? (isEncrypted(cipher) ? '' : cipher)) : ''
+      return (
+        (c.other?.display_name ?? '').toLowerCase().includes(q) ||
+        (c.other?.username ?? '').toLowerCase().includes(q) ||
+        preview.toLowerCase().includes(q)
+      )
+    })
+    : conversations
+
   let body: React.ReactNode
-  if (conversations === null) {
+  if (shown === null) {
     body = <ListSkeleton />
-  } else if (conversations.length === 0) {
+  } else if (conversations!.length === 0) {
     body = <EmptyState filter="all" />
+  } else if (q && shown.length === 0) {
+    body = (
+      <div style={{ padding: '64px 20px', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 14 }}>
+        No chats match &ldquo;{search.trim()}&rdquo;.
+      </div>
+    )
   } else if (filter === 'unread') {
     // Unread: anything with unread messages that isn't hidden, newest first.
-    const unread = conversations.filter(c => !c.hidden && c.unread_count > 0)
+    const unread = shown.filter(c => !c.hidden && c.unread_count > 0)
     body = unread.length === 0
       ? <EmptyState filter="unread" />
       : <div>{unread.map(c => <ConversationRow key={c.id} conv={c} />)}</div>
   } else {
     // All and Direct: every chat here is one-to-one today (no group chats yet),
     // so Direct shows the same list; it starts to differ once groups exist.
-    const visible  = conversations.filter(c => !c.hidden)
-    const active   = visible.filter(c => !c.lock)
+    const visible = shown.filter(c => !c.hidden)
+    const active = visible.filter(c => !c.lock)
     const inactive = visible.filter(c => c.lock)
-    const hidden   = conversations.filter(c => c.hidden)
+    const hidden = shown.filter(c => c.hidden)
     const unreadIn = (list: ChatListConversation[]) => list.reduce((n, c) => n + (c.unread_count > 0 ? 1 : 0), 0)
 
     body = (
@@ -428,7 +481,11 @@ export default function MessagesListClient({ currentUserId }: Props) {
 
   return (
     <div>
-      <ChatListHeader filter={filter} onFilterChange={setFilter} onMarkAllRead={handleMarkAllRead} canMarkAllRead={hasUnread} />
+      <HideMobileHeader />
+      <ChatListHeader
+        filter={filter} onFilterChange={setFilter} onMarkAllRead={handleMarkAllRead} canMarkAllRead={hasUnread}
+        search={search} onSearchChange={setSearch}
+      />
       {body}
     </div>
   )

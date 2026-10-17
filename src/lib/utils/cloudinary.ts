@@ -14,11 +14,33 @@
 //
 // URLs that aren't Cloudinary image URLs (Google avatars, local previews,
 // videos, already-transformed URLs) come back unchanged.
+//
+// Media now lives on the bunny.net CDN (cdn.spup.live). Photos there are resized at
+// delivery by Bunny Optimizer with a ?width=N parameter (Optimizer and its Dynamic
+// Images API must be on for the pull zone); WebP/AVIF conversion is Optimizer's own
+// setting. The Cloudinary branches below stay until every old link has been migrated.
+// The function names are unchanged so none of the places that call them had to change.
 
 import type { SyntheticEvent } from 'react'
+import { isCdnUrl } from '@/lib/media-config'
+
+// Bunny: ?width=N. GIFs are left alone so they keep animating, and a link that already
+// carries parameters is returned as it is.
+function cdnImage(url: string, width: number): string {
+  if (url.includes('?')) return url
+  if (!/\.(jpe?g|png|webp|avif)$/i.test(url)) return url
+  return `${url}?width=${width}`
+}
+
+/** True when a resized copy can be requested (used to decide on the blur-up placeholder). */
+export function canResizeImage(url: string): boolean {
+  if (isCdnUrl(url)) return !url.includes('?') && /\.(jpe?g|png|webp|avif)$/i.test(url)
+  return url.includes('res.cloudinary.com') && url.includes('/image/upload/')
+}
 
 export function cloudinaryImage(url: string | null | undefined, width: number): string {
   if (!url) return ''
+  if (isCdnUrl(url)) return cdnImage(url, width)
   if (!url.includes('res.cloudinary.com') || !url.includes('/image/upload/')) return url
   if (/\/image\/upload\/[^/]*(f_auto|q_auto)/.test(url)) return url
   return url.replace('/image/upload/', `/image/upload/f_auto,q_auto,w_${width},c_limit/`)

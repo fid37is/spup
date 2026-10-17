@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect }     from 'next/navigation'
 import BackButton from '@/components/ui/back-button'
 import SettingsClient   from './settings-client'
+import { isPremiumActive } from '@/lib/premium'
 
 export const metadata = {
   title: 'Settings — Spup',
@@ -46,6 +47,8 @@ export default async function SettingsPage() {
 
   const interests = (interestRows ?? []).map(r => r.interest)
 
+  const premiumActive = await isPremiumActive(profile.id)
+
   return (
     <div>
       {/* Sticky header */}
@@ -68,7 +71,7 @@ export default async function SettingsPage() {
         </h1>
       </div>
 
-      <SettingsClient profile={profile} interests={interests} />
+      <SettingsClient profile={profile} interests={interests} premiumActive={premiumActive} />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
+import { creditPremiumPayment, PREMIUM_REFERENCE_PREFIX } from '@/lib/premium'
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!
 
@@ -103,6 +104,16 @@ export async function POST(request: NextRequest) {
           .update({ status: 'failed' })
           .eq('id', txn.id)
 
+        break
+      }
+
+      // Premium subscription payment succeeded. The browser callback normally
+      // credits this first; this covers users who close the tab after paying.
+      case 'charge.success': {
+        const reference: string | undefined = event.data?.reference
+        if (reference?.startsWith(PREMIUM_REFERENCE_PREFIX)) {
+          await creditPremiumPayment(reference)
+        }
         break
       }
 

@@ -1,7 +1,7 @@
 //app/(main)/post/[id]/page.tsx
 
 import { createClient } from '@/lib/supabase/server'
-import { notFound, redirect } from 'next/navigation'
+import { redirect } from 'next/navigation'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import PostCard from '@/components/feed/post-card'
@@ -9,6 +9,8 @@ import DetailExpandBeacon from '@/components/feed/detail-expand-beacon'
 import RepliesPanel from './replies-panel'
 import ReplySortMenu from './reply-sort-menu'
 import BackButton from './back-button'
+import DeletedPost from './deleted-post'
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
 
 const POST_SELECT = `
   id, body, post_type, likes_count, comments_count, reposts_count,
@@ -174,7 +176,13 @@ export default async function PostDetailPage({
   if (!user) redirect('/login')
 
   const data = await getPost(supabase, id, user.id, replySort)
-  if (!data) notFound()
+  if (!data) {
+    // Deleted (or never existed / not readable): a proper "deleted" screen, not a
+    // 404. If the row is still readable and was a comment, point at its parent.
+    const { data: gone } = await supabase
+      .from('posts').select('parent_post_id').eq('id', id).maybeSingle()
+    return <DeletedPost parentPostId={gone?.parent_post_id ?? null} isReply={!!gone?.parent_post_id} />
+  }
 
   const { post, replies } = data
 
@@ -187,12 +195,15 @@ export default async function PostDetailPage({
 
   return (
     <div style={{ paddingBottom: 80 }}>
+      {/* The page draws its own header (back + title), so the app's mobile top bar steps aside. */}
+      <HideMobileHeader />
       {/* Header */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
         backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
         borderBottom: '1px solid var(--color-border)',
-        display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px',
+        display: 'flex', alignItems: 'center', gap: 16,
+        padding: 'calc(env(safe-area-inset-top, 0px) + 14px) 20px 14px',
       }}>
         {/* A reply/comment goes back to the thing it replies to (so opening
             one from a like notification and pressing back lands on its

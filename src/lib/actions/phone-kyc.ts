@@ -3,6 +3,7 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { z } from 'zod'
+import { premiumGateForPhone } from '@/lib/premium'
 
 const nigerianPhoneRegex = /^(\+234|0)[789][01]\d{8}$/
 
@@ -25,13 +26,24 @@ const otpSchema = z.object({
 
 // ─── Step 1: Send OTP to phone number ─────────────────────────────────────────
 
-export async function sendPhoneOtpAction(phone: string) {
+// Spelled out on purpose. Without it TypeScript infers the result from every
+// `return` and gets one member without `phone` (the premium gate's
+// `{ error, premium_required }`), so `r.phone` fails to compile in the page.
+type SendPhoneOtpResult =
+  | { success: true; phone: string; error?: undefined; premium_required?: undefined }
+  | { error: string; premium_required?: true; success?: undefined; phone?: undefined }
+
+export async function sendPhoneOtpAction(phone: string): Promise<SendPhoneOtpResult> {
   const parsed = phoneSchema.safeParse({ phone })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
+
+  // Premium is required to start phone verification (once verified it is permanent).
+  const gate = await premiumGateForPhone(user.id)
+  if (gate) return gate
 
   const e164 = toE164(phone)
 
@@ -112,6 +124,10 @@ export async function resendPhoneOtpAction(phone: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
+
+  // Premium is required to start phone verification (once verified it is permanent).
+  const gate = await premiumGateForPhone(user.id)
+  if (gate) return gate
 
   const { error } = await supabase.auth.resend({
     type: 'sms',

@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { createNotification } from '@/lib/notifications'
 import { suspensionBlock } from '@/lib/suspension-server'
 import type { NotificationType } from '@/types'
+import { computeEscrowFeeKobo, DEFAULT_ESCROW_FEE_BPS } from '@/lib/escrow-fee'
 
 // ============================================================
 // P2P escrow: buyer pays seller from wallet balance. Money leaves
@@ -65,6 +66,25 @@ async function notify(recipientId: string, actorId: string, type: EscrowNotifica
   })
 }
 
+// ─── Escrow fee (percentage, paid by the buyer on top of the order) ─────────
+// Stored as basis points in platform_settings.escrow_fee_bps (500 = 5%).
+
+async function getEscrowFeeBps(): Promise<number> {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('platform_settings')
+    .select('value')
+    .eq('key', 'escrow_fee_bps')
+    .maybeSingle()
+  const n = Number(data?.value)
+  return Number.isInteger(n) && n >= 0 && n <= 2000 ? n : DEFAULT_ESCROW_FEE_BPS
+}
+
+// For the payment dialog, so it can show the fee before the buyer confirms.
+export async function getEscrowFeeBpsAction(): Promise<number> {
+  return getEscrowFeeBps()
+}
+
 // ─── 1. Buyer pays a vendor ─────────────────────────────────────────────────
 
 export async function payVendorAction({
@@ -112,6 +132,12 @@ export async function payVendorAction({
     return { error: 'This vendor has not completed identity verification and cannot receive escrow payments yet' }
   }
 
+  // Fee is charged to the buyer on top of the order. The vendor still gets the
+  // full amountKobo on release; a refund returns amountKobo and Spup keeps the fee.
+  const feeBps = await getEscrowFeeBps()
+  const feeKobo = computeEscrowFeeKobo(amountKobo, feeBps)
+  const totalKobo = amountKobo + feeKobo
+
   const { data: buyerWallet } = await admin
     .from('wallets')
     .select('id, balance_kobo')
@@ -119,9 +145,9 @@ export async function payVendorAction({
     .single()
 
   if (!buyerWallet) return { error: 'Wallet not found' }
-  if (buyerWallet.balance_kobo < amountKobo) {
+  if (buyerWallet.balance_kobo < totalKobo) {
     return {
-      error: `Insufficient balance. Your balance is ₦${(buyerWallet.balance_kobo / 100).toFixed(2)} - top up your wallet first.`,
+      error: `Insufficient balance. You need ₦${(totalKobo / 100).toFixed(2)} (₦${(amountKobo / 100).toFixed(2)} + ₦${(feeKobo / 100).toFixed(2)} escrow fee) but your balance is ₦${(buyerWallet.balance_kobo / 100).toFixed(2)} - top up your wallet first.`,
       insufficient_balance: true,
     }
   }
@@ -137,7 +163,7 @@ export async function payVendorAction({
   // this if the balance dropped between our check above and now.
   const { error: debitError } = await admin.rpc('adjust_wallet_balance', {
     p_wallet_id: buyerWallet.id,
-    p_delta: -amountKobo,
+    p_delta: -totalKobo,
   })
 
   if (debitError) return { error: 'Could not process payment. Please try again.' }
@@ -147,10 +173,13 @@ export async function payVendorAction({
     .insert({
       wallet_id: buyerWallet.id,
       type: 'escrow_hold',
-      amount_kobo: amountKobo,
+      amount_kobo: totalKobo,           // what left the buyer's balance (order + fee)
+      platform_fee_kobo: feeKobo,
       status: 'completed',
       reference,
-      description: `Escrow payment to @${seller.username}`,
+      description: feeKobo > 0
+        ? `Escrow payment to @${seller.username} (incl. ₦${(feeKobo / 100).toFixed(2)} escrow fee)`
+        : `Escrow payment to @${seller.username}`,
       entity_id: postId ?? null,
       completed_at: now,
     })
@@ -162,7 +191,7 @@ export async function payVendorAction({
     // Credits back the exact amount rather than resetting to the balance we
     // read earlier, which could otherwise overwrite an unrelated change
     // (e.g. a tip landing) that happened in between.
-    await admin.rpc('adjust_wallet_balance', { p_wallet_id: buyerWallet.id, p_delta: amountKobo })
+    await admin.rpc('adjust_wallet_balance', { p_wallet_id: buyerWallet.id, p_delta: totalKobo })
     return { error: 'Could not record payment. Please try again.' }
   }
 
@@ -173,7 +202,8 @@ export async function payVendorAction({
       buyer_id: buyer.id,
       seller_id: seller.id,
       post_id: postId ?? null,
-      amount_kobo: amountKobo,
+      amount_kobo: amountKobo,          // the vendor's amount — release/refund/splits all use this
+      fee_kobo: feeKobo,
       status: 'held',
       hold_txn_id: holdTxn.id,
       note: note ?? null,
@@ -183,7 +213,7 @@ export async function payVendorAction({
     .single()
 
   if (orderError || !order) {
-    await admin.rpc('adjust_wallet_balance', { p_wallet_id: buyerWallet.id, p_delta: amountKobo })
+    await admin.rpc('adjust_wallet_balance', { p_wallet_id: buyerWallet.id, p_delta: totalKobo })
     await admin.from('transactions').update({ status: 'failed' }).eq('id', holdTxn.id)
     return { error: 'Could not create order. Please try again.' }
   }

@@ -117,11 +117,13 @@ function ViewerVideo({ src, index, startTime, isMobile, onTime }: {
 // browser cache - no loading state), then swaps to the sharper 1600px version once
 // that has finished downloading off-screen. One <img>, so there is no overlay to
 // line up and no layout shift: both versions have the same shape.
-function ViewerImage({ url, previewWidth, isMobile }: { url: string; previewWidth: number; isMobile: boolean }) {
+function ViewerImage({ url, previewWidth, isMobile, active = true }: { url: string; previewWidth: number; isMobile: boolean; active?: boolean }) {
   const { isDegraded, isOffline } = useNetworkStatus()
   const preview = cloudinaryImage(url, previewWidth)
   const sharp = cloudinaryImage(url, 1600)
-  const upgrade = sharp !== preview && !isDegraded && !isOffline
+  // Only the slide on screen fetches the sharp copy; the neighbours just sit
+  // ready (preview size) so a swipe never reveals an empty slide.
+  const upgrade = active && sharp !== preview && !isDegraded && !isOffline
   const [src, setSrc] = useState(preview)
 
   useEffect(() => {
@@ -146,6 +148,125 @@ function ViewerImage({ url, previewWidth, isMobile }: { url: string; previewWidt
         userSelect: 'none', display: 'block',
       }}
     />
+  )
+}
+
+// The swipeable strip. Every slide sits side by side in one track; the track
+// follows the finger 1:1 while dragging (transform written straight to the DOM -
+// no React re-render per touch move), then glides to the nearest slide with a
+// short ease. The slides on either side of the current one are already mounted,
+// so there is never a blank frame or a fade-in mid-swipe. A quick flick counts
+// even if the finger didn't travel far. Past the first/last slide it resists.
+function SwipeTrack({ media, idx, setIdx, swipeable, renderSlide }: {
+  media: MediaItem[]
+  idx: number
+  setIdx: (i: number) => void
+  swipeable: boolean
+  renderSlide: (item: MediaItem, i: number, isCurrent: boolean) => React.ReactNode
+}) {
+  const trackRef = useRef<HTMLDivElement>(null)
+  const drag = useRef<{
+    x: number; y: number; t: number; lastX: number; lastT: number; vx: number
+    locked: 'h' | 'v' | null; id: number
+  } | null>(null)
+  const idxRef = useRef(idx)
+
+  const rest = (i: number) => `translate3d(${-i * 100}%, 0, 0)`
+
+  // Resting position whenever the index changes (dots, arrows, keyboard, end of a swipe).
+  useEffect(() => {
+    idxRef.current = idx
+    const el = trackRef.current
+    if (!el) return
+    el.style.transition = 'transform 0.26s cubic-bezier(0.22, 0.8, 0.3, 1)'
+    el.style.transform = rest(idx)
+  }, [idx])
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!swipeable || !e.isPrimary || e.button !== 0) return
+    // A drag on a video's own controls (bottom strip) is a seek, not a swipe.
+    const v = (e.target as HTMLElement).closest('video')
+    if (v && e.clientY > v.getBoundingClientRect().bottom - 64) return
+    const now = performance.now()
+    drag.current = { x: e.clientX, y: e.clientY, t: now, lastX: e.clientX, lastT: now, vx: 0, locked: null, id: e.pointerId }
+  }
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current
+    const el = trackRef.current
+    if (!d || !el || e.pointerId !== d.id) return
+    const dx = e.clientX - d.x
+    const dy = e.clientY - d.y
+    if (!d.locked) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+      d.locked = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v'
+      if (d.locked === 'h') {
+        try { el.setPointerCapture(e.pointerId) } catch { /* ignore */ }
+        el.style.transition = 'none'
+      }
+    }
+    if (d.locked !== 'h') return
+    const now = performance.now()
+    const dt = now - d.lastT
+    if (dt > 0) d.vx = 0.8 * d.vx + 0.2 * ((e.clientX - d.lastX) / dt)   // smoothed px/ms
+    d.lastX = e.clientX; d.lastT = now
+
+    const i = idxRef.current
+    const atEdge = (dx > 0 && i === 0) || (dx < 0 && i === media.length - 1)
+    const shown = atEdge ? dx * 0.3 : dx
+    el.style.transform = `translate3d(calc(${-i * 100}% + ${shown}px), 0, 0)`
+  }
+
+  const finish = (e: React.PointerEvent, cancelled: boolean) => {
+    const d = drag.current
+    const el = trackRef.current
+    drag.current = null
+    if (!d || !el || e.pointerId !== d.id) return
+    try { el.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+    if (d.locked !== 'h') return
+    const dx = e.clientX - d.x
+    const width = el.clientWidth || window.innerWidth
+    const i = idxRef.current
+    let next = i
+    if (!cancelled && (Math.abs(dx) > width * 0.18 || Math.abs(d.vx) > 0.45)) {
+      next = dx < 0 ? Math.min(i + 1, media.length - 1) : Math.max(i - 1, 0)
+    }
+    // Same index = snap back; either way glide from where the finger left it.
+    el.style.transition = 'transform 0.26s cubic-bezier(0.22, 0.8, 0.3, 1)'
+    el.style.transform = rest(next)
+    if (next !== i) setIdx(next)
+  }
+
+  return (
+    <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
+      <div
+        ref={trackRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={e => finish(e, false)}
+        onPointerCancel={e => finish(e, true)}
+        style={{
+          display: 'flex', width: '100%', height: '100%',
+          transform: rest(idx), willChange: 'transform',
+          // pan-y: the browser keeps vertical gestures, every horizontal one reaches us.
+          touchAction: swipeable ? 'pan-y' : undefined,
+        }}
+      >
+        {media.map((item, i) => {
+          // Current slide + one either side are mounted; the rest are empty cells.
+          const near = Math.abs(i - idx) <= 1
+          return (
+            <div key={item.id} style={{
+              flex: '0 0 100%', width: '100%', height: '100%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: swipeable ? 0 : '48px 56px', boxSizing: 'border-box',
+            }}>
+              {near ? renderSlide(item, i, i === idx) : null}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -360,8 +481,6 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose, pr
   const [commentsH, setCommentsH] = useState(0)
   const [repostH, setRepostH] = useState(0)   // the Repost options drawer lives in PostActions
   const repliesLoadedFor = useRef<string | null>(null)
-  // Phone: swipe between photos (the arrow buttons are desktop-only).
-  const swipeStart = useRef<{ x: number; y: number } | null>(null)
   useEffect(() => setMounted(true), [])
   // The desktop layout is a plain portal below; on a phone MediaPortal registers itself.
   useBackClose(!isMobile, onClose)
@@ -448,45 +567,20 @@ export default function MediaViewer({ media, initialIndex = 0, post, onClose, pr
         </button>
       )}
 
-      <div
-        key={current.id}
-        // Pointer events, not touch events: they fire for a finger, a mouse drag and a
-        // browser's phone simulation alike. touch-action: pan-y (below) tells the browser
-        // to leave horizontal gestures to us, so a finger swipe isn't cancelled as a scroll.
-        onPointerDown={isMobile ? e => {
-          // A drag on a video's seek bar / volume is not a swipe.
-          if (!e.isPrimary || e.button !== 0 || (e.target as HTMLElement).closest('video')) { swipeStart.current = null; return }
-          swipeStart.current = { x: e.clientX, y: e.clientY }
-        } : undefined}
-        onPointerCancel={isMobile ? () => { swipeStart.current = null } : undefined}
-        onPointerUp={isMobile ? e => {
-          const s = swipeStart.current
-          swipeStart.current = null
-          if (!s) return
-          const dx = e.clientX - s.x
-          const dy = e.clientY - s.y
-          // Clearly horizontal and long enough; otherwise it was a tap or a scroll.
-          if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return
-          if (dx < 0 && hasNext) setIdx(i => i + 1)
-          else if (dx > 0 && hasPrev) setIdx(i => i - 1)
-        } : undefined}
-        style={{
-        touchAction: isMobile ? 'pan-y' : undefined,
-        width: '100%', height: '100%',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: isMobile ? 0 : '48px 56px',
-        boxSizing: 'border-box',
-        animation: 'mvFadeIn 0.15s ease',
-      }}>
-        {isVideo ? (
-          <ViewerVideo
-            src={current.url} index={idx} startTime={startTime}
-            isMobile={isMobile} onTime={onVideoTime}
-          />
+      <SwipeTrack
+        media={media} idx={idx} setIdx={setIdx} swipeable={isMobile}
+        renderSlide={(item, i, isCurrent) => item.media_type === 'video' ? (
+          // Only the slide on screen plays; a neighbouring video is not mounted.
+          isCurrent ? (
+            <ViewerVideo
+              src={item.url} index={i} startTime={startTime}
+              isMobile={isMobile} onTime={onVideoTime}
+            />
+          ) : null
         ) : (
-          <ViewerImage url={current.url} previewWidth={previewWidth} isMobile={isMobile} />
+          <ViewerImage url={item.url} previewWidth={previewWidth} isMobile={isMobile} active={isCurrent} />
         )}
-      </div>
+      />
 
       {media.length > 1 && (
         <div style={{ position: 'absolute', bottom: isMobile ? 6 : 20, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 6 }}>

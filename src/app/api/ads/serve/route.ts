@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
+import { isPremiumActive } from '@/lib/premium'
 
 const CREATOR_SHARE = 0.70
 const PLATFORM_SHARE = 0.30
@@ -108,7 +109,12 @@ export async function GET(request: NextRequest) {
 
       const creatorIsMonetised = (post?.users as unknown as { is_monetised: boolean } | null)?.is_monetised
 
-      if (post && post.user_id !== userId && creatorIsMonetised) {
+      // Premium rule: ad revenue is only earned while the creator's Spup Premium
+      // is active. Money already earned stays withdrawable; lapsed creators
+      // simply stop accruing (the creator's cut stays with the platform).
+      const creatorHasPremium = creatorIsMonetised && post ? await isPremiumActive(post.user_id) : false
+
+      if (post && post.user_id !== userId && creatorIsMonetised && creatorHasPremium) {
         const shouldCredit = userId
           ? await passesRateLimits(admin, userId, post.user_id, postId)
           : true // anonymous viewers aren't rate-limited per-account (IP-level limits can be layered on separately)

@@ -5,6 +5,9 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import crypto from 'crypto'
 import { revalidatePath } from 'next/cache'
+import { verifyWithDojah } from '@/lib/kyc/dojah'
+import { claimKycAttempt, releaseKycAttempt, KYC_MAX_ATTEMPTS } from '@/lib/kyc/attempts'
+import { isPremiumActive } from '@/lib/premium'
 
 // ============================================================
 // Real BVN verification — extra check for LARGE withdrawals only.
@@ -21,11 +24,10 @@ import { revalidatePath } from 'next/cache'
 // the resulting hash + provider reference are stored — never the raw
 // BVN — for NDPR compliance.
 //
-// TODO before going live:
-//   1. Pick a KYC provider and set BVN_KYC_PROVIDER_API_KEY / _URL below.
-//   2. Replace `verifyBvnWithProvider()` with the real API call.
-//   3. Confirm the provider's response includes a name you can compare
-//      against the account's bank_account_name for a match check.
+// Provider: Dojah (see lib/kyc/dojah.ts) — NIN/BVN number + selfie match.
+// Gate: active Spup Premium is required to start (lib/premium.ts); verification
+// is permanent afterwards. Tries are capped (lib/kyc/attempts.ts); provider
+// outages hand the try back.
 // ============================================================
 
 const bvnSchema = z.object({
@@ -41,37 +43,15 @@ function hashBvn(bvn: string): string {
     .digest('hex')
 }
 
-// Placeholder — swap for your chosen provider's real API call.
-async function verifyBvnWithProvider(bvn: string): Promise<
-  { valid: true; verificationRef: string; name: string } | { valid: false; reason: string }
-> {
-  if (!process.env.BVN_KYC_PROVIDER_API_KEY) {
-    throw new Error(
-      'BVN_KYC_PROVIDER_API_KEY is not set — no KYC provider is wired up yet. ' +
-      'This must be configured before BVN verification can go live.'
-    )
-  }
-
-  // Example shape for a provider call — replace with the real request:
-  //
-  // const res = await fetch('https://api.<provider>.com/v1/bvn/lookup', {
-  //   method: 'POST',
-  //   headers: {
-  //     Authorization: `Bearer ${process.env.BVN_KYC_PROVIDER_API_KEY}`,
-  //     'Content-Type': 'application/json',
-  //   },
-  //   body: JSON.stringify({ bvn }),
-  // })
-  // const data = await res.json()
-  // if (!data.status) return { valid: false, reason: data.message }
-  // return { valid: true, verificationRef: data.reference, name: data.data.full_name }
-
-  throw new Error('verifyBvnWithProvider() is a placeholder — wire up the real provider call.')
-}
-
 // ─── Verify BVN and lock it to this account ────────────────────────────────────
 
-export async function verifyBvnAction(bvn: string) {
+export async function verifyBvnAction(bvn: string, selfieBase64: string) {
+  if (typeof selfieBase64 !== 'string' || selfieBase64.length < 1_000 || selfieBase64.length > 900_000) {
+    return { error: 'Please take a clear selfie to continue.' }
+  }
+  // Accept either raw base64 or a data URL; Dojah wants raw base64.
+  const selfie = selfieBase64.replace(/^data:image\/\w+;base64,/, '')
+
   const parsed = bvnSchema.safeParse({ bvn })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
@@ -93,16 +73,44 @@ export async function verifyBvnAction(bvn: string) {
     return { error: 'BVN already verified on this account.' }
   }
 
-  let result
-  try {
-    result = await verifyBvnWithProvider(bvn)
-  } catch (err) {
-    console.error('BVN provider error:', err)
-    return { error: 'BVN verification is temporarily unavailable. Please try again shortly.' }
+  // Premium first: verification can only be STARTED while subscribed. Once
+  // verified it is permanent and never depends on Premium again.
+  if (!(await isPremiumActive(profile.id))) {
+    return {
+      error: 'Spup Premium is required to verify. Subscribe first. Your verification stays even if Premium ends later.',
+      premium_required: true,
+    }
   }
 
-  if (!result.valid) {
-    return { error: `BVN could not be verified: ${result.reason}` }
+  // Every lookup costs Spup money, so tries are capped (atomic claim, so two
+  // taps can't spend the same try twice).
+  const claim = await claimKycAttempt(profile.id, 'bvn')
+  if (!claim.ok) {
+    return {
+      error: `You've used all ${KYC_MAX_ATTEMPTS} verification tries for now. They reset 30 days after your first try.`,
+      limit_reached: true,
+      attempts_left: 0,
+    }
+  }
+
+  const result = await verifyWithDojah('bvn', bvn, selfie)
+
+  if (result.status === 'unavailable') {
+    // Our side failed (provider down / our provider wallet empty / misconfigured).
+    // The user must never lose a paid attempt to that.
+    await releaseKycAttempt(claim.attemptId)
+    return { error: 'BVN verification is temporarily unavailable. This did not use up one of your tries — please try again shortly.' }
+  }
+
+  if (result.status === 'rejected') {
+    const left = claim.attemptsLeft
+    return {
+      error: left > 0
+        ? `${result.reason} You have ${left} ${left === 1 ? 'try' : 'tries'} left this month.`
+        : `${result.reason} That was your last try for now. They reset 30 days after your first try.`,
+      attempts_left: left,
+      limit_reached: left === 0,
+    }
   }
 
   const bvnHash = hashBvn(bvn)
@@ -113,7 +121,7 @@ export async function verifyBvnAction(bvn: string) {
 
   const updates: Record<string, unknown> = {
     bvn_hash: bvnHash,
-    bvn_verification_ref: result.verificationRef,
+    bvn_verification_ref: claim.attemptId,
     bvn_verified: true,
   }
 
@@ -134,10 +142,12 @@ export async function verifyBvnAction(bvn: string) {
       await admin.from('fraud_flags').insert({
         user_id: profile.id,
         flag_type: 'duplicate_bvn_attempt',
-        details: { attempted_verification_ref: result.verificationRef },
+        details: { attempted_verification_ref: claim.attemptId },
       })
       return { error: 'This BVN is already linked to another Spup account.' }
     }
+    // Our DB failed, not the user — hand the attempt back so they can retry free.
+    await releaseKycAttempt(claim.attemptId)
     return { error: 'BVN verified but failed to update profile. Contact support.' }
   }
 

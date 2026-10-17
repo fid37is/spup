@@ -1,16 +1,23 @@
 /**
- * Direct-to-Cloudinary media upload, built for slow/flaky connections
- * (this app's userbase is mostly on Nigerian mobile networks, where a
- * multi-minute upload dropping partway through is the normal case, not
- * an edge case). Used by both the compose box and reply composer.
+ * Media upload for the compose box, reply composer and chat, built for slow/flaky
+ * connections (this app's userbase is mostly on Nigerian mobile networks, where a
+ * multi-minute upload dropping partway through is the normal case, not an edge case).
  *
- * Client-side type/size checks below are a fast first line of defense (no
- * point spending someone's slow, possibly-metered data on a doomed upload),
- * not the real enforcement boundary - since the browser now talks to
- * Cloudinary directly instead of through our own API route, hard limits on
- * file size/format/duration should also be configured on the Cloudinary
- * account/upload preset itself (dashboard-only setting, can't be done from
- * here) so a client that skips these checks can't bypass them.
+ * The file goes to our own /api/upload/bunny route, which checks it and stores it in
+ * bunny.net storage (the browser cannot talk to Bunny directly: that needs the zone
+ * password). It is sent as the raw request body so progress is real, and a dropped
+ * connection is retried automatically.
+ *
+ * What Cloudinary used to do on its side is done here instead:
+ *   - the video's size and length are read in the browser (and videos over 3 minutes
+ *     are refused, where Cloudinary used to trim them);
+ *   - a poster frame is taken from the video in the browser and uploaded with it.
+ * Photos are shrunk before they get here (lib/media-client.ts), and resized for display
+ * by Bunny Optimizer (lib/utils/cloudinary.ts).
+ *
+ * Client-side type/size checks below are a fast first line of defense (no point
+ * spending someone's slow, possibly-metered data on a doomed upload); the server
+ * route re-checks everything.
  */
 
 import {
@@ -27,6 +34,9 @@ const RETRY_BASE_DELAY_MS = 1500
 const VIDEO_TIMEOUT_MS = 6 * 60 * 1000
 const IMAGE_TIMEOUT_MS = 2 * 60 * 1000
 
+const MAX_VIDEO_SECONDS = 180
+const POSTER_MAX_WIDTH = 720
+
 export interface UploadResult {
   url: string
   thumbnail_url: string | null
@@ -35,6 +45,7 @@ export interface UploadResult {
   height: number | null
   duration_secs: number | null
   size_bytes: number
+  /** The file's path in the storage zone (para/<account>/posts/<name>). Name kept from the Cloudinary days so the post schema and composer did not need to change. */
   cloudinary_id: string
 }
 
@@ -58,57 +69,90 @@ function validateFile(file: File, kind: UploadKind): string | null {
   return null
 }
 
-/** Cloudinary can derive a still frame from any uploaded video purely via a
- * URL transform (so_0 = the frame at 0 seconds) - no processing job, no
- * wait, works the instant the video itself finishes uploading. */
-function deriveVideoThumbnail(secureUrl: string): string {
-  return secureUrl.replace('/upload/', '/upload/so_0/').replace(/\.\w+$/, '.jpg')
+interface VideoInfo {
+  width: number
+  height: number
+  duration: number
+  /** First frame as a JPEG, or null if the browser could not draw one. */
+  poster: Blob | null
 }
 
-async function getSignature(type: UploadKind, file: File) {
-  let res: Response
-  try {
-    res = await fetch('/api/upload/signature', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, size: file.size, mime: file.type }),
-    })
-  } catch {
-    throw new Error('NETWORK')
-  }
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok || data.error) throw new Error(data.error || 'Could not start upload')
-  // `fields` is everything the server signed (folder, transformation,
-  // allowed_formats, timestamp, signature, ...). It's sent to Cloudinary
-  // exactly as given - changing any of it invalidates the signature.
-  return data as {
-    cloud_name: string; api_key: string; resource_type: 'image' | 'video'
-    fields: Record<string, string | number>
-  }
+/**
+ * Reads a video's size and length, and grabs its first frame, entirely in the browser
+ * (the file is not uploaded or fully loaded for this). Returns null when the browser
+ * cannot read the file at all (an unsupported codec, say); the upload then goes ahead
+ * without a size, length or poster.
+ */
+function probeVideo(file: File): Promise<VideoInfo | null> {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    video.muted = true
+    video.playsInline = true
+    video.preload = 'auto'
+
+    let info: Omit<VideoInfo, 'poster'> | null = null
+    let done = false
+    const finish = (poster: Blob | null) => {
+      if (done) return
+      done = true
+      clearTimeout(hardTimeout)
+      video.removeAttribute('src')
+      video.load()
+      URL.revokeObjectURL(url)
+      resolve(info ? { ...info, poster } : null)
+    }
+    const hardTimeout = setTimeout(() => finish(null), 8000)
+
+    video.onerror = () => finish(null)
+    video.onloadedmetadata = () => {
+      if (!video.videoWidth || !video.videoHeight) return finish(null)
+      info = { width: video.videoWidth, height: video.videoHeight, duration: video.duration }
+      // Seek a hair in: some browsers (iOS) only decode a frame once asked to seek.
+      video.currentTime = Number.isFinite(video.duration) && video.duration > 0 ? Math.min(0.05, video.duration / 2) : 0
+    }
+    video.onseeked = () => {
+      try {
+        const w = Math.min(POSTER_MAX_WIDTH, video.videoWidth)
+        const h = Math.round(video.videoHeight * (w / video.videoWidth))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d')?.drawImage(video, 0, 0, w, h)
+        canvas.toBlob(blob => finish(blob), 'image/jpeg', 0.8)
+      } catch {
+        finish(null)
+      }
+    }
+    video.src = url
+  })
 }
 
+/** Sends `body` to the upload route as the raw request body, with real progress. */
 function xhrUploadOnce(
-  file: File,
-  sig: Awaited<ReturnType<typeof getSignature>>,
-  onProgress: (pct: number) => void,
+  endpoint: string,
+  body: Blob,
+  mime: string,
+  onProgress: ((pct: number) => void) | null,
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<Record<string, unknown>> {
+): Promise<{ media: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    const url = `https://api.cloudinary.com/v1_1/${sig.cloud_name}/${sig.resource_type}/upload`
-
-    xhr.open('POST', url)
+    xhr.open('POST', endpoint)
+    xhr.setRequestHeader('Content-Type', mime)
     xhr.timeout = timeoutMs
 
-    xhr.upload.onprogress = e => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+    if (onProgress) {
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+      }
     }
     xhr.onload = () => {
       try {
         const data = JSON.parse(xhr.responseText)
-        if (xhr.status >= 200 && xhr.status < 300) resolve(data)
-        else reject(new Error(data?.error?.message || `Upload failed (${xhr.status})`))
+        if (xhr.status >= 200 && xhr.status < 300 && data?.media) resolve(data)
+        else reject(new Error(data?.error || `Upload failed (${xhr.status})`))
       } catch {
         reject(new Error('Upload failed - could not read response'))
       }
@@ -121,21 +165,14 @@ function xhrUploadOnce(
       if (signal.aborted) { xhr.abort(); return }
       signal.addEventListener('abort', () => xhr.abort())
     }
-
-    const form = new FormData()
-    form.append('file', file)
-    form.append('api_key', sig.api_key)
-    for (const [key, value] of Object.entries(sig.fields)) form.append(key, String(value))
-
-    xhr.send(form)
+    xhr.send(body)
   })
 }
 
 /**
- * Uploads a file directly to Cloudinary with real progress and automatic
- * retry. Retries only network-level failures/timeouts (a fast, flaky, or
- * momentarily-dropped connection) - never a validation error from
- * Cloudinary itself, since that won't succeed on retry.
+ * Uploads a file with real progress and automatic retry. Retries only network-level
+ * failures/timeouts (a fast, flaky, or momentarily-dropped connection) - never a
+ * rejection from the server itself, since that won't succeed on retry.
  */
 export async function uploadMedia(
   file: File,
@@ -148,34 +185,58 @@ export async function uploadMedia(
 
   const isVideo = kind === 'video'
   const timeoutMs = isVideo ? VIDEO_TIMEOUT_MS : IMAGE_TIMEOUT_MS
-  // Fetched lazily inside the retry loop so a dropped connection while asking
-  // for the signature is retried (and reported) like any other network failure.
-  let sig: Awaited<ReturnType<typeof getSignature>> | null = null
+
+  // Videos: read size / length / first frame once, before the upload (not per retry).
+  const video = isVideo ? await probeVideo(file) : null
+  if (video && Number.isFinite(video.duration) && video.duration > MAX_VIDEO_SECONDS + 1) {
+    throw new Error('Videos can be up to 3 minutes long. Please trim it and try again.')
+  }
+
+  const query = new URLSearchParams({ kind })
+  if (video) {
+    query.set('w', String(video.width))
+    query.set('h', String(video.height))
+    if (Number.isFinite(video.duration)) query.set('d', String(Math.round(video.duration)))
+  }
+  const endpoint = `/api/upload/bunny?${query.toString()}`
 
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (signal?.aborted) throw new UploadCancelledError('Upload cancelled')
     try {
       if (attempt > 0) onProgress?.(0)
-      if (!sig) sig = await getSignature(kind, file)
-      const result = await xhrUploadOnce(file, sig, pct => onProgress?.(pct), timeoutMs, signal)
-      const isVideoResult = kind === 'video'
+      const { media } = await xhrUploadOnce(endpoint, file, file.type, pct => onProgress?.(pct), timeoutMs, signal)
+
+      // The poster is a small extra file. If it fails the post still goes ahead: the
+      // player just shows the video's own first frame.
+      let thumbnail: string | null = null
+      if (isVideo && video?.poster) {
+        try {
+          const poster = await xhrUploadOnce('/api/upload/bunny?kind=poster', video.poster, 'image/jpeg', null, IMAGE_TIMEOUT_MS, signal)
+          thumbnail = (poster.media.url as string) ?? null
+        } catch (err) {
+          if (err instanceof UploadCancelledError) throw err
+        }
+      }
+
       return {
-        url: result.secure_url as string,
-        thumbnail_url: isVideoResult ? deriveVideoThumbnail(result.secure_url as string) : null,
-        media_type: isVideoResult ? 'video' : 'image',
-        width: (result.width as number) ?? null,
-        height: (result.height as number) ?? null,
-        duration_secs: isVideoResult ? Math.round((result.duration as number) || 0) : null,
+        url: media.url as string,
+        thumbnail_url: thumbnail,
+        media_type: isVideo ? 'video' : 'image',
+        width: (media.width as number | null) ?? null,
+        height: (media.height as number | null) ?? null,
+        duration_secs: isVideo
+          ? (video && Number.isFinite(video.duration) ? Math.round(video.duration) : (media.duration_secs as number | null) ?? null)
+          : null,
         size_bytes: file.size,
-        cloudinary_id: result.public_id as string,
+        cloudinary_id: media.cloudinary_id as string,
       }
     } catch (err) {
       if (err instanceof UploadCancelledError) throw err
       lastError = err instanceof Error ? err : new Error('Upload failed')
       // Only NETWORK-tagged failures (see xhrUploadOnce) are worth retrying -
-      // a Cloudinary-side validation rejection will just fail the same way
-      // again immediately, wasting the user's data for nothing.
+      // a server-side rejection will just fail the same way again immediately,
+      // wasting the user's data for nothing.
       if (lastError.message !== 'NETWORK' || attempt === MAX_RETRIES) break
       await new Promise(r => setTimeout(r, RETRY_BASE_DELAY_MS * (attempt + 1)))
     }

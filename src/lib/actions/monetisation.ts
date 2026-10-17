@@ -2,6 +2,7 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { isPremiumActive } from '@/lib/premium'
 
 // ============================================================
 // Monetisation opt-in.
@@ -12,6 +13,10 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 // with zero KYC done; they'll only be asked for NIN once they
 // actually try to withdraw (and BVN too, on top of that, only if
 // the withdrawal is large — see lib/constants.ts).
+//
+// Spup Premium is the fourth requirement: monetisation can only be enabled
+// while Premium is active, and ad earnings only accrue while it stays active
+// (see ads/serve/route.ts). Money already earned always stays withdrawable.
 //
 // Gating earnings on is_monetised (rather than crediting from
 // day one) also raises the cost of running fake accounts purely
@@ -64,10 +69,13 @@ export async function getMonetisationEligibility() {
     (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24)
   )
 
+  const premiumActive = await isPremiumActive(profile.id)
+
   const criteria = {
     account_age: { met: accountAgeDays >= REQUIRED_ACCOUNT_AGE_DAYS, value: accountAgeDays, required: REQUIRED_ACCOUNT_AGE_DAYS },
     followers:   { met: profile.followers_count >= REQUIRED_FOLLOWERS, value: profile.followers_count, required: REQUIRED_FOLLOWERS },
     posts:       { met: eligiblePostsCount >= REQUIRED_POSTS, value: eligiblePostsCount, required: REQUIRED_POSTS },
+    premium:     { met: premiumActive, value: premiumActive ? 1 : 0, required: 1 },
   }
 
   const allMet = Object.values(criteria).every(c => c.met)
@@ -113,6 +121,10 @@ export async function acceptMonetisationAction({ accepted_fair_use }: { accepted
     || profile.followers_count < REQUIRED_FOLLOWERS
     || eligiblePostsCount < REQUIRED_POSTS) {
     return { error: 'You have not yet met all monetisation criteria.' }
+  }
+
+  if (!(await isPremiumActive(profile.id))) {
+    return { error: 'Spup Premium is required to enable monetisation. Subscribe first, then enable it.', premium_required: true }
   }
 
   const admin = createAdminClient()

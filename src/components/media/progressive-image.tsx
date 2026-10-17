@@ -19,9 +19,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useNetworkStatus } from '@/lib/network-status'
-import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
+import { cloudinaryImage, fallbackToOriginal, canResizeImage } from '@/lib/utils/cloudinary'
 
-const isCloudinary = (url: string) => url.includes('res.cloudinary.com') && url.includes('/image/upload/')
+// A tiny copy can be requested (Bunny ?width= or a Cloudinary transformation) for the blur-up.
+const isCloudinary = (url: string) => canResizeImage(url)
 
 interface ProgressiveImageProps {
   src: string

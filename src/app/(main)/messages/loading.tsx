@@ -12,6 +12,7 @@
 import { peekChatListMemory } from '@/lib/chat-list-cache'
 import ConversationRow from '@/components/chat/conversation-row'
 import { ChatListHeader } from './messages-list-client'
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
 
 export default function MessagesListLoading() {
   const cached = peekChatListMemory()?.filter(c => !c.hidden && !c.lock)
@@ -19,6 +20,7 @@ export default function MessagesListLoading() {
   if (cached && cached.length > 0) {
     return (
       <div>
+        <HideMobileHeader />
         <ChatListHeader />
         {cached.map(c => <ConversationRow key={c.id} conv={c} />)}
       </div>
@@ -36,10 +38,14 @@ export default function MessagesListLoading() {
         .msgs-sk { animation: msgs-sk-shimmer 1.5s ease-in-out infinite; background: var(--color-surface-3); border-radius: 6px; }
       `}</style>
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
-        <div className="msgs-sk" style={{ height: 20, width: 60 }} />
-        <div className="msgs-sk" style={{ width: 98, height: 34, borderRadius: 20 }} />
+      <HideMobileHeader />
+      {/* Header: title + (+) row, then the search box - same shape as ChatListHeader */}
+      <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 20px 12px', borderBottom: '1px solid var(--color-border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="msgs-sk" style={{ height: 20, width: 60 }} />
+          <div className="msgs-sk" style={{ width: 34, height: 34, borderRadius: '50%' }} />
+        </div>
+        <div className="msgs-sk" style={{ marginTop: 10, height: 38, borderRadius: 22 }} />
       </div>
 
       {/* Conversation rows */}

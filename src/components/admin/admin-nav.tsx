@@ -22,7 +22,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { href: '/activity-feed', icon: Radio,           label: 'Live activity' },
-      { href: '/analytics', icon: BarChart2, label: 'Insights' }
+      { href: '/insights', icon: BarChart2, label: 'Insights' }
     ],
   },
   {
