@@ -7,9 +7,12 @@
 // header + PostCard (42px avatar, 16-20px padding - see post-card.tsx and
 // nested-replies.tsx) so nothing jumps when the real content replaces it.
 
+import HideMobileHeader from '@/components/layout/hide-mobile-header'
+
 export default function PostDetailLoading() {
   return (
     <div style={{ paddingBottom: 80 }}>
+      <HideMobileHeader />
       <style>{`
         @keyframes post-sk-shimmer {
           0%   { opacity: 1;    }
@@ -24,7 +27,8 @@ export default function PostDetailLoading() {
         position: 'sticky', top: 0, zIndex: 10,
         backdropFilter: 'blur(20px)', background: 'var(--nav-bg)',
         borderBottom: '1px solid var(--color-border)',
-        display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px',
+        display: 'flex', alignItems: 'center', gap: 16,
+        padding: 'calc(env(safe-area-inset-top, 0px) + 14px) 20px 14px',
       }}>
         <div className="post-sk" style={{ width: 20, height: 20, borderRadius: 4 }} />
         <div className="post-sk" style={{ width: 46, height: 18 }} />
