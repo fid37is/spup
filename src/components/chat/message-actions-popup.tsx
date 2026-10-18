@@ -53,7 +53,10 @@ export default function MessageActionsPopup({
     const bubble = document.querySelector<HTMLElement>(`[data-bubble-id="${CSS.escape(anchorId)}"]`)
     if (!pop || !bubble) return
     const a = bubble.getBoundingClientRect()
-    const { width: w, height: h } = pop.getBoundingClientRect()
+    // Layout size, not getBoundingClientRect(): that one is scaled by the pop-in animation, which made the first
+    // measurement ~6% too small and the menu jump when it was corrected.
+    const w = pop.offsetWidth
+    const h = pop.offsetHeight
     const vv = window.visualViewport
     const top0 = vv?.offsetTop ?? 0
     const left0 = vv?.offsetLeft ?? 0
@@ -136,7 +139,7 @@ export default function MessageActionsPopup({
           </button>
         ))}
       </div>
-      <style>{`@keyframes chat-pop-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }`}</style>
+      <style>{`@keyframes chat-pop-in { from { opacity: 0; } to { opacity: 1; } }`}</style>
     </>
   )
 }

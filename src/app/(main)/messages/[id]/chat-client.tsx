@@ -42,6 +42,7 @@ import MessageStatusIcon from '@/components/chat/message-status'
 import ChatMediaViewer from '@/components/chat/chat-media-viewer'
 import MessageActionsPopup, { type MenuItem } from '@/components/chat/message-actions-popup'
 import { useMessageGestures } from '@/hooks/use-message-gestures'
+import { EDIT_WINDOW_MS } from '@/lib/chat-message-state'
 import { useToast } from '@/components/layout/toast'
 import ReportDialog from '@/components/feed/report-dialog'
 import { toggleBlockAction } from '@/lib/actions/follows'
@@ -117,6 +118,14 @@ async function prepareDmText(text: string): Promise<{ text: string; blocked: boo
   const replacements = new Map<string, string>()
   for (const r of res.results) if (r.action === 'replace') replacements.set(r.raw, r.replacement)
   return { text: applyReplacements(text, extractLinkTokens(text), replacements), blocked: false }
+}
+
+/**
+ * A real mouse or trackpad is the main input (laptop/desktop). False on phones and tablets and in the Android
+ * app, even though their web views emulate :hover after a tap - so a touch tap never opens the options menu.
+ */
+function hasHoverPointer(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
 }
 
 /** The message these replies quoted was deleted: they keep the quote's name but no longer show its text. */
@@ -231,8 +240,11 @@ export default function ChatClient({
     return m.body
   }
 
-  function placeholder(): string {
-    return cryptoState === 'loading' ? '…' : t('chat.encrypted_message')
+  // While the key is still loading, a skeleton bar (the same shimmer as the web loading screen) - never "…".
+  function placeholder(): React.ReactNode {
+    return cryptoState === 'loading'
+      ? <span className="chat-sk-bar" aria-hidden style={{ display: 'inline-block', width: 84, height: 12, verticalAlign: 'middle' }} />
+      : t('chat.encrypted_message')
   }
 
   const nameOf = (senderId: string) => (senderId === currentUserId ? 'You' : otherUser.display_name)
@@ -971,6 +983,8 @@ export default function ChatClient({
       if (!('success' in res) || !res.success) {
         const code = (res as { code?: string }).code
         if (code === 'blocked_by_me' || code === 'not_mutual') { setLock(code); toastError(CHAT_LOCK_COPY[code]); cancelEdit(); return }
+        // The 15 minutes ran out while the edit was open (Edit is already hidden once they are up): leave edit mode.
+        if (code === 'edit_window_closed') { toastError(t('chat.could_not_edit')); cancelEdit(); return }
         toastError(t('chat.could_not_edit'))
         return                                               // stay in edit mode: nothing is lost, they can retry
       }
@@ -1042,7 +1056,7 @@ export default function ChatClient({
     }
     if (m.media_url) items.push({ key: 'view', label: t('chat.view'), icon: <Eye size={18} />, onSelect: () => openMedia(m) })
     if (readable) items.push({ key: 'copy', label: t('chat.copy'), icon: <Copy size={18} />, onSelect: () => { void handleCopy(m) } })
-    if (mine && canSend && !attachment && !attachUploading && readable) {
+    if (mine && canSend && !attachment && !attachUploading && readable && Date.now() - Date.parse(m.created_at) <= EDIT_WINDOW_MS) {
       items.push({ key: 'edit', label: t('chat.edit'), icon: <Pencil size={18} />, onSelect: () => startEdit(m) })
     }
     if (mine) {
@@ -1227,7 +1241,18 @@ export default function ChatClient({
               </div>
             )}
 
-            <div style={{ visibility: holdPaint ? 'hidden' : 'visible' }}>
+            <div style={{ visibility: holdPaint ? 'hidden' : 'visible', position: 'relative' }}>
+            {holdPaint && (
+              // The few milliseconds while the cached messages are being decrypted: the same skeleton as the web
+              // loading screen, in the bubbles' place (never "…" bubbles).
+              <div aria-hidden style={{ position: 'absolute', left: 0, right: 0, bottom: 0, visibility: 'visible', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[{ mine: false, w: 160 }, { mine: true, w: 120 }, { mine: false, w: 200 }, { mine: false, w: 90 }, { mine: true, w: 150 }].map((b, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: b.mine ? 'flex-end' : 'flex-start' }}>
+                    <div className="chat-sk-bar" style={{ height: 34, width: b.w, borderRadius: 16 }} />
+                  </div>
+                ))}
+              </div>
+            )}
             {rows.map(row => {
               if (row.type === 'day') {
                 return (
@@ -1267,9 +1292,9 @@ export default function ChatClient({
                   onContextMenu={e => {
                     if (!canAct) return
                     e.preventDefault()   // no native menu (long-press on a photo, right-click)
-                    if (gestures.lastPointerType() === 'mouse') setMenu({ id: msg.id, keyboard: false })
+                    if (gestures.lastPointerType() === 'mouse' && hasHoverPointer()) setMenu({ id: msg.id, keyboard: false })
                   }}
-                  style={{ position: 'relative', marginBottom: grouped ? 2 : 10, borderRadius: 12, touchAction: 'pan-y' }}
+                  style={{ position: 'relative', WebkitTapHighlightColor: 'transparent', marginBottom: grouped ? 2 : 10, borderRadius: 12, touchAction: 'pan-y' }}
                 >
                   {canAct && canSend && (
                     <div data-swipe-icon aria-hidden style={{
@@ -1310,7 +1335,7 @@ export default function ChatClient({
                       onClick={e => {
                         e.stopPropagation()
                         if (gestures.wasGesture()) { e.preventDefault(); return }   // the tail of a long press / swipe, not a tap
-                        if (!canAct || gestures.lastPointerType() !== 'mouse') return
+                        if (!canAct || gestures.lastPointerType() !== 'mouse' || !hasHoverPointer()) return   // touch: no tap menu (long-press is the menu)
                         if (window.getSelection()?.toString()) return                // they were selecting text, not clicking
                         setMenu({ id: msg.id, keyboard: false })
                       }}
@@ -1748,8 +1773,14 @@ export default function ChatClient({
         .chat-msg-wrap { -webkit-touch-callout: none; }
         @media (pointer: coarse) { .chat-msg-wrap { -webkit-user-select: none; user-select: none; } }
         .chat-msg-opt { opacity: 0; transition: opacity 0.12s; }
-        .chat-msg-wrap:hover .chat-msg-opt, .chat-msg-opt:focus-visible { opacity: 1; }
-        @media (hover: none) { .chat-msg-opt { display: none; } }
+        /* Hover button: real mouse/trackpad only. Phones (and the Android app's web view) emulate :hover after a
+           tap, which used to flash this button on the first tap - so it is hidden unless the primary input hovers. */
+        @media (hover: hover) and (pointer: fine) {
+          .chat-msg-wrap:hover .chat-msg-opt, .chat-msg-opt:focus-visible { opacity: 1; }
+        }
+        @media not all and (hover: hover) and (pointer: fine) { .chat-msg-opt { display: none; } }
+        @keyframes chat-sk-shimmer { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+        .chat-sk-bar { animation: chat-sk-shimmer 1.5s ease-in-out infinite; background: var(--color-surface-3); border-radius: 6px; }
         @keyframes chat-typing-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
       `}</style>
     </div>

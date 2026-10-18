@@ -12,6 +12,7 @@ import { fetchMessagePage, type MessagePage } from '@/lib/chat-queries'
 import { getUnreadChatCount } from '@/lib/queries/chat'
 import { getChatLockReason, getChatLockReasons } from '@/lib/mutuals'
 import { CHAT_LOCK_COPY, type ChatLockReason } from '@/lib/chat-access'
+import { EDIT_WINDOW_MS } from '@/lib/chat-message-state'
 
 /** A refusal that tells the client exactly why (so it can stop retrying and show the right banner). */
 function chatLocked(reason: ChatLockReason) {
@@ -586,6 +587,10 @@ export async function editMessageAction(messageId: string, body: string) {
     .eq('id', messageId)
     .maybeSingle()
   if (!msg || msg.sender_id !== profile.id || msg.is_deleted) return { error: 'Message not found' }
+  // A sent message can only be changed for a short while (the chat hides Edit after the same time).
+  if (Date.now() - Date.parse(msg.created_at) > EDIT_WINDOW_MS) {
+    return { error: 'Messages can only be edited for 15 minutes after they are sent', code: 'edit_window_closed' as const }
+  }
 
   const conv = await getMyConversation(supabase, profile.id, msg.conversation_id)
   if (!conv) return { error: 'Conversation not found' }
