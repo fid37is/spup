@@ -7,18 +7,24 @@
 //   - mounting claims the cache for this user, dropping anything cached for
 //     someone else on the same phone;
 //   - unmounting (the signed-in layout goes away: sign-out, or leaving to a
-//     public page) clears the cache, decrypted previews and the PIN memo.
+//     public page) clears the cache, decrypted previews, the cached message
+//     threads (lib/chat-thread-cache.ts), the typing channels and the PIN memo.
 // See lib/chat-list-cache.ts and components/chat/pin-gate.tsx.
 
 import { useEffect } from 'react'
 import { claimChatListCache, clearChatListCache } from '@/lib/chat-list-cache'
+import { claimChatThreadCache, clearChatThreadCache } from '@/lib/chat-thread-cache'
+import { resetTypingHub } from '@/lib/chat-typing'
 import { resetPinGateMemo } from '@/components/chat/pin-gate'
 
 export default function ChatCacheGuard({ userId }: { userId: string }) {
   useEffect(() => {
     claimChatListCache(userId)
+    claimChatThreadCache(userId)
     return () => {
       clearChatListCache()
+      clearChatThreadCache()   // on-device message threads + decrypted text
+      resetTypingHub()
       resetPinGateMemo()
     }
   }, [userId])

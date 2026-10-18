@@ -193,6 +193,17 @@ export default async function PostDetailPage({
   const viewerAvatar = viewer?.avatar_url ?? null
   const viewerUserId = viewer?.id ?? undefined
 
+  // Where the viewer stands with the author: drives the Follow / Follow back pill in the
+  // post's top row. Nothing for your own post or someone you already follow.
+  let followInfo: { following: boolean; followsMe: boolean } | undefined
+  if (viewerUserId && post.author?.id && post.author.id !== viewerUserId) {
+    const [{ data: iFollow }, { data: followsMe }] = await Promise.all([
+      supabase.from('follows').select('id').match({ follower_id: viewerUserId, following_id: post.author.id }).maybeSingle(),
+      supabase.from('follows').select('id').match({ follower_id: post.author.id, following_id: viewerUserId }).maybeSingle(),
+    ])
+    followInfo = { following: !!iFollow, followsMe: !!followsMe }
+  }
+
   return (
     <div style={{ paddingBottom: 80 }}>
       {/* The page draws its own header (back + title), so the app's mobile top bar steps aside. */}
@@ -218,7 +229,7 @@ export default async function PostDetailPage({
       </div>
 
       {/* Main post */}
-      <PostCard post={post} currentUserId={viewerUserId} />
+      <PostCard post={post} currentUserId={viewerUserId} followInfo={followInfo} />
       {viewerUserId && <DetailExpandBeacon postId={post.id} isOwnPost={post.author?.id === viewerUserId} />}
 
       {/* Reply sort + view activity - only shown once there's something to sort/view */}

@@ -11,7 +11,7 @@
 //   const { startPost } = usePosting()
 //   startPost({ body, media })   // returns immediately; the composer can close
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useToast } from '@/components/layout/toast'
 import { useTranslation } from '@/lib/i18n/language-context'
@@ -62,18 +62,6 @@ export default function PostingProvider({ children }: { children: React.ReactNod
     t: () => tRef.current,
   }), [store])
   const value = useMemo<PostingContextValue>(() => ({ startPost: poster.startPost }), [poster])
-
-  // Closing the tab mid-upload would silently lose the post - ask first. Only
-  // while something is actually sending.
-  useEffect(() => {
-    function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (!store.hasRunning()) return
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [store])
 
   return (
     <PostingContext.Provider value={value}>

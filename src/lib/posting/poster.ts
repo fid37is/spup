@@ -7,22 +7,27 @@
 // spinning) until the very end. Now it only gathers what the person wrote,
 // hands it to `startPost` and closes straight away. This module then:
 //
-//   1. waits for any photos/videos still uploading (the composer starts those
-//      as soon as they're picked, so by Post time most are already done),
+//   1. checks the text against the rules BEFORE sending anything (a post that
+//      would be refused costs no data and leaves nothing on the server), then
+//      uploads the photos/videos - they are only sent now, after Post was tapped
+//      (a file picked in the composer stays on the device until then),
 //   2. publishes with createPostAction,
 //   3. drives the progress line at the top of the screen,
 //   4. shows a toast when it's sent (with a View button) - or, if something
-//      went wrong, a toast with Retry, with the person's words saved to Drafts
-//      so nothing they wrote is lost.
+//      went wrong, a toast with Retry. Either way the person's words AND their
+//      unsent photos/videos are saved to Drafts so nothing is lost; a post the
+//      rules refuse goes straight to Drafts to be edited and sent again.
 //
 // It is plain TypeScript with no React in it. The provider
 // (components/layout/posting-provider) creates one poster for the whole app
 // shell, which is what lets a post keep going while the person navigates.
 
-import { createPostAction } from '@/lib/actions'
+import { createPostAction, precheckPostAction } from '@/lib/actions'
 import { showSupportResources } from '@/lib/support-resources'
 import { formatScheduled } from '@/components/feed/schedule-picker'
 import { deleteDraft, saveDraft, hasMeaningfulContent } from '@/lib/local-drafts'
+import { syncDraftFiles } from '@/lib/draft-files'
+import { MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG } from '@/lib/media-limits'
 import { queueOfflinePost, registerBackgroundSync } from '@/lib/offline-post-queue'
 import { publishFeedEvent, stashJustPosted } from '@/lib/feed-local-events'
 import { startMediaUpload, type UploadHandle } from '@/lib/posting/media-upload'
@@ -37,9 +42,9 @@ export interface PostJobMedia {
   /** Any stable key for this item (the composer's own id for it). */
   key: string
   kind: 'image' | 'video'
-  /** The original file. Needed to retry a failed upload, and for the offline queue. */
+  /** The original file. The poster uploads from this when Post is tapped; also used to retry and for the offline queue. */
   file?: File
-  /** An upload the composer already started - the poster just waits for it. */
+  /** An upload already running for this item (set by the poster itself). */
   handle?: UploadHandle
   /** Already uploaded (finished before Post, or restored from a draft). */
   result?: UploadResult
@@ -140,6 +145,22 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
         return
       }
 
+      // 0. Before any file leaves the device: would this post be refused anyway?
+      //    (blocked words, an account that cannot post). If so nothing is uploaded.
+      if (input.media.some(m => !m.result)) {
+        let check: Awaited<ReturnType<typeof precheckPostAction>>
+        try {
+          check = await precheckPostAction({ body: input.body })
+        } catch {
+          throw new UploadError(deps.t()('composer.upload_failed'))
+        }
+        if ('error' in check && check.error) {
+          const code = (check as { code?: string }).code
+          fail(job, check.error, code !== 'suspended' && code !== 'content_blocked', undefined, code === 'content_blocked')
+          return
+        }
+      }
+
       // 1. Every item must be uploading (or already uploaded). On a retry,
       //    items that finished the first time are kept; only the failed ones
       //    start again, from their original file.
@@ -147,7 +168,19 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
         if (item.result) continue
         if (!item.handle || item.handle.status === 'error') {
           if (!item.file) throw new UploadError(deps.t()('composer.upload_failed'))
-          item.handle = startMediaUpload(item.file, item.kind)
+          item.handle = startMediaUpload(item.file, item.kind, {
+            // Everything in one post can total MAX_POST_MEDIA_BYTES (photos are counted
+            // after compression, so this can only be checked here, as each one is sized).
+            beforeSend: bytes => {
+              let others = 0
+              for (const o of input.media) {
+                if (o === item) continue
+                if (o.result) others += o.result.size_bytes ?? 0
+                else if (o.handle?.sized && o.handle.status !== 'error') others += o.handle.sentBytes
+              }
+              return others + bytes > MAX_POST_MEDIA_BYTES ? POST_MEDIA_TOO_BIG : null
+            },
+          })
         }
         unsubscribe.push(item.handle.subscribe(() => trackUploads(job)))
       }
@@ -188,8 +221,8 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
           fail(job, result.error, false, (result as { appealUrl?: string }).appealUrl ?? '/contact?topic=link-appeal')
           return
         }
-        // A suspension isn't something a second attempt can change, so no Retry button.
-        fail(job, result.error, code !== 'suspended')
+        // Neither a suspension nor a blocked wording changes by trying again: no Retry button.
+        fail(job, result.error, code !== 'suspended' && code !== 'content_blocked', undefined, code === 'content_blocked')
         return
       }
       succeed(job, {
@@ -308,7 +341,7 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
     }
   }
 
-  function fail(job: PostJob, detail: string, retryable = true, appealUrl?: string) {
+  function fail(job: PostJob, detail: string, retryable = true, appealUrl?: string, blocked = false) {
     const { input } = job
     // An upload refused for a suspension arrives as plain text; treat it the same way.
     if (/^Your account is suspended/.test(detail)) retryable = false
@@ -316,15 +349,20 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
     job.status = 'failed'
     store.touch()
 
-    // Keep what the person wrote. Replies aren't tracked in the Drafts panel
-    // (same rule the composer's own autosave follows), so only new posts.
+    // Keep what the person wrote - and their photos/videos that were never sent, which
+    // go back to the device-side store - so they can edit the post and send it again.
+    // Replies aren't tracked in the Drafts panel (same rule the composer's own
+    // autosave follows), so only new posts.
     if (input.draft && !input.parentPostId) {
       const uploaded = input.media.flatMap(m => (m.result ? [m.result] : []))
+      const held = input.media.filter(m => !m.result && m.file)
       const body = input.body ?? ''
-      if (hasMeaningfulContent(body, uploaded.length)) {
+      if (hasMeaningfulContent(body, uploaded.length + held.length)) {
+        void syncDraftFiles(input.draft.id, held.map(m => ({ key: m.key, blob: m.file!, name: m.file!.name })))
         saveDraft(input.draft.userId, {
           id: input.draft.id,
           body,
+          heldMedia: held.map(m => ({ key: m.key, media_type: m.kind, size_bytes: m.file!.size })),
           media: uploaded.map(m => ({
             url: m.url,
             thumbnail_url: m.thumbnail_url,
@@ -342,7 +380,10 @@ export function createPoster(store: ProgressStore<PostJob>, deps: PosterDeps) {
     }
 
     const fallback = input.parentPostId ? t('composer.reply_failed') : t('composer.post_failed')
-    if (retryable) {
+    if (blocked && input.draft && !input.parentPostId) {
+      // Refused for what it says: nothing was uploaded. It is in Drafts, ready to edit.
+      deps.toast().error(t('composer.blocked_to_drafts', { message: detail || fallback }), 9000)
+    } else if (retryable) {
       deps.toast().error(detail || fallback, FAILED_TOAST_MS, { label: t('composer.retry'), onClick: () => retry(job.id) })
     } else if (appealUrl) {
       // A blocked link: say so, and offer the appeal page.

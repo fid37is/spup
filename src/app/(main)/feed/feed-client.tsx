@@ -612,6 +612,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
   useEffect(() => {
     return subscribeFeedEvents(e => {
       if (e.type === 'post-created') return // handled by the listener above
+      if (e.type === 'post-edited') return // each card applies its own edit
       if (e.type === 'repost-added') {
         if (tabRef.current !== 'for-you') return
         const id = e.post.id

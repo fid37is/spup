@@ -21,6 +21,8 @@ export type FeedLocalEvent =
   | { type: 'repost-added'; post: FeedPost }
   | { type: 'repost-removed'; originalId: string }
   | { type: 'post-created'; post: FeedPost }
+  // The text of a post was edited (from the composer, on desktop or phone).
+  | { type: 'post-edited'; id: string; body: string; edited_at: string }
 
 type Listener = (e: FeedLocalEvent) => void
 const listeners = new Set<Listener>()
@@ -51,6 +53,33 @@ export function takeJustPosted(): FeedPost | null {
     if (!parsed?.post?.id || typeof parsed.at !== 'number') return null
     if (Date.now() - parsed.at > JUST_POSTED_TTL_MS) return null
     return parsed.post
+  } catch {
+    return null
+  }
+}
+
+// An edit made on the phone's /compose page happens while no feed is mounted, so
+// the card that is shown again afterwards would still hold the old text. The edit is
+// parked here by post id; a card applies it when it mounts. Short-lived on purpose.
+const POST_EDITS_KEY = 'spup:post-edits'
+const POST_EDIT_TTL_MS = 10 * 60 * 1000
+
+export function stashPostEdit(id: string, body: string, edited_at: string) {
+  try {
+    const all = JSON.parse(sessionStorage.getItem(POST_EDITS_KEY) || '{}') as Record<string, { body: string; edited_at: string; at: number }>
+    const now = Date.now()
+    for (const k of Object.keys(all)) if (now - all[k].at > POST_EDIT_TTL_MS) delete all[k]
+    all[id] = { body, edited_at, at: now }
+    sessionStorage.setItem(POST_EDITS_KEY, JSON.stringify(all))
+  } catch { /* private mode */ }
+}
+
+export function getStashedPostEdit(id: string): { body: string; edited_at: string } | null {
+  try {
+    const all = JSON.parse(sessionStorage.getItem(POST_EDITS_KEY) || '{}') as Record<string, { body: string; edited_at: string; at: number }>
+    const e = all[id]
+    if (!e || Date.now() - e.at > POST_EDIT_TTL_MS) return null
+    return { body: e.body, edited_at: e.edited_at }
   } catch {
     return null
   }

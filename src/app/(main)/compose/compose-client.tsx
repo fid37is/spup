@@ -11,12 +11,12 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { X } from 'lucide-react'
-import PostComposer, { type PostComposerHandle, type ReplyToContext } from '@/app/(main)/feed/post-composer'
+import PostComposer, { type PostComposerHandle, type ReplyToContext, type EditPostContext } from '@/app/(main)/feed/post-composer'
 import DraftsPanel from '@/components/feed/drafts-panel'
 import ChatViewport from '@/components/chat/chat-viewport'
 import type { LocalDraft } from '@/lib/local-drafts'
 
-export default function ComposeClient({ userId, authorAvatarUrl, authorName, replyTo = null, replyChain = [], returnTo }: {
+export default function ComposeClient({ userId, authorAvatarUrl, authorName, replyTo = null, replyChain = [], returnTo, editPost = null }: {
   userId?: string
   authorAvatarUrl?: string | null
   authorName?: string
@@ -25,6 +25,8 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   replyChain?: ReplyToContext[]
   /** The post detail page this reply was opened from - land back there after posting, not on the replied-to comment's own page. */
   returnTo?: string
+  /** /compose?edit=<id>: the same screen, opened on an existing post to change its text. */
+  editPost?: EditPostContext | null
 }) {
   const router = useRouter()
   const composerRef = useRef<PostComposerHandle>(null)
@@ -62,7 +64,7 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   }
 
   const { canPost, isScheduled } = composerState
-  const postLabel = replyTo ? 'Reply' : (isScheduled ? 'Schedule' : 'Post')
+  const postLabel = editPost ? 'Save' : replyTo ? 'Reply' : (isScheduled ? 'Schedule' : 'Post')
 
   if (closing) return null
 
@@ -80,7 +82,12 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
         >
           <X size={22} />
         </button>
-        {userId && !replyTo && (
+        {editPost && (
+          <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)' }}>
+            Edit post
+          </span>
+        )}
+        {userId && !replyTo && !editPost && (
           <button
             onClick={() => setShowDrafts(true)}
             style={{
@@ -126,13 +133,14 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
           userId={userId}
           replyTo={replyTo}
           replyChain={replyChain}
+          editPost={editPost}
           viewHref={replyTo ? `/post/${returnTo ?? replyTo.id}` : undefined}
           onStateChange={setComposerState}
           onPosted={handlePosted}
         />
       </div>
 
-      {showDrafts && userId && !replyTo && (
+      {showDrafts && userId && !replyTo && !editPost && (
         <DraftsPanel
           userId={userId}
           onClose={() => setShowDrafts(false)}

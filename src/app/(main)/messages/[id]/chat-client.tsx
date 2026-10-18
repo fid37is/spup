@@ -4,8 +4,9 @@
 //
 // The conversation screen. See docs/CHAT_FIXES.md for the reasoning behind the
 // structure; the short version:
-//   - `messages` holds the rows. Decrypted text lives in a separate `texts` map
-//     keyed by message id, so decrypting can never overwrite or drop a message.
+//   - `messages` holds the rows. Decrypted text lives outside them, in a cache keyed by
+//     ciphertext (lib/chat-thread-cache.ts), so decrypting can never overwrite or drop a
+//     message, an edit (new ciphertext) just decrypts again, and re-opening a chat is instant.
 //   - Live rows come straight from the realtime payload (no second fetch that
 //     could fail silently), and everything is re-synced on mount, on reconnect,
 //     when the tab becomes visible again, and by a low-rate poll as a safety net.
@@ -19,11 +20,11 @@ import { useRouter } from 'next/navigation'
 import BackButton from '@/components/ui/back-button'
 import {
   Send, X, Trash2, CornerUpLeft, Lock, ChevronDown, Loader2, RefreshCw, WifiOff,
-  ImagePlus, Play, AlertCircle, MoreVertical, EyeOff, Flag, Ban,
+  ImagePlus, Play, AlertCircle, MoreVertical, EyeOff, Flag, Ban, Pencil, Check, Copy, Eye,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
-  sendMessageAction, hideConversationAction, deleteMessageAction, loadMessagesAction, markConversationReadAction,
+  sendMessageAction, hideConversationAction, deleteMessageAction, editMessageAction, loadMessagesAction, markConversationReadAction,
   uploadPublicKeyAction, getPublicKeyAction, getWrappedKeyAction, uploadWrappedKeyAction,
   type ChatMediaInput,
 } from '@/lib/actions/messages'
@@ -39,12 +40,16 @@ import {
 import type { MessageRow, ReplyRef } from '@/lib/chat-queries'
 import MessageStatusIcon from '@/components/chat/message-status'
 import ChatMediaViewer from '@/components/chat/chat-media-viewer'
+import MessageActionsPopup, { type MenuItem } from '@/components/chat/message-actions-popup'
+import { useMessageGestures } from '@/hooks/use-message-gestures'
 import { useToast } from '@/components/layout/toast'
 import ReportDialog from '@/components/feed/report-dialog'
 import { toggleBlockAction } from '@/lib/actions/follows'
 import { CHAT_LOCK_COPY, type ChatLockReason } from '@/lib/chat-access'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
-import { patchChatListCache } from '@/lib/chat-list-cache'
+import { patchChatListCache, sharedPreviewKeys } from '@/lib/chat-list-cache'
+import { readThreadCache, writeThreadCache, plainTextCache } from '@/lib/chat-thread-cache'
+import { onTyping, createTypingEmitter, TYPING_TTL_MS } from '@/lib/chat-typing'
 import { uploadMedia, UploadCancelledError } from '@/lib/upload-media'
 import { compressImageForUpload } from '@/lib/media-client'
 import { validateMediaFile, mediaKindOf } from '@/lib/media-limits'
@@ -58,6 +63,9 @@ const AVATAR_COLORS = ['#1A9E5F', '#7A3A1A', '#1A4A7A', '#4A1A7A', '#7A6A1A']
 const MAX_TEXT = 4000            // characters per message (the server allows more for ciphertext overhead)
 const POLL_MS = 15_000           // safety-net re-sync while the tab is visible (see docs/CHAT_FIXES.md)
 const NEAR_BOTTOM_PX = 120
+const PAINT_HOLD_MAX_MS = 700    // longest the first paint of a thread waits for its cached messages to decrypt
+
+const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 interface Message extends ChatMsg {
   reply_to?: ReplyRef | null
@@ -77,9 +85,10 @@ interface OtherUser {
 
 interface ChatClientProps {
   conversationId: string
-  initialMessages: MessageRow[]
-  initialHasMore: boolean
-  initialError: string | null
+  /** Optional: the page no longer fetches messages on the server - the screen paints from its on-device copy. */
+  initialMessages?: MessageRow[]
+  initialHasMore?: boolean
+  initialError?: string | null
   currentUserId: string
   otherUser: OtherUser
   /** Why this thread is read-only right now (null = you can write). */
@@ -110,8 +119,16 @@ async function prepareDmText(text: string): Promise<{ text: string; blocked: boo
   return { text: applyReplacements(text, extractLinkTokens(text), replacements), blocked: false }
 }
 
+/** The message these replies quoted was deleted: they keep the quote's name but no longer show its text. */
+function markQuotesDeleted(list: Message[], id: string): Message[] {
+  return list.map(m =>
+    m.reply_to && m.reply_to.id === id && !m.reply_to.is_deleted
+      ? { ...m, reply_to: { ...m.reply_to, body: null, is_deleted: true } }
+      : m)
+}
+
 export default function ChatClient({
-  conversationId, initialMessages, initialHasMore, initialError, currentUserId, otherUser, initialLock = null,
+  conversationId, initialMessages = [], initialHasMore = false, initialError = null, currentUserId, otherUser, initialLock = null,
 }: ChatClientProps) {
   const { t } = useTranslation()
   const router = useRouter()
@@ -122,10 +139,21 @@ export default function ChatClient({
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<Message[]>(() => arrange(initialMessages as Message[]))
-  const [texts, setTexts] = useState<Record<string, string>>({})   // message id -> plaintext
+  // Plaintext of MY pending (optimistic) sends, by temp id, so the bubble shows what I typed before it has a wire
+  // body. Everything else is read from the decrypted-text cache (lib/chat-thread-cache.ts), keyed by ciphertext.
+  const [texts, setTexts] = useState<Record<string, string>>({})
+  const [plainVersion, bumpPlain] = useState(0)                       // the decrypted-text cache gained entries
+  const [paintOpen, setPaintOpen] = useState(false)                   // first paint no longer held back for decrypting
+  const [peerTyping, setPeerTyping] = useState(false)
+  const [editing, setEditing] = useState<Message | null>(null)         // message being edited (composer is in edit mode)
+  const [editSaving, setEditSaving] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [body, setBody] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)          // message whose action bar is open
+  // The message whose options menu is open (anchored popup, see components/chat/message-actions-popup.tsx).
+  const [menu, setMenu] = useState<{ id: string; keyboard: boolean } | null>(null)
+  const selectedId = menu?.id ?? null
+  const setSelectedId = (id: string | null) => setMenu(id ? { id, keyboard: false } : null)
   const [hasMore, setHasMore] = useState(initialHasMore)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [loaded, setLoaded] = useState(false)                        // first client sync finished
@@ -169,6 +197,7 @@ export default function ChatClient({
   const syncingRef = useRef(false)
   const ackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sendChainRef = useRef<Promise<void>>(Promise.resolve())
+  const typingRef = useRef<ReturnType<typeof createTypingEmitter> | null>(null)
   const outboxRef = useRef(new Map<string, { text: string; replyId: string | null; wire: string | null; media: ChatMediaInput | null }>())
 
   // Encryption
@@ -195,10 +224,10 @@ export default function ChatClient({
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   /** Plaintext to show for a message (or reply target). undefined = still decrypting / no key. */
-  function textOf(m: { id: string; body: string | null }): string | null | undefined {
+  function textOf(m: { id: string; body: string | null; _optimistic?: boolean }): string | null | undefined {
+    if (m._optimistic && texts[m.id] !== undefined) return texts[m.id]   // my own pending send: what I typed
     if (!m.body) return null
-    if (texts[m.id] !== undefined) return texts[m.id]
-    if (isEncrypted(m.body)) return undefined
+    if (isEncrypted(m.body)) return plainTextCache.get(m.body)           // undefined = still decrypting
     return m.body
   }
 
@@ -235,6 +264,7 @@ export default function ChatClient({
         const shared = await deriveSharedKey(priv, cachedPub)
         peerPubRef.current = cachedPub
         sharedKeyRef.current = shared
+        sharedPreviewKeys.set(`${currentUserId}:${otherUser.id}`, shared)   // next visit starts with it already derived
         setSharedKey(shared)
         setCryptoState('ready')
       }
@@ -247,11 +277,15 @@ export default function ChatClient({
     const changed = peerPubRef.current !== null && peerPubRef.current !== publicKey
     peerPubRef.current = publicKey
     sharedKeyRef.current = shared
+    sharedPreviewKeys.set(`${currentUserId}:${otherUser.id}`, shared)
     setSharedKey(shared)
     setCryptoState('ready')
     setCachedPeerPublicKey(currentUserId, otherUser.id, publicKey)
     // They re-keyed (new device): anything we failed to open may open now.
-    if (changed) setTexts(t => Object.fromEntries(Object.entries(t).filter(([, v]) => v !== UNDECRYPTABLE)))
+    if (changed) {
+      for (const [k, v] of plainTextCache) if (v === UNDECRYPTABLE) plainTextCache.delete(k)
+      bumpPlain(n => n + 1)
+    }
     return true
   }, [otherUser.id, currentUserId])
 
@@ -276,7 +310,9 @@ export default function ChatClient({
           })
           if (cancelled) return
           privateKeyRef.current = privateKey
-          await uploadPublicKeyAction(publicKeyB64)
+          // Publishing my public key is bookkeeping: it must not sit between opening the chat and decrypting it
+          // (it used to be awaited here - a full server round trip on every visit before any text could show).
+          void uploadPublicKeyAction(publicKeyB64).catch(() => { /* retried on the next visit */ })
           const ok = await connectPeer()
           if (!cancelled && !ok) setCryptoState('no-peer-key')
         } catch (e) {
@@ -299,31 +335,31 @@ export default function ChatClient({
     return () => { cancelled = true }
   }, [currentUserId, getPassword, connectPeer])
 
-  // Decrypt whatever needs it. Writes ONLY to `texts`, never to `messages`.
+  // Decrypt whatever needs it. Writes ONLY to the decrypted-text cache (keyed by ciphertext), never to
+  // `messages` - so an edited message (new ciphertext) simply decrypts again, and a thread opened a second
+  // time finds everything already decrypted.
   useEffect(() => {
     if (!sharedKey) return
-    const todo: { id: string; body: string }[] = []
+    const todo: string[] = []
+    const want = (body: string | null | undefined) => {
+      if (body && isEncrypted(body) && plainTextCache.get(body) === undefined && !todo.includes(body)) todo.push(body)
+    }
     for (const m of messages) {
-      if (m.body && !m.is_deleted && isEncrypted(m.body) && texts[m.id] === undefined) todo.push({ id: m.id, body: m.body })
+      if (!m.is_deleted) want(m.body)
       const r = m.reply_to
-      if (r?.body && !r.is_deleted && isEncrypted(r.body) && texts[r.id] === undefined && !todo.some(x => x.id === r.id)) {
-        todo.push({ id: r.id, body: r.body })
-      }
+      if (r && !r.is_deleted) want(r.body)
     }
     if (todo.length === 0) return
     let cancelled = false
       ; (async () => {
-        const done = await Promise.all(todo.map(async x => [x.id, await decryptMessage(x.body, sharedKey)] as const))
+        const done = await Promise.all(todo.map(async body => [body, await decryptMessage(body, sharedKey)] as const))
         if (cancelled) return
-        setTexts(prev => {
-          const next = { ...prev }
-          for (const [id, text] of done) if (next[id] === undefined) next[id] = text
-          return next
-        })
+        for (const [body, text] of done) if (!plainTextCache.has(body)) plainTextCache.set(body, text)
+        bumpPlain(n => n + 1)
         if (done.some(([, t]) => t === UNDECRYPTABLE)) void recheckPeerKey()
       })()
     return () => { cancelled = true }
-  }, [messages, sharedKey, texts, recheckPeerKey])
+  }, [messages, sharedKey, plainVersion, recheckPeerKey])
 
   // ── Read / delivered acknowledgement ───────────────────────────────────────
   // "Read" is only sent while the messages are really on screen. (It used to be
@@ -364,8 +400,16 @@ export default function ChatClient({
       setLoadError(null)
       const known = new Set(messagesRef.current.map(m => m.id))
       const fresh = res.messages.filter(m => !known.has(m.id) && m.sender_id !== currentUserId)
-      if (messagesRef.current.every(m => m._optimistic)) setHasMore(res.hasMore)
-      setMessages(prev => mergeFetched(prev, res.messages as Message[]))
+      // The phone's copy can be older than a whole page (more than a page of new messages while away).
+      // Merging then would leave a hole in the middle of the thread, so start again from the latest page.
+      const confirmed = messagesRef.current.filter(m => !m._optimistic)
+      const newestKnown = confirmed.length > 0 ? confirmed[confirmed.length - 1].created_at : null
+      const gap = res.hasMore && res.messages.length > 0 && newestKnown !== null &&
+        Date.parse(res.messages[0].created_at) > Date.parse(newestKnown)
+      if (confirmed.length === 0 || gap) setHasMore(res.hasMore)
+      setMessages(prev => gap
+        ? arrange([...prev.filter(m => m._optimistic), ...(res.messages as Message[])])
+        : mergeFetched(prev, res.messages as Message[]))
       if (fresh.length > 0) noteIncoming(fresh.length)
       if (res.messages.some(m => m.sender_id !== currentUserId && !m.read_at)) scheduleAck()
       if (!sharedKeyRef.current) void recheckPeerKey()
@@ -383,10 +427,9 @@ export default function ChatClient({
     const list = messagesRef.current
     const match = findPendingMatch(list, row as ChatMsg)
     const existing = list.find(m => m.id === row.id)
-    if (match) {
-      // The echo of my own send: carry the plaintext over so the text doesn't flicker.
-      setTexts(t => (t[match.id] !== undefined && t[row.id] === undefined ? { ...t, [row.id]: t[match.id] } : t))
-    }
+    if (row.sender_id !== currentUserId) setPeerTyping(false)   // their message arrived: they are no longer "typing…"
+    // (The echo of my own send needs no plaintext carry-over: deliver() already put it in the decrypted-text
+    // cache under the ciphertext it sent, which is exactly what the echo carries.)
     let reply: ReplyRef | null = row.reply_to ?? existing?.reply_to ?? null
     if (!reply && row.reply_to_id) {
       const t = list.find(m => m.id === row.reply_to_id)
@@ -405,6 +448,32 @@ export default function ChatClient({
   // Effects below call through this ref so they never need to re-subscribe when a callback changes.
   const latest = useRef({ syncLatest, handleIncomingRow, scheduleAck })
   latest.current = { syncLatest, handleIncomingRow, scheduleAck }
+
+  // The on-device copy first: the thread (and the key to read it) is on screen before any network call,
+  // and a layout effect runs before the browser paints - so there is no empty or "…" frame. New messages
+  // then catch up through the sync below, which is a silent top-up, not a loading state.
+  useIsoLayoutEffect(() => {
+    const cached = readThreadCache(currentUserId, conversationId)
+    if (cached && cached.messages.length > 0) {
+      setMessages(cur => (cur.length === 0 ? arrange(cached.messages as Message[]) : mergeFetched(cur, cached.messages as Message[])))
+      setHasMore(cached.hasMore)
+      setLoaded(true)
+    }
+    const key = otherUser.id ? sharedPreviewKeys.get(`${currentUserId}:${otherUser.id}`) : null
+    if (key && !sharedKeyRef.current) {
+      sharedKeyRef.current = key
+      peerPubRef.current = getCachedPeerPublicKey(currentUserId, otherUser.id)
+      setSharedKey(key)
+      setCryptoState('ready')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId])
+
+  // Keep the on-device copy current (newest page, confirmed rows only; written to storage shortly after).
+  useEffect(() => {
+    if (!loaded) return
+    writeThreadCache(currentUserId, conversationId, messages.filter(m => !m._optimistic) as MessageRow[], hasMore)
+  }, [messages, hasMore, loaded, currentUserId, conversationId])
 
   // First client sync + mark read. Runs even when the server render already gave
   // us messages: that HTML can be stale (service-worker cache, slow network).
@@ -435,7 +504,10 @@ export default function ChatClient({
         latest.current.handleIncomingRow(payload.new as MessageRow)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter }, (payload: any) => {
-        setMessages(prev => applyRowUpdate(prev, payload.new))
+        setMessages(prev => {
+          const next = applyRowUpdate(prev, payload.new)
+          return payload.new?.is_deleted === true ? markQuotesDeleted(next, payload.new.id) : next
+        })
       })
       .subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
@@ -447,6 +519,32 @@ export default function ChatClient({
       })
     return () => { void sb.removeChannel(channel) }
   }, [conversationId])
+
+  // The other person typing to me (broadcast, see lib/chat-typing.ts). Ends on their "stopped", on their
+  // message arriving, or - if they just vanished - after TYPING_TTL_MS without a refresh.
+  useEffect(() => {
+    if (!otherUser.id) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const off = onTyping(currentUserId, e => {
+      if (e.from !== otherUser.id || e.conversationId !== conversationId) return
+      if (timer) clearTimeout(timer)
+      if (!e.typing) { setPeerTyping(false); return }
+      setPeerTyping(true)
+      timer = setTimeout(() => setPeerTyping(false), TYPING_TTL_MS)
+    })
+    return () => { off(); if (timer) clearTimeout(timer); setPeerTyping(false) }
+  }, [currentUserId, otherUser.id, conversationId])
+
+  // Me typing to them.
+  useEffect(() => {
+    if (!otherUser.id || !canSend) return
+    const emitter = createTypingEmitter(currentUserId, otherUser.id, conversationId)
+    typingRef.current = emitter
+    return () => { emitter.stop(); typingRef.current = null }
+  }, [currentUserId, otherUser.id, conversationId, canSend])
+
+  // The "are you sure?" on Delete never outlives the selection it belonged to.
+  useEffect(() => { setConfirmDeleteId(null) }, [selectedId])
 
   // Safety net + wake-ups: works even if realtime isn't delivering (publication
   // not enabled, RLS, flaky mobile network) and after the phone slept.
@@ -597,6 +695,7 @@ export default function ChatClient({
         if (!sharedKeyRef.current && privateKeyRef.current) await connectPeer().catch(() => false)
         item.wire = sharedKeyRef.current ? await encryptMessage(item.text, sharedKeyRef.current) : item.text
         const wire = item.wire
+        if (isEncrypted(wire)) plainTextCache.set(wire, item.text)   // what I sent needs no decrypting, now or on the echo
         // The wire body is what the realtime echo is matched against.
         setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, body: wire } : m)))
       }
@@ -625,7 +724,6 @@ export default function ChatClient({
         throw new Error(('error' in res && res.error) || t('chat.send_failed'))
       }
       outboxRef.current.delete(tempId)
-      if (item.text) setTexts(t => ({ ...t, [res.messageId]: item.text }))
       setMessages(prev => confirmOptimistic(prev, tempId, { id: res.messageId, created_at: res.createdAt }))
       // The chat list is drawn from a cache when you go back to it: move this chat to the top now.
       patchChatListCache(currentUserId, conversationId, {
@@ -736,9 +834,11 @@ export default function ChatClient({
   }
 
   function handleSend() {
+    if (editing) { void submitEdit(); return }
     const text = body.trim()
     const media = attachment
     if ((!text && !media) || !canSend || attachUploading) return
+    typingRef.current?.stop()
     queueMessage(text, media, replyTo)
     setBody('')
     setReplyTo(null)
@@ -783,6 +883,7 @@ export default function ChatClient({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape' && editing) { e.preventDefault(); cancelEdit(); return }
     // On phones Enter is a new line (there is a Send button); on desktop Enter sends.
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isTouchPrimary()) {
       e.preventDefault()
@@ -794,12 +895,99 @@ export default function ChatClient({
     const snapshot = messagesRef.current.find(m => m.id === id)
     if (!snapshot) return
     setSelectedId(null)
-    setMessages(prev => prev.map(m => (m.id === id ? { ...m, is_deleted: true, body: null } : m)))
+    setConfirmDeleteId(null)
+    if (editing?.id === id) cancelEdit()
+    // Gone from the screen straight away. A deleted message leaves no placeholder behind (deleted rows are
+    // not drawn at all) - and any reply that quoted it stops showing its text.
+    setMessages(prev => markQuotesDeleted(prev.map(m => (m.id === id ? { ...m, is_deleted: true, body: null, media_url: null } : m)), id))
     const res = await deleteMessageAction(id).catch(() => ({ error: 'network' }))
     if (res && 'error' in res && res.error) {
       setMessages(prev => prev.map(m => (m.id === id ? snapshot : m)))
       toastError(t('chat.could_not_delete'))
+      return
     }
+    // The chat list is drawn from a cache when you go back to it: it must not keep showing the deleted
+    // message as the last one.
+    if (res && 'listUpdate' in res && res.listUpdate) {
+      const { preview, lastMessageAt } = res.listUpdate
+      const newest = [...messagesRef.current].reverse().find(m => !m.is_deleted && !m._optimistic)
+      const newestIsLast = !!newest && !!lastMessageAt && Date.parse(newest.created_at) === Date.parse(lastMessageAt)
+      const mine = newestIsLast && newest!.sender_id === currentUserId
+      patchChatListCache(currentUserId, conversationId, {
+        last_message_preview: preview,
+        ...(lastMessageAt ? { last_message_at: lastMessageAt } : {}),
+        ...(newestIsLast
+          ? { last_message_mine: mine, last_message_status: mine ? (newest!.read_at ? 'read' : newest!.delivered_at ? 'delivered' : 'sent') : null }
+          : {}),
+      })
+    }
+  }
+
+  // ── Editing ────────────────────────────────────────────────────────────────
+
+  function startEdit(m: Message) {
+    const current = textOf(m)
+    if (!current || current === UNDECRYPTABLE || !canSend) return
+    setSelectedId(null)
+    setConfirmDeleteId(null)
+    setReplyTo(null)
+    setEditing(m)
+    setBody(current)
+    typingRef.current?.stop()
+    requestAnimationFrame(() => {
+      const ta = inputRef.current
+      if (!ta) return
+      ta.focus()
+      ta.style.height = 'auto'
+      ta.style.height = ta.scrollHeight + 'px'
+      ta.setSelectionRange(ta.value.length, ta.value.length)
+    })
+  }
+
+  function cancelEdit() {
+    setEditing(null)
+    setBody('')
+    if (inputRef.current) inputRef.current.style.height = 'auto'
+  }
+
+  async function submitEdit() {
+    const target = editing
+    const text = body.trim()
+    if (!target || !text || editSaving || !canSend) return
+    if (text === textOf(target)) { cancelEdit(); return }   // nothing changed
+    setEditSaving(true)
+    try {
+      await settledRef.current!.promise                      // same rule as sending: know whether we can encrypt first
+      // Same link safety as a new message (see prepareDmText).
+      const checked = await prepareDmText(text).catch((e: any) => {
+        if (e?.code === 'suspended') return { suspended: String(e.message) } as const
+        throw e
+      })
+      if ('suspended' in checked) { toastError(checked.suspended || 'Your account is suspended.'); return }
+      if (checked.blocked) { toastError(t('links.cant_share')); return }
+      if (!sharedKeyRef.current && privateKeyRef.current) await connectPeer().catch(() => false)
+      const wire = sharedKeyRef.current ? await encryptMessage(checked.text, sharedKeyRef.current) : checked.text
+      const res = await editMessageAction(target.id, wire)
+      if (!('success' in res) || !res.success) {
+        const code = (res as { code?: string }).code
+        if (code === 'blocked_by_me' || code === 'not_mutual') { setLock(code); toastError(CHAT_LOCK_COPY[code]); cancelEdit(); return }
+        toastError(t('chat.could_not_edit'))
+        return                                               // stay in edit mode: nothing is lost, they can retry
+      }
+      if (isEncrypted(wire)) plainTextCache.set(wire, checked.text)
+      setMessages(prev => applyRowUpdate(prev, { id: target.id, body: wire, edited_at: res.editedAt }))
+      if (res.preview) patchChatListCache(currentUserId, conversationId, { last_message_preview: res.preview })
+      cancelEdit()
+    } catch (e) {
+      console.warn('[chat] edit failed:', e)
+      toastError(t('chat.could_not_edit'))
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  function openMedia(m: Message) {
+    if (m.media_url && !m._optimistic) setLightbox({ url: m.media_url, type: m.media_type === 'video' ? 'video' : 'image', msg: m })
   }
 
   async function handleCopy(m: Message) {
@@ -815,6 +1003,7 @@ export default function ChatClient({
   {
     let prev: Message | undefined
     for (const msg of messages) {
+      if (msg.is_deleted) continue          // deleted messages are not drawn at all - no "message deleted" trail
       const k = dayKey(msg.created_at)
       if (!prev || dayKey(prev.created_at) !== k) rows.push({ type: 'day', key: `day-${k}`, label: dayLabel(msg.created_at) })
       const grouped = !!prev && dayKey(prev.created_at) === k && prev.sender_id === msg.sender_id &&
@@ -824,15 +1013,72 @@ export default function ChatClient({
     }
   }
 
+  // Swipe right = reply, long press = options (touch). See hooks/use-message-gestures.ts.
+  const gestures = useMessageGestures({
+    onLongPress: id => setMenu({ id, keyboard: false }),
+    onSwipeReply: id => {
+      const m = messagesRef.current.find(x => x.id === id)
+      if (!m || m.is_deleted || m._optimistic || !canSend) return
+      if (editing) cancelEdit()
+      setReplyTo(m)
+      inputRef.current?.focus()
+    },
+  })
+
+  // The options for the open menu's message. A message that disappears (deleted on the other side) closes it.
+  const menuMsg = menu ? (messages.find(m => m.id === menu.id && !m.is_deleted && !m._optimistic) ?? null) : null
+  useEffect(() => { if (menu && !menuMsg) setMenu(null) }, [menu, menuMsg])
+
+  function menuItemsFor(m: Message): MenuItem[] {
+    const mine = m.sender_id === currentUserId
+    const mText = textOf(m)
+    const readable = typeof mText === 'string' && mText !== '' && mText !== UNDECRYPTABLE
+    const items: MenuItem[] = []
+    if (canSend) {
+      items.push({
+        key: 'reply', label: t('chat.reply'), icon: <CornerUpLeft size={18} />,
+        onSelect: () => { if (editing) cancelEdit(); setReplyTo(m); inputRef.current?.focus() },
+      })
+    }
+    if (m.media_url) items.push({ key: 'view', label: t('chat.view'), icon: <Eye size={18} />, onSelect: () => openMedia(m) })
+    if (readable) items.push({ key: 'copy', label: t('chat.copy'), icon: <Copy size={18} />, onSelect: () => { void handleCopy(m) } })
+    if (mine && canSend && !attachment && !attachUploading && readable) {
+      items.push({ key: 'edit', label: t('chat.edit'), icon: <Pencil size={18} />, onSelect: () => startEdit(m) })
+    }
+    if (mine) {
+      items.push(confirmDeleteId === m.id
+        ? { key: 'delete', label: t('chat.delete_confirm'), icon: <Trash2 size={18} />, danger: true, confirm: true, onSelect: () => { void handleDelete(m.id) } }
+        : { key: 'delete', label: t('chat.delete'), icon: <Trash2 size={18} />, danger: true, keepOpen: true, onSelect: () => setConfirmDeleteId(m.id) })
+    }
+    return items
+  }
+
+  const visibleCount = messages.reduce((n, m) => n + (m.is_deleted ? 0 : 1), 0)
+
+  // Hold back the first paint of the messages until the cached ones are decrypted (normally a few ms), so a
+  // bubble never flashes "…" and then changes. Never longer than PAINT_HOLD_MAX_MS, and only for the first paint.
+  const pendingDecrypt = messages.some(m => !m.is_deleted && !m._optimistic && !!m.body && isEncrypted(m.body) && plainTextCache.get(m.body) === undefined)
+  const holdPaint = !paintOpen && (cryptoState === 'loading' || (cryptoState === 'ready' && pendingDecrypt))
+  useEffect(() => { if (!paintOpen && loaded && !holdPaint) setPaintOpen(true) }, [paintOpen, loaded, holdPaint])
+  useEffect(() => {
+    const id = setTimeout(() => setPaintOpen(true), PAINT_HOLD_MAX_MS)
+    return () => clearTimeout(id)
+  }, [])
+
   // Only ever states something that is true and useful. Encryption problems
   // (no key yet, unavailable) are handled silently: nothing is shown for them.
-  const subtitle = !online
-    ? { text: 'Waiting for network…', lock: false }
-    : realtime === 'down' && loaded
-      ? { text: 'Reconnecting…', lock: false }
-      : cryptoState === 'ready'
-        ? { text: t('chat.end_to_end_encrypted'), lock: true }
-        : { text: '', lock: false }
+  const subtitle: { text: string; lock: boolean; typing?: boolean } = peerTyping && online
+    ? { text: t('chat.typing'), lock: false, typing: true }
+    : !online
+      ? { text: 'Waiting for network…', lock: false }
+      : realtime === 'down' && loaded
+        ? { text: 'Reconnecting…', lock: false }
+        : cryptoState === 'ready'
+          ? { text: t('chat.end_to_end_encrypted'), lock: true }
+          : { text: '', lock: false }
+
+  const attachLocked = attachUploading || !!attachment || !!editing
+  const sendReady = (!!body.trim() || (!!attachment && !editing)) && !attachUploading && !editSaving
 
   const pillBtn: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--color-surface-2)',
@@ -869,7 +1115,7 @@ export default function ChatClient({
               {otherUser.display_name}
             </div>
             {subtitle.text && (
-              <div data-testid="chat-subtitle" style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div data-testid="chat-subtitle" style={{ fontSize: 11, color: subtitle.typing ? 'var(--color-brand)' : 'var(--color-text-muted)', fontWeight: subtitle.typing ? 600 : 400, display: 'flex', alignItems: 'center', gap: 4 }}>
                 {subtitle.lock && <Lock size={9} />}
                 {subtitle.text}
               </div>
@@ -931,8 +1177,7 @@ export default function ChatClient({
           role="log"
           aria-live="polite"
           onScroll={onListScroll}
-          onClick={() => setSelectedId(null)}
-          style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', padding: '12px 16px' }}
+          style={{ flex: 1, minHeight: 0, overflowY: menu ? 'hidden' : 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', padding: '12px 16px' }}
         >
           <div ref={contentRef}>
 
@@ -946,7 +1191,7 @@ export default function ChatClient({
             )}
 
             {/* Couldn't load, and nothing to show: say so, with a way out. */}
-            {loadError && messages.length === 0 && (
+            {loadError && visibleCount === 0 && (
               <div data-testid="chat-load-error" style={{ textAlign: 'center', padding: '56px 24px' }}>
                 <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--color-text-primary)', marginBottom: 6 }}>
                   Couldn&apos;t load your messages
@@ -962,7 +1207,7 @@ export default function ChatClient({
             )}
 
             {/* Couldn't refresh, but there is history on screen */}
-            {loadError && messages.length > 0 && (
+            {loadError && visibleCount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '0 0 8px' }}>
                 <button onClick={e => { e.stopPropagation(); void syncLatest() }} style={{ ...pillBtn, color: 'var(--color-error)' }}>
                   <RefreshCw size={12} /> Couldn&apos;t refresh · Tap to retry
@@ -970,18 +1215,19 @@ export default function ChatClient({
               </div>
             )}
 
-            {!loadError && messages.length === 0 && !loaded && (
+            {!loadError && visibleCount === 0 && !loaded && (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '56px 0' }}>
                 <Loader2 size={22} color="var(--color-brand)" style={{ animation: 'chat-spin 0.8s linear infinite' }} />
               </div>
             )}
 
-            {!loadError && messages.length === 0 && loaded && (
+            {!loadError && visibleCount === 0 && loaded && (
               <div data-testid="chat-empty" style={{ textAlign: 'center', padding: '56px 24px', color: 'var(--color-text-secondary)', fontSize: 14 }}>
                 No messages yet. Say hi 👋
               </div>
             )}
 
+            <div style={{ visibility: holdPaint ? 'hidden' : 'visible' }}>
             {rows.map(row => {
               if (row.type === 'day') {
                 return (
@@ -1015,11 +1261,27 @@ export default function ChatClient({
                 <div
                   key={row.key}
                   data-msg-id={msg.id}
-                  style={{
-                    display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row',
-                    alignItems: 'flex-end', gap: 8, marginBottom: grouped ? 2 : 10, borderRadius: 12,
+                  className="chat-msg-wrap"
+                  // Touch: swipe right = reply, long press = options. (Mouse: click / right-click / hover button.)
+                  {...(canAct ? gestures.bind(msg.id, { longPress: true, swipe: canSend }) : {})}
+                  onContextMenu={e => {
+                    if (!canAct) return
+                    e.preventDefault()   // no native menu (long-press on a photo, right-click)
+                    if (gestures.lastPointerType() === 'mouse') setMenu({ id: msg.id, keyboard: false })
                   }}
+                  style={{ position: 'relative', marginBottom: grouped ? 2 : 10, borderRadius: 12, touchAction: 'pan-y' }}
                 >
+                  {canAct && canSend && (
+                    <div data-swipe-icon aria-hidden style={{
+                      position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%) scale(0.6)', opacity: 0,
+                      width: 32, height: 32, borderRadius: '50%', background: 'var(--color-surface-2)',
+                      color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      pointerEvents: 'none',
+                    }}>
+                      <CornerUpLeft size={16} />
+                    </div>
+                  )}
+                  <div data-swipe-row style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 8 }}>
                   {/* Avatar */}
                   {!isMine && (
                     <div style={{ width: 28, flexShrink: 0 }}>
@@ -1039,14 +1301,23 @@ export default function ChatClient({
                   )}
 
                   <div style={{ maxWidth: '78%', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start' }}>
-                    {/* Bubble (tap to open actions) */}
+                    {/* Bubble. Mouse click opens the options (a touch tap does nothing on text: long-press is the menu). */}
                     <div
+                      data-bubble-id={msg.id}
                       role={canAct ? 'button' : undefined}
                       tabIndex={canAct ? 0 : undefined}
                       aria-label={canAct ? t('chat.message_options') : undefined}
-                      onClick={e => { e.stopPropagation(); if (canAct) setSelectedId(selected ? null : msg.id) }}
-                      onKeyDown={e => { if (canAct && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelectedId(selected ? null : msg.id) } }}
+                      onClick={e => {
+                        e.stopPropagation()
+                        if (gestures.wasGesture()) { e.preventDefault(); return }   // the tail of a long press / swipe, not a tap
+                        if (!canAct || gestures.lastPointerType() !== 'mouse') return
+                        if (window.getSelection()?.toString()) return                // they were selecting text, not clicking
+                        setMenu({ id: msg.id, keyboard: false })
+                      }}
+                      onKeyDown={e => { if (canAct && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setMenu({ id: msg.id, keyboard: true }) } }}
                       style={{
+                        // The message the menu belongs to sits above the dim (z-index 40 in message-actions-popup).
+                        position: selected ? 'relative' : undefined, zIndex: selected ? 41 : undefined,
                         background: isMine ? 'var(--color-brand)' : 'var(--color-surface-2)',
                         color: isMine ? 'white' : 'var(--color-text-primary)',
                         padding: hasMedia ? '6px' : '9px 13px',
@@ -1068,8 +1339,8 @@ export default function ChatClient({
                         fontFamily: "'DM Sans', sans-serif",
                         wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap',
                         opacity: msg._optimistic && !msg._failed ? 0.72 : 1,
-                        outline: msg._failed ? '1px solid var(--color-border)' : selected ? '2px solid var(--color-brand-hover)' : 'none',
-                        outlineOffset: selected ? 1 : -1,
+                        outline: msg._failed ? '1px solid var(--color-border)' : 'none',
+                        outlineOffset: -1,
                         cursor: canAct ? 'pointer' : 'default',
                         transition: 'opacity 0.2s',
                       }}
@@ -1095,7 +1366,11 @@ export default function ChatClient({
 
                       {hasMedia && (
                         <div
-                          onClick={e => { e.stopPropagation(); if (msg.media_url && !msg._optimistic) setLightbox({ url: msg.media_url, type: msg.media_type === 'video' ? 'video' : 'image', msg }) }}
+                          onClick={e => {
+                            e.stopPropagation()
+                            if (gestures.wasGesture()) { e.preventDefault(); return }   // long press / swipe tail
+                            if (canAct) openMedia(msg)                                  // one tap: the full-screen viewer (it has the reply box)
+                          }}
                           style={{
                             position: 'relative', borderRadius: 12, overflow: 'hidden',
                             marginBottom: hasCaption ? 6 : 0, cursor: 'pointer', background: 'rgba(0,0,0,0.15)',
@@ -1105,7 +1380,7 @@ export default function ChatClient({
                           {msg.media_type === 'video' ? (
                             <>
                               {msg.media_thumbnail_url
-                                ? <img src={msg.media_thumbnail_url} alt={t('chat.video_attachment_alt')} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                ? <img src={msg.media_thumbnail_url} alt={t('chat.video_attachment_alt')} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                 : <video src={msg.media_url ?? undefined} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted />
                               }
                               <div style={{
@@ -1120,7 +1395,7 @@ export default function ChatClient({
                               </div>
                             </>
                           ) : (
-                            <img src={msg.media_url ?? undefined} alt={t('chat.photo_attachment_alt')} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            <img src={msg.media_url ?? undefined} alt={t('chat.photo_attachment_alt')} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                           )}
                         </div>
                       )}
@@ -1136,23 +1411,6 @@ export default function ChatClient({
                               : linkifyShortLinks(text)}
                     </div>
 
-                    {/* Actions for the tapped message */}
-                    {selected && canAct && (
-                      <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
-                        <button style={pillBtn} onClick={e => { e.stopPropagation(); setReplyTo(msg); setSelectedId(null); inputRef.current?.focus() }}>
-                          <CornerUpLeft size={12} /> Reply
-                        </button>
-                        {!!textOf(msg) && !failedDecrypt && (
-                          <button style={pillBtn} onClick={e => { e.stopPropagation(); void handleCopy(msg) }}>{t('chat.copy')}</button>
-                        )}
-                        {isMine && (
-                          <button style={{ ...pillBtn, color: 'var(--color-error)' }} onClick={e => { e.stopPropagation(); void handleDelete(msg.id) }}>
-                            <Trash2 size={12} /> Delete
-                          </button>
-                        )}
-                      </div>
-                    )}
-
                     {/* Time + delivery status */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
                       {status === 'failed' ? (
@@ -1163,15 +1421,60 @@ export default function ChatClient({
                         </>
                       ) : (
                         <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
-                          {new Date(msg.created_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
+                          {msg.edited_at ? `${t('chat.edited')} · ` : ''}{new Date(msg.created_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       )}
                       {status && status !== 'failed' && <MessageStatusIcon status={status} />}
                     </div>
                   </div>
+
+                  {/* Desktop: a small button appears beside the bubble on hover (hidden on touch screens). */}
+                  {canAct && (
+                    <button
+                      type="button"
+                      className="chat-msg-opt"
+                      aria-label={t('chat.message_options')}
+                      onClick={e => { e.stopPropagation(); setMenu({ id: msg.id, keyboard: false }) }}
+                      style={{
+                        alignSelf: 'center', flexShrink: 0, width: 24, height: 24, borderRadius: '50%', border: 'none',
+                        background: 'var(--color-surface-2)', color: 'var(--color-text-secondary)', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  )}
+                  </div>
                 </div>
               )
             })}
+            </div>
+
+            {/* The other person is typing */}
+            {peerTyping && online && (
+              <div data-testid="chat-typing" role="status" aria-label={t('chat.typing')} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 10 }}>
+                <div style={{ width: 28, flexShrink: 0 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: otherUser.avatar_url ? 'transparent' : otherColor,
+                    overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, fontWeight: 800, color: 'white', fontFamily: "'Syne', sans-serif",
+                  }}>
+                    {otherUser.avatar_url
+                      ? <img src={otherUser.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : otherInitials}
+                  </div>
+                </div>
+                <div style={{ background: 'var(--color-surface-2)', borderRadius: '4px 18px 18px 18px', padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {[0, 1, 2].map(i => (
+                    <span key={i} style={{
+                      width: 6, height: 6, borderRadius: '50%', background: 'var(--color-text-secondary)',
+                      animation: `chat-typing-dot 1.2s ${i * 0.18}s infinite ease-in-out`,
+                    }} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1193,8 +1496,30 @@ export default function ChatClient({
         )}
       </div>
 
+      {/* Edit banner */}
+      {editing && (
+        <div style={{
+          padding: '8px 16px', background: 'var(--color-surface-2)',
+          borderTop: '1px solid var(--color-border)',
+          display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+        }}>
+          <Pencil size={16} color="var(--color-brand)" style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0, borderLeft: '3px solid var(--color-brand)', paddingLeft: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-brand)', fontWeight: 600, marginBottom: 2 }}>
+              {t('chat.editing_message')}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {textOf(editing) ?? ''}
+            </div>
+          </div>
+          <button aria-label={t('chat.cancel_edit')} onClick={cancelEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Reply banner */}
-      {replyTo && (
+      {replyTo && !editing && (
         <div style={{
           padding: '8px 16px', background: 'var(--color-surface-2)',
           borderTop: '1px solid var(--color-border)',
@@ -1305,13 +1630,13 @@ export default function ChatClient({
           <button
             aria-label={t('chat.attach_photo_video')}
             onClick={openFilePicker}
-            disabled={attachUploading || !!attachment}
+            disabled={attachLocked}
             style={{
               width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
               background: 'var(--color-surface-2)', border: '1px solid var(--color-border)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: attachUploading || !!attachment ? 'default' : 'pointer',
-              opacity: attachUploading || !!attachment ? 0.5 : 1,
+              cursor: attachLocked ? 'default' : 'pointer',
+              opacity: attachLocked ? 0.5 : 1,
             }}
           >
             <ImagePlus size={18} color="var(--color-text-secondary)" />
@@ -1322,6 +1647,8 @@ export default function ChatClient({
             maxLength={MAX_TEXT}
             onChange={e => {
               setBody(e.target.value)
+              // "typing…" for the other person - not while editing an old message, and it ends when the box is emptied.
+              if (!editing) { if (e.target.value.trim()) typingRef.current?.input(); else typingRef.current?.stop() }
               const ta = e.target
               ta.style.height = 'auto'
               ta.style.height = ta.scrollHeight + 'px'
@@ -1347,19 +1674,23 @@ export default function ChatClient({
             }}
           />
           <button
-            aria-label={t('chat.send_message')}
+            aria-label={editing ? t('chat.save_edit') : t('chat.send_message')}
             onMouseDown={e => e.preventDefault()}   // keep the keyboard open on the phone
             onClick={handleSend}
-            disabled={(!body.trim() && !attachment) || attachUploading}
+            disabled={!sendReady}
             style={{
               width: 42, height: 42, borderRadius: '50%',
-              background: (body.trim() || attachment) && !attachUploading ? 'var(--color-brand)' : 'var(--color-surface-2)',
-              border: 'none', cursor: (body.trim() || attachment) && !attachUploading ? 'pointer' : 'not-allowed',
+              background: sendReady ? 'var(--color-brand)' : 'var(--color-surface-2)',
+              border: 'none', cursor: sendReady ? 'pointer' : 'not-allowed',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0, transition: 'background 0.2s',
             }}
           >
-            <Send size={17} color={(body.trim() || attachment) && !attachUploading ? 'white' : 'var(--color-text-muted)'} />
+            {editSaving
+              ? <Loader2 size={17} color="var(--color-text-muted)" style={{ animation: 'chat-spin 0.8s linear infinite' }} />
+              : editing
+                ? <Check size={18} color={sendReady ? 'white' : 'var(--color-text-muted)'} />
+                : <Send size={17} color={sendReady ? 'white' : 'var(--color-text-muted)'} />}
           </button>
         </div>
       ) : lock ? (
@@ -1389,6 +1720,17 @@ export default function ChatClient({
         </div>
       )}
 
+      {/* Options for the pressed message: anchored popup over a dimmed chat */}
+      {menu && menuMsg && (
+        <MessageActionsPopup
+          anchorId={menuMsg.id}
+          mine={menuMsg.sender_id === currentUserId}
+          items={menuItemsFor(menuMsg)}
+          focusFirst={menu.keyboard}
+          onClose={() => setMenu(null)}
+        />
+      )}
+
       {/* Media viewer: its own full-screen portal, with Share/Save and a reply field */}
       {lightbox && (
         <ChatMediaViewer
@@ -1401,7 +1743,15 @@ export default function ChatClient({
         />
       )}
 
-      <style>{`@keyframes chat-spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes chat-spin { to { transform: rotate(360deg); } }
+        .chat-msg-wrap { -webkit-touch-callout: none; }
+        @media (pointer: coarse) { .chat-msg-wrap { -webkit-user-select: none; user-select: none; } }
+        .chat-msg-opt { opacity: 0; transition: opacity 0.12s; }
+        .chat-msg-wrap:hover .chat-msg-opt, .chat-msg-opt:focus-visible { opacity: 1; }
+        @media (hover: none) { .chat-msg-opt { display: none; } }
+        @keyframes chat-typing-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
+      `}</style>
     </div>
   )
-}
+}
