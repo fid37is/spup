@@ -131,22 +131,33 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         bridge.getWebView().addJavascriptInterface(new OfflineBridge(), "SpupNative");
 
         // App was closed and a notification tap started it.
-        openFromNotification(getIntent());
+        openFromNotification(getIntent(), false);
     }
 
     // App was already running (in the background) and a notification tap brought it forward.
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        openFromNotification(intent);
+        openFromNotification(intent, true);
     }
 
     // A tapped notification opens com.spup.app://open?path=/post/123 (built in
-    // SpupMessagingService). Load that page straight into the WebView, so the tap
-    // lands on the right post / chat / notifications page even if the website's
-    // own link listener hasn't started yet. The website also handles the link and
-    // skips it when it is already on that page.
-    private void openFromNotification(Intent intent) {
+    // SpupMessagingService).
+    //
+    //  - App was CLOSED (appWasRunning = false): load that page straight into the
+    //    WebView, so the tap lands on the right post / chat / notifications page even
+    //    before the website's own link listener has started.
+    //
+    //  - App was already RUNNING with the site loaded (appWasRunning = true): do NOT
+    //    load anything here. Loading a URL is a full page reload - the whole web app
+    //    boots again and every in-memory cache (the chat thread, its decrypted messages,
+    //    the keys) is thrown away, which is why opening a chat from a notification
+    //    showed the messages "loading" every time. super.onNewIntent() already hands
+    //    the same link to the website (Capacitor's appUrlOpen -> router.push in
+    //    components/layout/native-bootstrap.tsx), which opens the page in place, instantly.
+    //    The reload below stays as the fallback for when the WebView is not showing the
+    //    site (the offline page, or a page that failed to load) and so cannot navigate.
+    private void openFromNotification(Intent intent, boolean appWasRunning) {
         if (intent == null || getBridge() == null) return;
         Uri data = intent.getData();
         if (data == null
@@ -159,7 +170,15 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
 
         final String target = SITE_ORIGIN + path;
         final WebView webView = getBridge().getWebView();
-        webView.post(() -> webView.loadUrl(target));
+        webView.post(() -> {
+            if (appWasRunning && pendingFailedUrl == null) {
+                String current = webView.getUrl();
+                if (current != null && (current.equals(SITE_ORIGIN) || current.startsWith(SITE_ORIGIN + "/"))) {
+                    return;   // the site is up: the website opens the link itself (see above)
+                }
+            }
+            webView.loadUrl(target);
+        });
     }
 
     // If another plugin swaps the WebViewClient after startup, our offline handling

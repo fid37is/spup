@@ -147,6 +147,9 @@ export function removeMessage<T extends ChatMsg>(prev: T[], id: string): T[] {
   return prev.filter(m => m.id !== id)
 }
 
+/** How long after sending a message can still be edited. The server enforces it (editMessageAction); the UI just hides Edit. */
+export const EDIT_WINDOW_MS = 15 * 60 * 1000
+
 /**
  * Realtime UPDATE for a row we may already have: receipts, deletion, an edited
  * body, and the quoted message going away can change. Unknown ids are ignored
