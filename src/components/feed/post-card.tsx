@@ -3,11 +3,12 @@
 
 import { useState, useTransition, useEffect, useRef, useId } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { Repeat2, Send, Bookmark, MoreHorizontal, Trash2, Flag, Pin, PinOff, Megaphone, Link2, Tag, Play, Volume2, VolumeX } from 'lucide-react'
+import { Repeat2, Send, Bookmark, EllipsisVertical, Trash2, Flag, Pin, PinOff, Megaphone, Link2, Tag, Play, Volume2, VolumeX } from 'lucide-react'
 import PromoteModal from './promote-modal'
 import ReportDialog from './report-dialog'
 import { toggleBookmarkAction, deletePostAction, recordImpressionAction, recordLinkClickAction, recordDetailExpandAction, recordProfileVisitFromPostAction, togglePinPostAction, checkHasPinnedPostAction, recordPromotionImpressionAction, recordPromotionClickAction } from '@/lib/actions'
 import { formatRelativeTime } from '@/lib/utils'
+import PostFollowButton from './post-follow-button'
 import { shouldAutoplay } from '@/lib/autoplay'
 import { trackVideoProgress } from '@/lib/video-analytics'
 import {
@@ -30,6 +31,10 @@ import { PostActions } from '@/components/feed/post-actions'
 
 // Re-exported so existing imports of PostActions from here keep working.
 export { PostActions }
+
+// Header text that must never wrap: it truncates with an ellipsis instead, so the
+// name, @handle, time, follow button and more button always share ONE row on a phone.
+const ONE_LINE: React.CSSProperties = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({
@@ -412,15 +417,15 @@ export function QuotedEmbed({ q, onOpen, borderColor = 'var(--color-border)' }: 
       onMouseLeave={onOpen ? (e => { e.currentTarget.style.background = 'transparent' }) : undefined}
     >
       <div style={{ padding: '10px 12px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
-          <Avatar name={q.author?.display_name || 'S'} avatarUrl={q.author?.avatar_url} size={20} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{q.author?.display_name}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, minWidth: 0 }}>
+          <span style={{ display: 'inline-flex', flexShrink: 0 }}><Avatar name={q.author?.display_name || 'S'} avatarUrl={q.author?.avatar_url} size={20} /></span>
+          <span style={{ ...ONE_LINE, minWidth: 36, flexShrink: 1, fontSize: 14, fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif" }}>{q.author?.display_name}</span>
           {q.author?.verification_tier && q.author.verification_tier !== 'none' && (
-            <VerifiedBadge tier={q.author.verification_tier} size={13} />
+            <span style={{ display: 'inline-flex', flexShrink: 0 }}><VerifiedBadge tier={q.author.verification_tier} size={13} /></span>
           )}
-          <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{q.author?.username}</span>
-          <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
-          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(q.created_at)}</span>
+          <span style={{ ...ONE_LINE, flexShrink: 2, fontSize: 13, color: 'var(--color-text-muted)' }}>@{q.author?.username}</span>
+          <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
+          <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(q.created_at)}</span>
         </div>
         {q.body?.trim() && <div style={{ paddingBottom: q.media?.length ? 10 : 0 }}><TruncatedBody text={q.body} postId={q.id} fontSize={14} /></div>}
       </div>
@@ -597,9 +602,9 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
       onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
     >
       {/* Repost line - the only thing that differs from a normal post */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, paddingLeft: 30 }}>
-        <Repeat2 size={14} color="var(--color-text-muted)" />
-        <span style={{ fontSize: 13, color: 'var(--color-text-muted)', fontFamily: "'DM Sans',sans-serif" }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, paddingLeft: 30, minWidth: 0 }}>
+        <Repeat2 size={14} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
+        <span style={{ ...ONE_LINE, fontSize: 13, color: 'var(--color-text-muted)', fontFamily: "'DM Sans',sans-serif" }}>
           <span
             onClick={e => { e.stopPropagation(); router.push(currentUserId && post.author.id === currentUserId ? '/profile' : `/user/${post.author.username}`) }}
             style={{ color: 'var(--color-text-secondary)', fontWeight: 600, cursor: 'pointer' }}
@@ -610,7 +615,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
           </span>
           {' '}{t('post.reposted_by_label')}
         </span>
-        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>· {formatRelativeTime(post.created_at)}</span>
+        <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 12, color: 'var(--color-text-muted)' }}>· {formatRelativeTime(post.created_at)}</span>
       </div>
 
       {/* Normal post layout, showing the original post */}
@@ -618,7 +623,7 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
         <Avatar name={original.author?.display_name || 'S'} avatarUrl={original.author?.avatar_url} username={original.author?.username} clickable postId={original.id} isOwn={!!currentUserId && original.author?.id === currentUserId} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, minWidth: 0 }}>
             <span
               onClick={e => {
                 e.stopPropagation()
@@ -626,20 +631,20 @@ function RepostCard({ post, currentUserId, onReplyClick }: { post: FeedPost; cur
                 void recordProfileVisitFromPostAction(original.id)
                 router.push(`/user/${original.author.username}`)
               }}
-              style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
+              style={{ ...ONE_LINE, minWidth: 40, flexShrink: 1, fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
               onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
               onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
             >
               {original.author.display_name}
             </span>
             {original.author.verification_tier !== 'none' && (
-              <VerifiedBadge tier={original.author.verification_tier} size={14} />
+              <span style={{ display: 'inline-flex', flexShrink: 0 }}><VerifiedBadge tier={original.author.verification_tier} size={14} /></span>
             )}
-            <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{original.author.username}</span>
-            <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
-            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(original.created_at)}</span>
+            <span style={{ ...ONE_LINE, flexShrink: 2, fontSize: 13, color: 'var(--color-text-muted)' }}>@{original.author.username}</span>
+            <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
+            <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(original.created_at)}</span>
             {original.is_selling && (
-              <Tag size={14} color="var(--color-brand)" aria-label={t('post.selling')} style={{ marginLeft: 2 }} />
+              <Tag size={14} color="var(--color-brand)" aria-label={t('post.selling')} style={{ marginLeft: 2, flexShrink: 0 }} />
             )}
           </div>
 
@@ -669,6 +674,7 @@ export default function PostCard({
   isReply = false,
   hideBorder = false,
   replyingTo,
+  followInfo,
 }: {
   post: FeedPost
   currentUserId?: string
@@ -695,6 +701,10 @@ export default function PostCard({
   // (not on direct replies to the top-level comment). Renders a small
   // "Replying to @handle" line above the body.
   replyingTo?: string
+  // Post detail page only: where the viewer stands with this post's author. Shows a
+  // Follow / Follow back pill in the top row when they don't follow the author yet.
+  // Left out everywhere else (feed, replies), where the card has no such button.
+  followInfo?: { following: boolean; followsMe: boolean }
 }) {
   const { t } = useTranslation()
   const [, startTransition] = useTransition()
@@ -901,28 +911,36 @@ export default function PostCard({
             </div>
           )}
           {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 3 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+          {/* Everything in this row stays on ONE line, even on a narrow phone: the name and
+              @handle truncate with an ellipsis (handle first), the time, follow button and
+              more button never wrap or squash. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 0', minWidth: 0 }}>
               <span
                 onClick={e => {
                   e.stopPropagation()
                   if (isOwnPost) { router.push('/profile'); return }
                   if (author?.username) { void recordProfileVisitFromPostAction(post.id); router.push(`/user/${author.username}`) }
                 }}
-                style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
+                style={{ ...ONE_LINE, minWidth: 40, flexShrink: 1, fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)', fontFamily: "'Syne',sans-serif", cursor: 'pointer' }}
                 onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
                 onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
               >
                 {author?.display_name}
               </span>
               {author?.verification_tier !== 'none' && (
-                <VerifiedBadge tier={author.verification_tier} size={14} />
+                <span style={{ display: 'inline-flex', flexShrink: 0 }}><VerifiedBadge tier={author.verification_tier} size={14} /></span>
               )}
-              <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>@{author?.username}</span>
-              <span style={{ fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
-              <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(post.created_at)}</span>
-              {post.edited_at && <span style={{ fontSize: 11, color: 'var(--color-text-faint)' }}>· {t('post.edited_label')}</span>}
+              <span style={{ ...ONE_LINE, flexShrink: 2, fontSize: 13, color: 'var(--color-text-muted)' }}>@{author?.username}</span>
+              <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
+              <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(post.created_at)}</span>
+              {post.edited_at && <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 11, color: 'var(--color-text-faint)' }}>· {t('post.edited_label')}</span>}
             </div>
+
+            {/* Follow / Follow back: post detail page only, and only when you don't follow them yet */}
+            {followInfo && !followInfo.following && !isOwnPost && author?.id && (
+              <PostFollowButton targetUserId={author.id} followsMe={followInfo.followsMe} />
+            )}
 
             {/* More menu (+ small selling indicator, right next to it) */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -932,9 +950,14 @@ export default function PostCard({
               <div style={{ position: 'relative' }}>
                 <button
                   onClick={e => { e.stopPropagation(); setShowMenu(v => !v) }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '4px 6px', borderRadius: 6 }}
+                  aria-label={t('profile.more_options')}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)',
+                    padding: '6px 4px', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    minWidth: 28, minHeight: 32, WebkitTapHighlightColor: 'transparent',
+                  }}
                 >
-                  <MoreHorizontal size={16} />
+                  <EllipsisVertical size={18} />
                 </button>
                 {showMenu && (isMobile ? (
                   // Same BottomDrawer as the repost / media menus: rounded sheet, drag handle,

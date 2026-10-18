@@ -40,6 +40,8 @@ export interface MessageRow {
   delivered_at?: string | null
   reply_to_id?: string | null
   reply_to?: ReplyRef | null
+  /** Set when the sender edited the text after sending. */
+  edited_at?: string | null
   /** Attached photo/video, if any. Hosted on Cloudinary - not E2E encrypted (unlike `body`). */
   media_url?: string | null
   media_type?: 'image' | 'video' | null

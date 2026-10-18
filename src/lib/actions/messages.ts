@@ -560,6 +560,77 @@ export async function sendMessageAction(conversationId: string, body: string, re
   return { success: true as const, messageId: msg.id as string, createdAt: msg.created_at as string }
 }
 
+/** What the chat list shows for a message: plaintext is cut short, ciphertext is kept whole (see sendMessageAction). */
+function previewOf(body: string | null, mediaType: string | null): string | null {
+  if (body) return body.startsWith('enc:') ? body : body.slice(0, 80)
+  if (mediaType) return mediaType === 'video' ? 'Video' : 'Photo'
+  return null
+}
+
+/**
+ * Change the text of a message I sent. `body` is the new wire body (ciphertext when encrypted,
+ * exactly like sendMessageAction). Needs migration 062 (messages.edited_at).
+ */
+export async function editMessageAction(messageId: string, body: string) {
+  const text = body.trim()
+  if (!text) return { error: 'Message cannot be empty' }
+  if (text.length > MAX_WIRE_LENGTH) return { error: 'Message is too long' }
+  const { supabase, profile } = await getCallerProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  const suspended = await suspensionBlock(profile)
+  if (suspended) return suspended
+
+  const { data: msg } = await supabase
+    .from('messages')
+    .select('id, conversation_id, sender_id, created_at, is_deleted')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!msg || msg.sender_id !== profile.id || msg.is_deleted) return { error: 'Message not found' }
+
+  const conv = await getMyConversation(supabase, profile.id, msg.conversation_id)
+  if (!conv) return { error: 'Conversation not found' }
+  // Same rule as sending: if you no longer follow each other (or blocked), the thread is read-only.
+  const otherId = conv.participant_1 === profile.id ? conv.participant_2 : conv.participant_1
+  const lock = await getChatLockReason(profile.id, otherId)
+  if (lock) return chatLocked(lock)
+
+  const editedAt = new Date().toISOString()
+  const { data: updated, error } = await supabase
+    .from('messages')
+    .update({ body: text, edited_at: editedAt })
+    .match({ id: messageId, sender_id: profile.id })
+    .select('id')
+    .maybeSingle()
+  if (error) {
+    console.error('[editMessageAction] update failed (run migration 062?):', error.message)
+    return { error: 'Could not edit this message' }
+  }
+  if (!updated) return { error: 'Message not found' }
+
+  // If it is the newest message, the chat list preview must show the new text too.
+  let preview: string | null = null
+  const { data: convRow } = await supabase
+    .from('conversations').select('last_message_at').eq('id', msg.conversation_id).maybeSingle()
+  if (convRow?.last_message_at && Date.parse(convRow.last_message_at) === Date.parse(msg.created_at)) {
+    preview = previewOf(text, null)
+    const { error: pErr } = await supabase
+      .from('conversations').update({ last_message_preview: preview }).eq('id', msg.conversation_id)
+    if (pErr) { console.error('[editMessageAction] preview update failed:', pErr.message); preview = null }
+  }
+
+  return { success: true as const, editedAt, preview }
+}
+
+/**
+ * Delete a message I sent, for everyone. The content is wiped from the database (text and photo/video
+ * link) and the row is marked deleted; the chat screen does not draw deleted rows at all, so no
+ * "this message was deleted" trail is left. The row itself is kept so quoted replies, unread counts and
+ * the delivery ticks in the list keep working.
+ *
+ * Also repairs what the deleted message was holding up: the chat list preview (falls back to the
+ * message before it) and the recipient's unread badge. Returns `listUpdate` (null when the list
+ * preview did not change) so the caller can patch its cached list.
+ */
 export async function deleteMessageAction(messageId: string) {
   const { supabase, profile } = await getCallerProfile()
   if (!profile) return { error: 'Not authenticated' }
@@ -568,18 +639,59 @@ export async function deleteMessageAction(messageId: string) {
     .from('messages')
     .update({ is_deleted: true, body: null, media_url: null, media_thumbnail_url: null })
     .match({ id: messageId, sender_id: profile.id })
-    .select('conversation_id, created_at')
+    .select('conversation_id, created_at, read_at')
     .maybeSingle()
 
   if (error) return { error: error.message }
   if (!data) return { error: 'Message not found' }
 
-  // If this was the latest message, the list preview still showed its text.
-  await supabase
-    .from('conversations')
-    .update({ last_message_preview: 'Message deleted' })
-    .eq('id', data.conversation_id)
-    .eq('last_message_at', data.created_at)
+  // Everything below is bookkeeping: the message is already gone, so never fail the delete over it.
+  let listUpdate: { preview: string | null; lastMessageAt: string | null } | null = null
+  try {
+    const { data: convRow } = await supabase
+      .from('conversations')
+      .select('last_message_at, participant_1, participant_2')
+      .eq('id', data.conversation_id)
+      .maybeSingle()
 
-  return { success: true }
+    // Was it the newest message? Then the list preview still showed it: fall back to the one before.
+    if (convRow?.last_message_at && Date.parse(convRow.last_message_at) === Date.parse(data.created_at)) {
+      const { data: prev } = await supabase
+        .from('messages')
+        .select('body, media_type, created_at')
+        .eq('conversation_id', data.conversation_id)
+        .not('is_deleted', 'is', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const preview = prev ? previewOf(prev.body, prev.media_type) : null
+      // Nothing left: a null preview takes the chat off the list (see getConversationsAction).
+      const patch: { last_message_preview: string | null; last_message_at?: string } = { last_message_preview: preview }
+      if (prev?.created_at) patch.last_message_at = prev.created_at
+      const { error: pErr } = await supabase.from('conversations').update(patch).eq('id', data.conversation_id)
+      if (pErr) console.error('[deleteMessageAction] preview update failed:', pErr.message)
+      else listUpdate = { preview, lastMessageAt: prev?.created_at ?? null }
+    }
+
+    // It may have been counted in the recipient's unread badge. Recount from the real rows.
+    if (!data.read_at && convRow) {
+      const otherId = convRow.participant_1 === profile.id ? convRow.participant_2 : convRow.participant_1
+      const { count } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', data.conversation_id)
+        .eq('sender_id', profile.id)
+        .is('read_at', null)
+        .not('is_deleted', 'is', true)
+      const { error: uErr } = await createAdminClient()
+        .from('conversation_members')
+        .update({ unread_count: count ?? 0 })
+        .match({ conversation_id: data.conversation_id, user_id: otherId })
+      if (uErr) console.error('[deleteMessageAction] unread recount failed:', uErr.message)
+    }
+  } catch (e) {
+    console.error('[deleteMessageAction] bookkeeping failed:', e)
+  }
+
+  return { success: true as const, listUpdate }
 }

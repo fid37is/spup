@@ -21,6 +21,10 @@ export interface ChatMsg {
   /** Absent when the `delivered_at` column has not been migrated yet. */
   delivered_at?: string | null
   reply_to_id?: string | null
+  /** The quoted message (resolved by the server fetch / the chat screen). */
+  reply_to?: unknown
+  /** Set when the sender changed the text after sending (shown as "edited"). */
+  edited_at?: string | null
   /** Attached photo/video, if any. Not E2E encrypted (unlike `body`). */
   media_url?: string | null
   media_type?: 'image' | 'video' | null
@@ -144,8 +148,9 @@ export function removeMessage<T extends ChatMsg>(prev: T[], id: string): T[] {
 }
 
 /**
- * Realtime UPDATE for a row we may already have: only receipts, deletion and
- * body can change. Unknown ids are ignored (the next sync will bring them).
+ * Realtime UPDATE for a row we may already have: receipts, deletion, an edited
+ * body, and the quoted message going away can change. Unknown ids are ignored
+ * (the next sync will bring them).
  */
 export function applyRowUpdate<T extends ChatMsg>(prev: T[], row: Partial<ChatMsg> & { id: string }): T[] {
   const i = prev.findIndex(m => m.id === row.id)
@@ -158,6 +163,9 @@ export function applyRowUpdate<T extends ChatMsg>(prev: T[], row: Partial<ChatMs
     body: deleted ? null : (row.body !== undefined ? row.body : cur.body),
     media_url: deleted ? null : (row.media_url !== undefined ? row.media_url : cur.media_url),
     is_deleted: deleted,
+    edited_at: row.edited_at !== undefined ? row.edited_at : cur.edited_at,
+    // The message this one quoted was removed from the database: drop the quote.
+    ...('reply_to_id' in row && !row.reply_to_id && cur.reply_to_id ? { reply_to_id: null, reply_to: null } : {}),
     read_at: keepReceipt(cur.read_at, row.read_at) ?? null,
     delivered_at: keepReceipt(cur.delivered_at, row.delivered_at),
   }

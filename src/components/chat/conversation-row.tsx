@@ -20,9 +20,11 @@ interface Props {
   conv: ChatListConversation
   hiddenRow?: boolean
   onUnhide?: (id: string) => void
+  /** The other person is typing to me right now: shown in place of the message preview. */
+  typing?: boolean
 }
 
-export default function ConversationRow({ conv, hiddenRow = false, onUnhide }: Props) {
+export default function ConversationRow({ conv, hiddenRow = false, onUnhide, typing = false }: Props) {
   const { t } = useTranslation()
   const other = conv.other
   const initials = other?.display_name?.slice(0, 2).toUpperCase() ?? '??'
@@ -43,7 +45,7 @@ export default function ConversationRow({ conv, hiddenRow = false, onUnhide }: P
         : (raw ?? t('chat.no_messages_yet'))
 
   // Ticks next to the preview when the newest message is mine (sent / delivered / read).
-  const showTick = conv.last_message_mine && !!conv.last_message_status && raw !== 'Message deleted'
+  const showTick = conv.last_message_mine && !!conv.last_message_status && raw !== 'Message deleted' && !typing
 
   return (
     <Link href={`/messages/${conv.id}`} style={{ textDecoration: 'none', display: 'block' }}>
@@ -94,8 +96,10 @@ export default function ConversationRow({ conv, hiddenRow = false, onUnhide }: P
               fontWeight: unread ? 600 : 400,
             }}>
               {showTick && <MessageStatusIcon status={conv.last_message_status!} size={15} />}
-              {raw === 'Message deleted' && <Trash2 size={12} style={{ flexShrink: 0, opacity: 0.7 }} />}
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview}</span>
+              {!typing && raw === 'Message deleted' && <Trash2 size={12} style={{ flexShrink: 0, opacity: 0.7 }} />}
+              {typing
+                ? <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-brand)', fontWeight: 600 }}>{t('chat.typing')}</span>
+                : <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview}</span>}
             </span>
             {hiddenRow && onUnhide && (
               <button

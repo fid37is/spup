@@ -11,7 +11,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction, unhideConversationAction, markAllConversationsReadAction } from '@/lib/actions/messages'
+import { getConversationsAction, markAllDeliveredAction, getPublicKeyAction, unhideConversationAction, markAllConversationsReadAction, loadMessagesAction } from '@/lib/actions/messages'
 import { notifyChatUnreadChanged } from '@/hooks/use-chat-unread'
 import { Check, ChevronDown, ChevronRight, MessageSquare, Plus, MessageCircle, MessageSquareDot, User, Settings, CheckCheck, Search, X } from 'lucide-react'
 import {
@@ -22,11 +22,17 @@ import {
   decryptedPreviews, sharedPreviewKeys, peekChatListMemory, readChatListCache, writeChatListCache, patchChatListCache,
   sortConversations, hasMessage, type ChatListConversation,
 } from '@/lib/chat-list-cache'
+import { readThreadCache, writeThreadCache } from '@/lib/chat-thread-cache'
+import { onTyping, createTypingTracker } from '@/lib/chat-typing'
 import ConversationRow from '@/components/chat/conversation-row'
 import HideMobileHeader from '@/components/layout/hide-mobile-header'
 import { useTranslation } from '@/lib/i18n/language-context'
 
 const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
+
+// Threads pre-loaded onto the phone while the list is open, so tapping a chat shows its messages at once
+// (see lib/chat-thread-cache.ts). Only the newest few chats, and only what is missing or out of date.
+const WARM_MAX_THREADS = 8
 
 interface Props {
   currentUserId: string
@@ -232,7 +238,8 @@ function EmptyState({ filter }: { filter: ChatFilter }) {
 export default function MessagesListClient({ currentUserId }: Props) {
   // null = nothing known yet (first ever visit on this device): show the skeleton.
   // Otherwise the last-known list is on screen immediately.
-  const [conversations, setConversations] = useState<ChatListConversation[] | null>(() => peekChatListMemory(currentUserId))
+  // (A cached chat that has since lost its last message - deleted - is not listed: hasMessage.)
+  const [conversations, setConversations] = useState<ChatListConversation[] | null>(() => peekChatListMemory(currentUserId)?.filter(hasMessage) ?? null)
   const supabase = useRef<ReturnType<typeof createBrowserClient> | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const busy = useRef(false)
@@ -241,17 +248,60 @@ export default function MessagesListClient({ currentUserId }: Props) {
   const [showInactive, setShowInactive] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   const [, bumpPreviews] = useState(0)
+  // Conversations whose other person is typing to me right now (lib/chat-typing.ts).
+  const [typingIds, setTypingIds] = useState<Set<string>>(() => new Set())
+  const trackerRef = useRef<ReturnType<typeof createTypingTracker> | null>(null)
+  const alive = useRef(true)
+  const warming = useRef(false)
 
   // Cold start (app reopened): nothing in memory yet, but the device has the last list.
   useIsoLayoutEffect(() => {
-    setConversations(cur => cur ?? readChatListCache(currentUserId))
+    setConversations(cur => cur ?? readChatListCache(currentUserId)?.filter(hasMessage) ?? null)
   }, [currentUserId])
+
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
+
+  // Someone typing to me: "typing…" replaces the preview on their row. The inbox channel is shared
+  // with the open chat screen, so there is no extra connection per conversation.
+  useEffect(() => {
+    const tracker = createTypingTracker(setTypingIds)
+    trackerRef.current = tracker
+    const off = onTyping(currentUserId, e => { if (e.from !== currentUserId) tracker.apply(e) })
+    return () => { off(); tracker.dispose(); trackerRef.current = null }
+  }, [currentUserId])
+
+  // Keeps the newest chats' messages on the phone so opening one never waits on the server.
+  async function warmThreads(list: ChatListConversation[]) {
+    if (warming.current) return
+    if (typeof navigator !== 'undefined' && (navigator.onLine === false || (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData)) return
+    warming.current = true
+    try {
+      let seen = 0
+      for (const c of list) {
+        if (!alive.current || seen >= WARM_MAX_THREADS) break
+        if (c.hidden || !c.last_message_at) continue
+        seen++
+        const cached = readThreadCache(currentUserId, c.id)
+        const newest = cached && cached.messages.length > 0 ? cached.messages[cached.messages.length - 1].created_at : null
+        if (newest && Date.parse(newest) >= Date.parse(c.last_message_at)) continue   // already has the newest message
+        const res = await loadMessagesAction(c.id)
+        if (!res.error && res.messages.length > 0) writeThreadCache(currentUserId, c.id, res.messages, res.hasMore)
+        await new Promise(r => setTimeout(r, 150))   // gentle on a slow connection
+      }
+    } catch { /* best effort */ } finally {
+      warming.current = false
+    }
+  }
 
   function applyFresh(raw: ChatListConversation[]) {
     // Chats with nothing in them never appear; newest activity first.
     const next = sortConversations(raw.filter(hasMessage))
     setConversations(next)
     writeChatListCache(currentUserId, next)
+    void warmThreads(next)
   }
 
   // ── Decrypt previews ────────────────────────────────────────────────────────
@@ -351,7 +401,12 @@ export default function MessagesListClient({ currentUserId }: Props) {
     const channel = sb
       .channel(`conversations-list:${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, scheduleRefresh)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, scheduleRefresh)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload: any) => {
+        // A message from them ends their "typing…" at once.
+        const cid = payload?.new?.conversation_id
+        if (cid) trackerRef.current?.clear(cid)
+        scheduleRefresh()
+      })
       // Read / delivered receipts: lets the tick next to my last message turn green live.
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, scheduleRefresh)
       .subscribe()
@@ -439,7 +494,7 @@ export default function MessagesListClient({ currentUserId }: Props) {
     const unread = shown.filter(c => !c.hidden && c.unread_count > 0)
     body = unread.length === 0
       ? <EmptyState filter="unread" />
-      : <div>{unread.map(c => <ConversationRow key={c.id} conv={c} />)}</div>
+      : <div>{unread.map(c => <ConversationRow key={c.id} conv={c} typing={typingIds.has(c.id)} />)}</div>
   } else {
     // All and Direct: every chat here is one-to-one today (no group chats yet),
     // so Direct shows the same list; it starts to differ once groups exist.
@@ -451,7 +506,7 @@ export default function MessagesListClient({ currentUserId }: Props) {
 
     body = (
       <div>
-        {active.map(c => <ConversationRow key={c.id} conv={c} />)}
+        {active.map(c => <ConversationRow key={c.id} conv={c} typing={typingIds.has(c.id)} />)}
 
         {inactive.length > 0 && (
           <>
@@ -461,7 +516,7 @@ export default function MessagesListClient({ currentUserId }: Props) {
                 <p style={{ margin: 0, padding: '10px 20px', fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
                   You can read these, but not reply until you follow each other again.
                 </p>
-                {inactive.map(c => <ConversationRow key={c.id} conv={c} />)}
+                {inactive.map(c => <ConversationRow key={c.id} conv={c} typing={typingIds.has(c.id)} />)}
               </>
             )}
           </>
@@ -470,7 +525,7 @@ export default function MessagesListClient({ currentUserId }: Props) {
         {hidden.length > 0 && (
           <>
             {sectionHeader('Hidden chats', hidden.length, showHidden, () => setShowHidden(v => !v), 0)}
-            {showHidden && hidden.map(c => <ConversationRow key={c.id} conv={c} hiddenRow onUnhide={handleUnhide} />)}
+            {showHidden && hidden.map(c => <ConversationRow key={c.id} conv={c} hiddenRow onUnhide={handleUnhide} typing={typingIds.has(c.id)} />)}
           </>
         )}
       </div>

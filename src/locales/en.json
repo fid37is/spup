@@ -839,5 +839,16 @@
   "wallet.premium_criterion": "Spup Premium",
   "wallet.premium_active_short": "Active",
   "wallet.premium_subscribe_link": "Subscribe",
-  "premium.how_it_works": "How Premium works"
+  "premium.how_it_works": "How Premium works",
+  "chat.typing": "typing…",
+"chat.reply": "Reply",
+"chat.view": "View",
+"chat.edit": "Edit",
+"chat.edited": "edited",
+"chat.editing_message": "Editing message",
+"chat.cancel_edit": "Cancel edit",
+"chat.save_edit": "Save edit",
+"chat.could_not_edit": "Couldn't edit that message. Try again.",
+"chat.delete": "Delete",
+"chat.delete_confirm": "Delete for everyone?"
 }

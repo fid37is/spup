@@ -2,7 +2,6 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
-import { fetchMessagePage } from '@/lib/chat-queries'
 import ChatClient from './chat-client'
 import PinGate from '@/components/chat/pin-gate'
 import ChatViewport from '@/components/chat/chat-viewport'
@@ -40,10 +39,10 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
 
   const otherUser = (conv.participant_1 === profile.id ? conv.p2 : conv.p1) ?? DELETED_USER
 
-  // First paint only. This is a pure read now (it no longer marks messages as
-  // read - the chat screen does that once they are really on screen), and if it
-  // fails the client shows a retry state and re-fetches by itself.
-  const page = await fetchMessagePage(supabase, id)
+  // The messages are NOT fetched here any more. This used to run a query for the latest page on
+  // every single visit, which both delayed opening the thread and re-sent messages the phone
+  // already had. The chat screen paints from its on-device copy (lib/chat-thread-cache.ts) and
+  // catches up in the background; the very first visit to a thread loads its page once.
   const otherId = (otherUser as any).id as string
   const lock = otherId ? await getChatLockReason(profile.id, otherId) : null
 
@@ -54,9 +53,6 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
       <ChatViewport>
         <ChatClient
           conversationId={id}
-          initialMessages={page.messages}
-          initialHasMore={page.hasMore}
-          initialError={page.error}
           currentUserId={profile.id}
           otherUser={otherUser as any}
           initialLock={lock}
