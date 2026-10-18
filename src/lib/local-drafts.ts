@@ -1,5 +1,7 @@
 'use client'
 
+import { deleteDraftFiles } from '@/lib/draft-files'
+
 /**
  * local-drafts.ts
  * ----------------
@@ -22,10 +24,19 @@ export interface LocalDraftMedia {
   cloudinary_id?: string
 }
 
+// A photo or video that was picked but never sent. The file itself is in IndexedDB
+// (see draft-files.ts), under this draft's id and `key`.
+export interface HeldDraftMedia {
+  key: string
+  media_type: 'image' | 'video'
+  size_bytes?: number
+}
+
 export interface LocalDraft {
   id: string
   body: string
   media: LocalDraftMedia[]
+  heldMedia?: HeldDraftMedia[]
   isSelling: boolean
   updatedAt: string
 }
@@ -59,6 +70,8 @@ export function saveDraft(userId: string, draft: LocalDraft) {
   try {
     const drafts = loadDrafts(userId).filter(d => d.id !== draft.id)
     drafts.unshift(draft)
+    // Drafts pushed off the end are gone for good, so their stored files go too.
+    for (const dropped of drafts.slice(MAX_DRAFTS)) void deleteDraftFiles(dropped.id)
     window.localStorage.setItem(storageKey(userId), JSON.stringify(drafts.slice(0, MAX_DRAFTS)))
   } catch {
     // Storage full or unavailable (private browsing, etc.) - the draft just
@@ -74,6 +87,7 @@ export function deleteDraft(userId: string, draftId: string) {
   } catch {
     // no-op
   }
+  void deleteDraftFiles(draftId)
 }
 
 export function hasMeaningfulContent(body: string, mediaCount: number): boolean {

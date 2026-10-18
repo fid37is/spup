@@ -11,12 +11,12 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { X } from 'lucide-react'
-import PostComposer, { type PostComposerHandle, type ReplyToContext } from '@/app/(main)/feed/post-composer'
+import PostComposer, { type PostComposerHandle, type ReplyToContext, type EditPostContext } from '@/app/(main)/feed/post-composer'
 import DraftsPanel from '@/components/feed/drafts-panel'
 import ChatViewport from '@/components/chat/chat-viewport'
 import type { LocalDraft } from '@/lib/local-drafts'
 
-export default function ComposeClient({ userId, authorAvatarUrl, authorName, replyTo = null, replyChain = [], returnTo }: {
+export default function ComposeClient({ userId, authorAvatarUrl, authorName, replyTo = null, replyChain = [], returnTo, editPost = null }: {
   userId?: string
   authorAvatarUrl?: string | null
   authorName?: string
@@ -25,31 +25,18 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   replyChain?: ReplyToContext[]
   /** The post detail page this reply was opened from - land back there after posting, not on the replied-to comment's own page. */
   returnTo?: string
+  /** /compose?edit=<id>: the same screen, opened on an existing post to change its text. */
+  editPost?: EditPostContext | null
 }) {
   const router = useRouter()
   const composerRef = useRef<PostComposerHandle>(null)
   const [showDrafts, setShowDrafts] = useState(false)
   const [composerState, setComposerState] = useState({ canPost: false, isScheduled: false })
-
-  // True when the screen before this one belongs to the page that is open right
-  // now. Going back is then an in-app move. If this screen was opened by a full
-  // page load instead (the app opened straight onto it, or Next fell back to a
-  // browser navigation), the entry before it is a different page, and going
-  // back would unload the whole app - which is what interrupts a post that is
-  // still being sent.
-  function previousScreenIsInThisPage(): boolean {
-    const nav = (window as unknown as {
-      navigation?: { currentEntry: { index: number } | null; entries(): Array<{ sameDocument: boolean }> }
-    }).navigation
-    if (!nav?.currentEntry) return false
-    const previous = nav.entries()[nav.currentEntry.index - 1]
-    return !!previous && previous.sameDocument
-  }
+  const [closing, setClosing] = useState(false)
 
   function leave() {
-    // Back to the screen they came from; otherwise (or if that would leave the
-    // page) straight to the feed, which is an in-app move too.
-    if (previousScreenIsInThisPage()) router.back()
+    // Back to wherever they came from; if this page was opened directly, the feed.
+    if (window.history.length > 1) router.back()
     else router.replace('/feed')
   }
 
@@ -58,11 +45,8 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   // the screen and a "Post sent" toast follows - so there is nothing to wait
   // for: just leave. The poster also puts the finished post on the feed (or
   // refreshes the thread, for a reply) once it's live.
-  //
-  // This screen stays rendered until the route actually changes. It used to
-  // render nothing straight away, which left an empty dark page (with the app's
-  // top bar and bottom tabs back on it) for as long as the navigation took.
   function handlePosted() {
+    setClosing(true)
     // A reply: go back to the post detail page you were actually reading -
     // not the replied-to comment's own separate page, which is a different,
     // disorienting destination. Falls back to the reply target itself only for
@@ -80,7 +64,9 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
   }
 
   const { canPost, isScheduled } = composerState
-  const postLabel = replyTo ? 'Reply' : (isScheduled ? 'Schedule' : 'Post')
+  const postLabel = editPost ? 'Save' : replyTo ? 'Reply' : (isScheduled ? 'Schedule' : 'Post')
+
+  if (closing) return null
 
   return (
     <ChatViewport>
@@ -96,7 +82,12 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
         >
           <X size={22} />
         </button>
-        {userId && !replyTo && (
+        {editPost && (
+          <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)' }}>
+            Edit post
+          </span>
+        )}
+        {userId && !replyTo && !editPost && (
           <button
             onClick={() => setShowDrafts(true)}
             style={{
@@ -142,13 +133,14 @@ export default function ComposeClient({ userId, authorAvatarUrl, authorName, rep
           userId={userId}
           replyTo={replyTo}
           replyChain={replyChain}
+          editPost={editPost}
           viewHref={replyTo ? `/post/${returnTo ?? replyTo.id}` : undefined}
           onStateChange={setComposerState}
           onPosted={handlePosted}
         />
       </div>
 
-      {showDrafts && userId && !replyTo && (
+      {showDrafts && userId && !replyTo && !editPost && (
         <DraftsPanel
           userId={userId}
           onClose={() => setShowDrafts(false)}

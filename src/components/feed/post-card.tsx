@@ -3,7 +3,7 @@
 
 import { useState, useTransition, useEffect, useRef, useId } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { Repeat2, Send, Bookmark, EllipsisVertical, Trash2, Flag, Pin, PinOff, Megaphone, Link2, Tag, Play, Volume2, VolumeX } from 'lucide-react'
+import { Repeat2, Send, Bookmark, EllipsisVertical, Trash2, Pencil, Flag, Pin, PinOff, Megaphone, Link2, Tag, Play, Volume2, VolumeX } from 'lucide-react'
 import PromoteModal from './promote-modal'
 import ReportDialog from './report-dialog'
 import { toggleBookmarkAction, deletePostAction, recordImpressionAction, recordLinkClickAction, recordDetailExpandAction, recordProfileVisitFromPostAction, togglePinPostAction, checkHasPinnedPostAction, recordPromotionImpressionAction, recordPromotionClickAction } from '@/lib/actions'
@@ -24,6 +24,9 @@ import { ProgressiveImage } from '@/components/media/progressive-image'
 import { linkifyPostText, closeCutBold } from '@/components/shared/linkify'
 import LinkPreviewCard from '@/components/feed/link-preview-card'
 import ConfirmModal from '@/components/ui/confirm-modal'
+import PostModal from '@/components/feed/post-modal'
+import { subscribeFeedEvents, getStashedPostEdit } from '@/lib/feed-local-events'
+import { isWithinEditWindow } from '@/lib/post-edit'
 import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
@@ -446,11 +449,12 @@ export function QuotedEmbed({ q, onOpen, borderColor = 'var(--color-border)' }: 
 const NO_EVENT = { stopPropagation: () => {} } as unknown as React.MouseEvent
 
 function MenuItems({
-  isOwnPost, bookmarked, isPinned,
-  onPromote, onPin, onBookmark, onCopyLink, onShare, onDelete, onReport,
+  isOwnPost, canEdit, bookmarked, isPinned,
+  onPromote, onPin, onBookmark, onCopyLink, onShare, onEdit, onDelete, onReport,
   size, fontSize, gap, padding,
 }: {
-  isOwnPost: boolean; bookmarked: boolean; isPinned: boolean
+  isOwnPost: boolean; canEdit: boolean; bookmarked: boolean; isPinned: boolean
+  onEdit: (e: React.MouseEvent) => void
   onPromote: () => void; onPin: (e: React.MouseEvent) => void
   onBookmark: (e: React.MouseEvent) => void; onCopyLink: (e: React.MouseEvent) => void
   onShare: (e: React.MouseEvent) => void
@@ -488,6 +492,11 @@ function MenuItems({
       <button onClick={onShare} style={itemStyle('var(--color-text-primary)')}>
         <Send size={size} /> {t('post.share')}
       </button>
+      {canEdit && (
+        <button onClick={onEdit} style={itemStyle('var(--color-text-primary)')}>
+          <Pencil size={size} /> {t('post.edit_post_menu')}
+        </button>
+      )}
       {isOwnPost && (
         <button onClick={onDelete} style={itemStyle('var(--color-error)')}>
           <Trash2 size={size} /> {t('post.delete_post_menu')}
@@ -720,12 +729,19 @@ export default function PostCard({
   const [showPinConfirm, setShowPinConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
+  // Text and "edited" time after this person's own edit; null = still what the feed loaded.
+  const [edit, setEdit] = useState<{ body: string; edited_at: string } | null>(null)
   const router = useRouter()
   const { success, error: toastError, info } = useToast()
   const articleRef = useRef<HTMLElement>(null)
   const impressionFired = useRef(false)
 
   const isOwnPost = !!currentUserId && post.author?.id === currentUserId
+  const shownBody = edit ? edit.body : post.body
+  const editedAt = edit ? edit.edited_at : post.edited_at
+  // Only evaluated while the menu is open (it is not rendered otherwise), so the clock never affects server HTML.
+  const canEdit = showMenu && isOwnPost && post.post_type !== 'repost' && isWithinEditWindow(post.created_at)
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
@@ -761,6 +777,16 @@ export default function PostCard({
     observer.observe(el)
     return () => { observer.disconnect(); if (timer) clearTimeout(timer) }
   }, [post.id, isOwnPost])
+
+  // The text of this post was edited in the composer (desktop modal: an event; the phone's
+  // /compose page: parked in sessionStorage, picked up here when the card is shown again).
+  useEffect(() => {
+    const stashed = getStashedPostEdit(post.id)
+    if (stashed && (!post.edited_at || stashed.edited_at > post.edited_at)) setEdit(stashed)
+    return subscribeFeedEvents(e => {
+      if (e.type === 'post-edited' && e.id === post.id) setEdit({ body: e.body, edited_at: e.edited_at })
+    })
+  }, [post.id, post.edited_at])
 
   if (deleted) return null
   // A repost counts its own impressions (it has its own analytics), so it gets
@@ -812,7 +838,7 @@ export default function PostCard({
     setShowMenu(false)
     const url = `${window.location.origin}/post/${post.id}`
     try {
-      if (navigator.share) await navigator.share({ title: post.author?.display_name, text: post.body || '', url })
+      if (navigator.share) await navigator.share({ title: post.author?.display_name, text: shownBody || '', url })
       else { await navigator.clipboard.writeText(url); success(t('post.link_copied_clipboard')) }
     } catch { /* user dismissed share sheet */ }
   }
@@ -821,6 +847,15 @@ export default function PostCard({
     e.stopPropagation()
     setShowMenu(false)
     setShowDeleteConfirm(true)
+  }
+
+  // Edit reuses the normal composer: the phone's full-screen /compose page, or the same
+  // dialog desktop uses for a new post (PostModal, rendered below).
+  function handleEdit(e: React.MouseEvent) {
+    e.stopPropagation()
+    setShowMenu(false)
+    if (isMobile) router.push(`/compose?edit=${post.id}`)
+    else setShowEdit(true)
   }
 
   function confirmDelete() {
@@ -934,7 +969,7 @@ export default function PostCard({
               <span style={{ ...ONE_LINE, flexShrink: 2, fontSize: 13, color: 'var(--color-text-muted)' }}>@{author?.username}</span>
               <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--color-border-light)' }}>·</span>
               <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 12, color: 'var(--color-text-muted)' }}>{formatRelativeTime(post.created_at)}</span>
-              {post.edited_at && <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 11, color: 'var(--color-text-faint)' }}>· {t('post.edited_label')}</span>}
+              {editedAt && <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 11, color: 'var(--color-text-faint)' }}>· {t('post.edited_label')}</span>}
             </div>
 
             {/* Follow / Follow back: post detail page only, and only when you don't follow them yet */}
@@ -986,6 +1021,12 @@ export default function PostCard({
                       <DrawerItem label={t('post.share')} icon={<Send size={22} />} onClick={() => handleShare(NO_EVENT)} />
                     </DrawerGroup>
                     <DrawerGroup>
+                      {canEdit && (
+                        <DrawerItem
+                          label={t('post.edit_post_menu')} icon={<Pencil size={22} />}
+                          onClick={() => handleEdit(NO_EVENT)}
+                        />
+                      )}
                       {isOwnPost && (
                         <DrawerItem
                           label={t('post.delete_post_menu')} destructive icon={<Trash2 size={22} />}
@@ -1010,10 +1051,10 @@ export default function PostCard({
                         boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
                       }}
                     >
-                      <MenuItems isOwnPost={isOwnPost} bookmarked={bookmarked} isPinned={isPinned}
+                      <MenuItems isOwnPost={isOwnPost} canEdit={canEdit} bookmarked={bookmarked} isPinned={isPinned}
                         onPromote={() => { setShowMenu(false); setShowPromoteModal(true) }}
                         onPin={handlePin} onBookmark={handleBookmark} onCopyLink={handleCopyLink} onShare={handleShare}
-                        onDelete={handleDelete}
+                        onEdit={handleEdit} onDelete={handleDelete}
                         onReport={() => { setShowMenu(false); setShowReport(true) }}
                         size={15} fontSize={14} gap={8} padding="9px 12px" />
                     </div>
@@ -1030,14 +1071,14 @@ export default function PostCard({
           )}
 
           {/* Body */}
-          {post.body?.trim() && (
+          {shownBody?.trim() && (
             <div style={{ marginBottom: (post.media?.length || post.quoted_post) ? 12 : 10 }}>
-              <TruncatedBody text={post.body} postId={post.id} />
+              <TruncatedBody text={shownBody} postId={post.id} />
             </div>
           )}
 
           {/* Link preview: only when the post has no media or quote of its own */}
-          {!post.media?.length && !post.quoted_post && <LinkPreviewCard body={post.body} />}
+          {!post.media?.length && !post.quoted_post && <LinkPreviewCard body={shownBody} />}
 
           {/* Quoted post embed */}
           {post.quoted_post && (
@@ -1069,6 +1110,24 @@ export default function PostCard({
         onConfirm={confirmReplace}
         onCancel={() => setShowPinConfirm(false)}
       />
+
+      {showEdit && (
+        <PostModal
+          onClose={() => setShowEdit(false)}
+          viewer={{ display_name: post.author?.display_name, avatar_url: post.author?.avatar_url }}
+          userId={currentUserId}
+          editPost={{
+            id: post.id,
+            body: shownBody ?? '',
+            createdAt: post.created_at,
+            isReply: post.post_type === 'reply',
+            isSelling: !!post.is_selling,
+            media: [...(post.media ?? [])]
+              .sort((a, b) => a.position - b.position)
+              .map(m => ({ url: m.url, media_type: m.media_type as 'image' | 'video', thumbnail_url: m.thumbnail_url })),
+          }}
+        />
+      )}
 
       {/* Delete confirmation */}
       <ConfirmModal

@@ -13,10 +13,11 @@
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
-import PostComposer, { type PostComposerHandle } from '@/app/(main)/feed/post-composer'
+import PostComposer, { type PostComposerHandle, type EditPostContext } from '@/app/(main)/feed/post-composer'
 import DraftsPanel from './drafts-panel'
 import type { LocalDraft } from '@/lib/local-drafts'
 import { useBackClose } from '@/hooks/use-back-close'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 interface PostModalProps {
   onClose: () => void
@@ -36,11 +37,14 @@ interface PostModalProps {
   }
   // Local drafts are scoped to this id - omitted (no signed-in profile) just skips autosave.
   userId?: string
+  /** Set to edit an existing post in this same dialog instead of writing a new one. */
+  editPost?: EditPostContext
 }
 
 
-export default function PostModal({ onClose, parentPostId, replyTo, viewHref, onPosted, viewer, userId }: PostModalProps) 
+export default function PostModal({ onClose, parentPostId, replyTo, viewHref, onPosted, viewer, userId, editPost }: PostModalProps) 
 { useBackClose(true, onClose)
+  const { t } = useTranslation()
   const [showDrafts, setShowDrafts] = useState(false)
   const composerRef = useRef<PostComposerHandle>(null)
 
@@ -100,7 +104,12 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewHref, on
             >
               <X size={18} />
             </button>
-            {userId && !parentPostId && (
+            {editPost && (
+              <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text-primary)' }}>
+                {t('post.edit_title')}
+              </span>
+            )}
+            {userId && !parentPostId && !editPost && (
               <button
                 onClick={() => setShowDrafts(true)}
                 style={{
@@ -129,7 +138,8 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewHref, on
                 body: replyTo.body,
               } : null}
               viewHref={viewHref}
-              // Handed to the background the moment Post is tapped - close now.
+              editPost={editPost}
+              // Handed to the background the moment Post is tapped - close now (an edit: once it is saved).
               onPosted={onClose}
               onCompleted={onPosted}
             />
@@ -137,7 +147,7 @@ export default function PostModal({ onClose, parentPostId, replyTo, viewHref, on
         </div>
       </div>
 
-      {showDrafts && userId && !parentPostId && (
+      {showDrafts && userId && !parentPostId && !editPost && (
         <DraftsPanel
           userId={userId}
           onClose={() => setShowDrafts(false)}

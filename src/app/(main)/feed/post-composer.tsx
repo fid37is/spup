@@ -6,12 +6,16 @@ import { usePosting } from '@/components/layout/posting-provider'
 import { useNetworkStatus } from '@/lib/network-status'
 import SchedulePicker, { formatScheduled } from '@/components/feed/schedule-picker'
 import { saveDraft, hasMeaningfulContent, newDraftId, type LocalDraft } from '@/lib/local-drafts'
-import { MAX_MEDIA_PER_POST, MAX_POST_MEDIA_BYTES, POST_MEDIA_TOO_BIG, selectFilesForPost, mediaKindOf } from '@/lib/media-limits'
-import { compressImageForUpload } from '@/lib/media-client'
-import { startMediaUpload, type UploadHandle } from '@/lib/posting/media-upload'
+import { MAX_MEDIA_PER_POST, selectFilesForPost, mediaKindOf } from '@/lib/media-limits'
+import { syncDraftFiles, getDraftFiles } from '@/lib/draft-files'
+import { editPostAction } from '@/lib/actions'
+import { editTimeLeftMs } from '@/lib/post-edit'
+import { publishFeedEvent, stashPostEdit } from '@/lib/feed-local-events'
+import { useToast } from '@/components/layout/toast'
 import type { PostJobMedia } from '@/lib/posting/poster'
 import { cloudinaryImage, fallbackToOriginal } from '@/lib/utils/cloudinary'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { discardUploadsAction } from '@/lib/actions/uploads'
 
 const POST_MAX_CHARS = 1000
 const REPLY_MAX_CHARS = 500
@@ -91,6 +95,8 @@ interface MediaItem {
   size_bytes?: number
   uploading?: boolean
   progress?: number       // 0-100 while uploading
+  locked?: boolean         // an existing photo/video of a post being edited: shown, but cannot be removed
+  held?: boolean           // picked but not sent anywhere: the raw file is in fileMapRef until Post is tapped
   offlineQueued?: boolean  // network was degraded/offline when attached - raw file is held in fileMapRef, never uploaded to Cloudinary directly
   error?: string
   localPreview: string   // object URL for immediate preview
@@ -108,6 +114,20 @@ export interface ReplyToContext {
   authorUsername: string
   authorAvatarUrl: string | null
   body: string | null
+}
+
+// Turns this composer into the editor for a post that is already published - same
+// component, same look, on desktop (PostModal) and on the phone (/compose?edit=).
+// Only the text can change: the existing photos/videos are shown but locked, and
+// scheduling, selling, attaching and drafts are hidden. Save calls editPostAction,
+// which enforces the 15-minute window and the edit limit on the server.
+export interface EditPostContext {
+  id: string
+  body: string
+  createdAt: string
+  isReply: boolean
+  isSelling: boolean
+  media: { url: string; media_type: 'image' | 'video'; thumbnail_url?: string | null }[]
 }
 
 interface PostComposerProps {
@@ -128,6 +148,8 @@ interface PostComposerProps {
   // shows the whole mini-thread it's landing in - same idea as Threads'
   // "expanded reply composer".
   replyChain?: ReplyToContext[]
+  /** Set to edit an existing post instead of writing a new one. */
+  editPost?: EditPostContext | null
   // Local drafts are saved to localStorage scoped to this id - omit it (no
   // signed-in profile yet) and autosave is simply skipped.
   userId?: string
@@ -148,27 +170,33 @@ export interface PostComposerHandle {
 }
 
 const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function PostComposer(
-  { onPosted, onCompleted, authorName = 'P', authorAvatarUrl, userId, variant = 'modal', onStateChange, replyTo = null, replyChain = [], viewHref },
+  { onPosted, onCompleted, authorName = 'P', authorAvatarUrl, userId, variant = 'modal', onStateChange, replyTo = null, replyChain = [], viewHref, editPost = null },
   ref
 ) {
   const { t } = useTranslation()
   const posting = usePosting()
-  const [body, setBody] = useState('')
-  const [media, setMedia] = useState<MediaItem[]>([])
+  const editing = !!editPost
+  const toast = useToast()
+  const [body, setBody] = useState(editPost?.body ?? '')
+  const [media, setMedia] = useState<MediaItem[]>(() => (editPost?.media ?? []).map((m, i) => ({
+    tempId: `existing_${i}`, url: m.url, media_type: m.media_type, thumbnail_url: m.thumbnail_url,
+    localPreview: m.url, locked: true,
+  })))
+  const [saving, setSaving] = useState(false)
+  const [timeLeft, setTimeLeft] = useState(() => (editPost ? editTimeLeftMs(editPost.createdAt) : 0))
   const [isSelling, setIsSelling] = useState(false)
   const [scheduledAt, setScheduledAt] = useState<string | null>(null)
   const [error, setError] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
-  // The original file for every attached item. Kept so the post can be queued
-  // for later when offline (see handlePost).
+  // The original file for every photo/video the person picked. NOTHING is uploaded
+  // while they compose: the files stay here, on the device, until Post is tapped.
+  // Then they are handed to the background poster, which uploads and publishes
+  // (see handlePost), and the composer closes straight away - same as Facebook,
+  // Instagram, X and TikTok. Removing a picked file costs no data and leaves
+  // nothing on the server.
   const fileMapRef = useRef<Map<string, File>>(new Map())
-  // Uploads in flight, one per item. Each runs on its own (a few at a time,
-  // shared across the app - see lib/posting/media-upload), so removing an item
-  // cancels it (saves data) and tapping Post hands the still-running ones to
-  // the background poster instead of waiting for them.
-  const handlesRef = useRef<Map<string, UploadHandle>>(new Map())
   const mediaRef = useRef<MediaItem[]>([])
   mediaRef.current = media
 
@@ -183,21 +211,35 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
   networkStatusRef.current = networkStatus
 
   // New posts take 1,000 characters; replies stay at 500.
-  const maxChars = replyTo ? REPLY_MAX_CHARS : POST_MAX_CHARS
+  const maxChars = (replyTo || editPost?.isReply) ? REPLY_MAX_CHARS : POST_MAX_CHARS
   const charsLeft = maxChars - body.length
   const isOverLimit = charsLeft < 0
   const isWarning = charsLeft <= 30
   const activeMedia = media.filter(m => !m.error)
   const canAddMore = activeMedia.length < MAX_MEDIA
-  // Photos/videos that are still uploading do NOT block posting: Post hands
-  // them to the background poster, which waits for them. Only an upload that
-  // has already failed is left out of the post.
-  const canPost = (body.trim().length > 0 || activeMedia.length > 0)
-    && !isOverLimit && (!isSelling || body.trim().length > 0)
+  // Picked photos/videos never block posting: Post hands them to the background
+  // poster, which uploads them.
+  // Editing: Save needs a real change, something left to show, and time on the clock.
+  const canPost = editPost
+    ? body.trim() !== editPost.body.trim()
+      && (body.trim().length > 0 || (activeMedia.length > 0 && !editPost.isSelling))
+      && !isOverLimit && timeLeft > 0 && !saving
+    : (body.trim().length > 0 || activeMedia.length > 0)
+      && !isOverLimit && (!isSelling || body.trim().length > 0)
 
   useEffect(() => {
     onStateChange?.({ canPost, isScheduled: !!scheduledAt })
   }, [canPost, scheduledAt, onStateChange])
+
+  // Editing: tick the "time left" down once a second until the window closes.
+  const editCreatedAt = editPost?.createdAt
+  useEffect(() => {
+    if (!editCreatedAt) return
+    const tick = () => setTimeLeft(editTimeLeftMs(editCreatedAt))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [editCreatedAt])
 
   // The fullscreen screen (new post or reply, mobile) is a dedicated
   // destination you navigate to specifically to type - Threads opens the
@@ -222,30 +264,34 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     return () => vv.removeEventListener('resize', onResize)
   }, [])
 
-  // Closed without posting: stop uploads still in flight so they don't keep
-  // spending data, and release the previews. A post that was sent has already
-  // taken its uploads out of handlesRef, so this never touches those.
+  // Closed: release the previews. Held files that were autosaved to the draft
+  // (below) stay on the device; nothing was ever sent to the server.
   useEffect(() => () => {
-    handlesRef.current.forEach(h => h.cancel())
-    handlesRef.current.clear()
     mediaRef.current.forEach(m => { if (m.localPreview) URL.revokeObjectURL(m.localPreview) })
   }, [])
 
   // Debounced local autosave - anything typed and then closed without
-  // sending shows up later in the Drafts panel. Only saves media that has
-  // actually finished uploading (a real, stable Cloudinary URL); in-flight
-  // blobs can't survive a reload anyway.
+  // sending shows up later in the Drafts panel. Picked photos/videos are saved
+  // too: the raw files go to the device's own IndexedDB (see lib/draft-files),
+  // not to the server. Media restored from an older draft is already uploaded
+  // and is saved by its URL.
   useEffect(() => {
     // Reply drafts aren't tracked in the (top-level-post) Drafts panel - saving
     // one there would show up with no indication it's a reply. Skip entirely.
-    if (!userId || replyTo) return
+    if (!userId || replyTo || editPost) return
     if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
     const uploadedMedia = media.filter(m => !m.uploading && !m.error && m.cloudinary_id)
-    if (!hasMeaningfulContent(body, uploadedMedia.length)) return
+    const heldMedia = media.filter(m => m.held && !m.error && fileMapRef.current.has(m.tempId))
+    if (!hasMeaningfulContent(body, uploadedMedia.length + heldMedia.length)) return
     draftSaveTimer.current = setTimeout(() => {
+      void syncDraftFiles(draftIdRef.current, heldMedia.map(m => {
+        const file = fileMapRef.current.get(m.tempId)!
+        return { key: m.tempId, blob: file, name: file.name }
+      }))
       saveDraft(userId, {
         id: draftIdRef.current,
         body,
+        heldMedia: heldMedia.map(m => ({ key: m.tempId, media_type: m.media_type, size_bytes: m.size_bytes })),
         media: uploadedMedia.map(m => ({
           url: m.url, thumbnail_url: m.thumbnail_url, media_type: m.media_type,
           width: m.width, height: m.height, duration_secs: m.duration_secs,
@@ -277,12 +323,29 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
         localPreview: m.url,
       })))
       setError('')
+      // Photos/videos that were never sent come back from the device's own storage.
+      if (draft.heldMedia?.length) void restoreHeldMedia(draft)
       requestAnimationFrame(() => {
         const ta = textareaRef.current
         if (ta) { ta.focus(); ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
       })
     },
   }))
+
+  async function restoreHeldMedia(draft: LocalDraft) {
+    const files = await getDraftFiles(draft.id)
+    const meta = new Map((draft.heldMedia ?? []).map(h => [h.key, h]))
+    const restored: MediaItem[] = []
+    for (const f of files) {
+      const m = meta.get(f.key)
+      if (!m) continue
+      const file = new File([f.blob], f.name || f.key, { type: f.blob.type })
+      fileMapRef.current.set(f.key, file)
+      const localPreview = URL.createObjectURL(file)
+      restored.push({ tempId: f.key, url: localPreview, media_type: m.media_type, localPreview, held: true, size_bytes: m.size_bytes ?? file.size })
+    }
+    if (restored.length) setMedia(prev => [...prev, ...restored.filter(r => !prev.some(p => p.tempId === r.tempId))])
+  }
 
   function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setBody(e.target.value)
@@ -300,90 +363,22 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     keepCaretInView(ta)
   }
 
+  // Picking a photo or video only holds it: a preview appears at once and the file
+  // waits on the device. It is sent when Post is tapped (and only then), so a
+  // post that is never posted never uploads anything.
   const uploadFile = useCallback((file: File, type: 'image' | 'video') => {
     const localPreview = URL.createObjectURL(file)
     const tempId = `temp_${Date.now()}_${Math.random()}`
     fileMapRef.current.set(tempId, file)
-
-    if (networkStatusRef.current !== 'online') {
-      // Can't reliably upload right now - hold the raw file and let
-      // handlePost's offline branch queue the whole post for later,
-      // rather than firing a Cloudinary upload that'll likely time out.
-      setMedia(prev => [...prev, {
-        tempId, url: localPreview, media_type: type, localPreview,
-        uploading: false, offlineQueued: true,
-      }])
-      // Shrink the held copy in the background so the eventual upload (on
-      // whatever connection comes back) is small. If the person taps Post
-      // before this finishes, the original is queued instead - still fine.
-      if (type === 'image') {
-        void compressImageForUpload(file).then(small => {
-          if (fileMapRef.current.has(tempId)) fileMapRef.current.set(tempId, small)
-        })
-      }
-      return
-    }
-
-    // Add placeholder immediately so user sees preview while uploading
     setMedia(prev => [...prev, {
-      tempId,
-      url: localPreview,
-      media_type: type,
-      localPreview,
-      uploading: true,
+      tempId, url: localPreview, media_type: type, localPreview, held: true, size_bytes: file.size,
     }])
-
-    // The upload starts right away, while the person keeps typing, and runs on
-    // its own - it isn't tied to this component. So Post never has to wait for
-    // it: whatever hasn't finished by then is handed to the background poster.
-    const handle = startMediaUpload(file, type, {
-      // Everything in one post can total MAX_POST_MEDIA_BYTES (photos are
-      // counted after compression, which is why this runs at send time).
-      beforeSend: bytes => {
-        let others = 0
-        handlesRef.current.forEach((h, id) => {
-          if (id !== tempId && h.sized && h.status !== 'error') others += h.sentBytes
-        })
-        return others + bytes > MAX_POST_MEDIA_BYTES ? POST_MEDIA_TOO_BIG : null
-      },
-    })
-    handlesRef.current.set(tempId, handle)
-
-    handle.subscribe(() => {
-      // Removed, or already handed to the poster - nothing here to update.
-      if (handlesRef.current.get(tempId) !== handle) return
-      if (handle.status === 'done' && handle.result) {
-        const uploaded = handle.result
-        // Replace temp with real Cloudinary data
-        setMedia(prev => prev.map(m =>
-          m.tempId === tempId ? {
-            tempId,
-            cloudinary_id: uploaded.cloudinary_id,
-            url: uploaded.url,
-            media_type: uploaded.media_type,
-            thumbnail_url: uploaded.thumbnail_url,
-            width: uploaded.width ?? undefined,
-            height: uploaded.height ?? undefined,
-            duration_secs: uploaded.duration_secs,
-            size_bytes: uploaded.size_bytes,
-            localPreview,
-            uploading: false,
-          } : m
-        ))
-      } else if (handle.status === 'error') {
-        setMedia(prev => prev.map(m =>
-          m.tempId === tempId ? { ...m, uploading: false, error: handle.error || t('composer.upload_failed') } : m
-        ))
-      } else {
-        setMedia(prev => prev.map(m => m.tempId === tempId ? { ...m, progress: handle.progress } : m))
-      }
-    })
-  }, [t])
+  }, [])
 
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
     // Check type, per-file size (photo 10MB / video 25MB), the 4-item cap
-    // and the 2-video cap up front, so nothing doomed gets uploaded.
+    // and the 2-video cap up front, so a doomed file is refused at once.
     const existing = media.filter(m => !m.error).map(m => m.media_type)
     const { accepted, error: selectError } = selectFilesForPost(existing, Array.from(files))
     setError(selectError ?? '')
@@ -395,10 +390,13 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
 
   function removeMedia(tempId: string) {
     fileMapRef.current.delete(tempId)
-    // Forget the handle first so its own "cancelled" update is ignored.
-    const handle = handlesRef.current.get(tempId)
-    handlesRef.current.delete(tempId)
-    handle?.cancel()
+    // A held file was never sent anywhere, so there is nothing to clean up. Only media
+    // restored from an older draft is already on the server: take that off too (the
+    // server refuses if anything still uses it).
+    const removed = media.find(m => m.tempId === tempId)
+    if (removed?.cloudinary_id && !removed.uploading && !removed.error && !removed.offlineQueued) {
+      void discardUploadsAction([{ url: removed.url, thumbnail_url: removed.thumbnail_url }])
+    }
     setMedia(prev => {
       const item = prev.find(m => m.tempId === tempId)
       if (item?.localPreview) URL.revokeObjectURL(item.localPreview)
@@ -406,7 +404,31 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     })
   }
 
+  // Edit mode: no background poster - saving a text change is one quick request. On
+  // success the card updates itself (feed event for a card on screen, a short-lived
+  // stash for one that is shown again after the phone's /compose page), then close.
+  async function handleEditSave() {
+    if (!editPost || !canPost) return
+    setSaving(true)
+    setError('')
+    try {
+      const r = await editPostAction(editPost.id, body)
+      if ('error' in r && r.error) { setError(r.error); return }
+      if ('edited_at' in r && r.edited_at) {
+        stashPostEdit(editPost.id, r.body, r.edited_at)
+        publishFeedEvent({ type: 'post-edited', id: editPost.id, body: r.body, edited_at: r.edited_at })
+        toast.success(t('post.edit_saved'))
+      }
+      onPosted?.(null)
+    } catch {
+      setError(t('post.edit_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function handlePost() {
+    if (editPost) { void handleEditSave(); return }
     if (!canPost) return
 
     const needsQueueing = networkStatusRef.current !== 'online' || media.some(m => m.offlineQueued)
@@ -423,15 +445,15 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     // is only a safety net.
     const queueOffline = needsQueueing && !scheduledAt
 
-    // What goes with the post. Items already uploaded carry their result;
-    // items still uploading carry their live handle - the poster waits for it.
+    // What goes with the post. A picked file goes as the file itself - the poster
+    // uploads it now; media restored from an older draft is already uploaded and
+    // carries its result.
     const items: PostJobMedia[] = media
       .filter(m => !m.error)
       .map(m => ({
         key: m.tempId,
         kind: m.media_type,
         file: fileMapRef.current.get(m.tempId),
-        handle: handlesRef.current.get(m.tempId),
         result: m.cloudinary_id && !m.uploading ? {
           url: m.url,
           thumbnail_url: m.thumbnail_url ?? null,
@@ -461,9 +483,9 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       onComplete: onCompleted ? ({ post }) => { if (post) onCompleted(post) } : undefined,
     })
 
-    // The poster owns the files and any uploads still in flight now - let go
-    // of them here (so closing doesn't cancel them) and start a fresh draft.
-    handlesRef.current.clear()
+    // The poster owns the files now - let go of them here and start a fresh draft.
+    // (The old draft keeps its stored copy of the files until the post is sent, so a
+    // failure or a refusal can put everything back in Drafts.)
     media.forEach(m => { if (m.localPreview) URL.revokeObjectURL(m.localPreview) })
     fileMapRef.current.clear()
     draftIdRef.current = newDraftId()
@@ -614,8 +636,8 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
                   </div>
                 )}
 
-                {/* Remove button */}
-                <button
+                {/* Remove button (an existing photo/video of a post being edited stays) */}
+                {!m.locked && <button
                   onClick={() => removeMedia(m.tempId)}
                   style={{
                     position: 'absolute', top: 6, right: 6,
@@ -626,7 +648,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
                   }}
                 >
                   <X size={14} />
-                </button>
+                </button>}
               </div>
             ))}
           </div>
@@ -744,7 +766,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
       )}
 
       <div style={variant === 'fullscreen' ? undefined : { marginLeft: 54 }}>
-        {!replyTo && (
+        {!replyTo && !editing && (
           <>
             {/* Audience - display-only for now, reply-permission settings aren't built yet */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 13, color: 'var(--color-brand)', fontWeight: 600 }}>
@@ -759,7 +781,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             the description, and it auto-fills the buyer's payment note
             (still editable by the buyer) - see pay-vendor-button.tsx. Not
             offered on a reply - "selling" describes the post being replied to. */}
-        {!replyTo && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        {!replyTo && !editing && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Tag size={15} color={isSelling ? 'var(--color-brand)' : 'var(--color-text-muted)'} />
             <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--color-text-primary)' }}>
@@ -783,13 +805,13 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
             }} />
           </button>
         </div>}
-        {!replyTo && isSelling && (
+        {!replyTo && !editing && isSelling && (
           <p style={{ fontSize: 12, color: 'var(--color-text-faint)', marginTop: -4, marginBottom: 10 }}>
             Buyers will see a Pay button on this post - write what you&rsquo;re selling above.
           </p>
         )}
 
-        {!replyTo && scheduledAt && (
+        {!replyTo && !editing && scheduledAt && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10,
             fontSize: 12.5, color: 'var(--color-brand)', fontWeight: 600,
@@ -801,6 +823,13 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="composer-toolbar-icons" style={{ display: 'flex', gap: 2, overflowX: 'auto', WebkitOverflowScrolling: 'touch', minWidth: 0 }}>
+            {editing ? (
+              <span style={{ fontSize: 12.5, fontWeight: 600, padding: '0 2px', color: timeLeft > 0 ? 'var(--color-text-muted)' : 'var(--color-error)' }}>
+                {timeLeft > 0
+                  ? t('post.edit_time_left', { time: `${Math.floor(timeLeft / 60000)}:${String(Math.floor((timeLeft % 60000) / 1000)).padStart(2, '0')}` })
+                  : t('post.edit_window_closed')}
+              </span>
+            ) : (<>
             {/* Media upload - one button, accepts photos and videos together */}
             <input
               ref={mediaInputRef}
@@ -846,6 +875,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
                 disabled={networkStatus !== 'online'}
               />
             )}
+            </>)}
           </div>
           <style>{`.composer-toolbar-icons::-webkit-scrollbar { display: none; }`}</style>
 
@@ -893,7 +923,7 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
                 {/* Tapping Post hands the post to the background and closes
                     the composer, so this button never has a "posting…" state
                     to sit in. Upload progress is shown per-thumbnail above. */}
-                {scheduledAt ? t('composer.schedule') : t('composer.post')}
+                {editing ? (saving ? t('post.edit_saving') : t('post.edit_save')) : scheduledAt ? t('composer.schedule') : t('composer.post')}
               </button>
             </div>
           ) : (

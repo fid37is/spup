@@ -17,6 +17,8 @@ import { screenContent, recordContentFlag } from '@/lib/content-rules'
 import { extractFirstUrl } from '@/lib/urls'
 import { getLinkPreview } from '@/lib/link-preview'
 import { MEDIA_CDN_URL } from '@/lib/media-config'
+import { deleteFromBunny, storagePathFromUrl } from '@/lib/storage/bunny'
+import { EDIT_WINDOW_MS, EDIT_WINDOW_MINUTES, EDIT_GRACE_MS, MAX_POST_EDITS } from '@/lib/post-edit'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Fire-and-forget counter bump that still logs failures instead of swallowing
@@ -277,14 +279,38 @@ export async function cancelScheduledPostAction(postId: string) {
 
   // Hard delete, not soft-delete - it was never actually published, so
   // there's nothing for the soft-delete tombstone to be useful for.
+  // The files go with it - the post will never be seen, so nothing may keep them.
+  // Collected first because deleting the post removes its media rows, but only
+  // queued for deletion once the post itself is really gone.
+  const mediaPaths = await collectPostMediaPaths(profile.id, postId)
   const { error } = await supabase.from('posts').delete().eq('id', postId).eq('user_id', profile.id)
   if (error) return { error: 'Could not cancel scheduled post. Please try again.' }
+  queueFileDeletes(mediaPaths)
 
   // createPostAction bumped posts_count on insert (see comment there) -
   // undo it now that the post is being cancelled instead of going live.
   bumpCounter(supabase, 'users', 'posts_count', profile.id, -1)
   revalidatePath('/feed')
   return { success: true }
+}
+
+// The storage paths of a post's files, limited to the owner's own post folder.
+// Must be called while the post's media rows still exist.
+async function collectPostMediaPaths(ownerId: string, postId: string): Promise<string[]> {
+  const { data: mediaRows } = await createAdminClient()
+    .from('post_media').select('url, thumbnail_url').eq('post_id', postId)
+  const ownFolder = `para/${ownerId}/posts/`
+  return [...new Set(
+    (mediaRows ?? [])
+      .flatMap(m => [m.url, m.thumbnail_url])
+      .map(u => storagePathFromUrl(u))
+      .filter((x): x is string => !!x && x.startsWith(ownFolder))
+  )]
+}
+
+// Deletes those files after the response has gone out. A failure is logged and never undoes anything.
+function queueFileDeletes(paths: string[]) {
+  if (paths.length) after(async () => { await Promise.allSettled(paths.map(path => deleteFromBunny(path))) })
 }
 
 export async function deletePostAction(postId: string) {
@@ -316,6 +342,12 @@ export async function deletePostAction(postId: string) {
   if (error || !deleted?.length) return { error: 'Could not delete post.' }
   bumpCounter(supabase, 'users', 'posts_count', profile.id, -1)
 
+  // Remove the post's photos and videos from storage too. The row above is only
+  // hidden (soft delete), so without this the files stayed on bunny.net - and
+  // stayed reachable by anyone who had the address. Posts removed by an admin keep
+  // their files on purpose (evidence for the review).
+  queueFileDeletes(await collectPostMediaPaths(profile.id, postId))
+
   // comments_count / quotes_count / reposts_count on the parent/quoted post are
   // no longer decremented here - trg_sync_post_engagement fires on this UPDATE
   // (deleted_at going from null to set) and recomputes them from the real rows,
@@ -327,6 +359,106 @@ export async function deletePostAction(postId: string) {
   revalidatePath('/feed')
   revalidatePath('/profile')
   return { success: true }
+}
+
+// Run before any photo or video is sent. Photos and videos are only uploaded once the
+// person taps Post, so a post that is going to be refused - an account that cannot post,
+// or words the rules block - is turned away here, before a single byte of media has been
+// sent or stored. createPostAction checks again; this is only the cheap first gate.
+export async function precheckPostAction(input: { body?: string }) {
+  const { profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
+  if (profile.status === 'banned') return { error: 'Your account is not eligible to post.' }
+  const suspended = await suspensionBlock(profile)
+  if (suspended) return suspended
+
+  const body = typeof input?.body === 'string' ? input.body : ''
+  const screen = await screenContent(body)
+  if (screen.blocked) {
+    void recordContentFlag({ userId: profile.id, postId: null, outcome: 'blocked', matches: screen.matches, text: body })
+    return { error: "This contains language that isn't allowed on Spup. Please edit it and try again.", code: 'content_blocked' as const }
+  }
+  return { ok: true as const }
+}
+
+// Edits the text of a post the person already published. Text only: photos and
+// videos cannot be swapped afterwards. Allowed for EDIT_WINDOW_MINUTES after
+// posting and up to MAX_POST_EDITS times - both enforced here, not just in the UI.
+// The new text goes through the same word rules as a new post.
+export async function editPostAction(postId: string, newBody: string) {
+  const { profile, failed } = await getCallerProfile()
+  if (!profile) return noProfileError(failed)
+  if (profile.status === 'banned') return { error: 'Your account is not eligible to edit posts.' }
+  const suspended = await suspensionBlock(profile)
+  if (suspended) return suspended
+
+  const body = (typeof newBody === 'string' ? newBody : '').trim()
+  const admin = createAdminClient()
+  const { data: post } = await admin
+    .from('posts')
+    .select('id, user_id, body, post_type, parent_post_id, is_selling, created_at, edit_count, deleted_at')
+    .eq('id', postId)
+    .maybeSingle()
+  if (!post || post.user_id !== profile.id || post.deleted_at) return { error: 'Post not found.' }
+  if (post.post_type === 'repost') return { error: 'A repost cannot be edited.' }
+
+  if (Date.now() - Date.parse(post.created_at) > EDIT_WINDOW_MS + EDIT_GRACE_MS) {
+    return { error: `Posts can only be edited within ${EDIT_WINDOW_MINUTES} minutes of posting.`, code: 'edit_window_closed' as const }
+  }
+  const editCount = post.edit_count ?? 0
+  if (editCount >= MAX_POST_EDITS) {
+    return { error: `A post can be edited up to ${MAX_POST_EDITS} times.`, code: 'edit_limit' as const }
+  }
+
+  const max = post.parent_post_id ? 500 : 1000
+  if (body.length > max) return { error: `Max ${max.toLocaleString('en')} characters` }
+  if (post.is_selling && !body) return { error: 'Write a bit about what you\u2019re selling - the post itself is the description' }
+  if (!body) {
+    const { count } = await admin.from('post_media').select('id', { count: 'exact', head: true }).eq('post_id', postId)
+    if (!count) return { error: 'Post must have text or media' }
+  }
+
+  const oldBody = (post.body ?? '').trim()
+  if (body === oldBody) return { success: true as const, body, edited_at: null as string | null }
+
+  const screen = await screenContent(body)
+  if (screen.blocked) {
+    void recordContentFlag({ userId: profile.id, postId: null, outcome: 'blocked', matches: screen.matches, text: body })
+    return { error: "This contains language that isn't allowed on Spup. Please edit it and try again.", code: 'content_blocked' as const }
+  }
+
+  // `.eq('edit_count', editCount)` makes two overlapping saves safe: only one can
+  // win, the other finds the count already moved and changes nothing.
+  const editedAt = new Date().toISOString()
+  const { data: updated, error } = await admin
+    .from('posts')
+    .update({ body, edited_at: editedAt, edit_count: editCount + 1 })
+    .match({ id: postId, user_id: profile.id, edit_count: editCount })
+    .is('deleted_at', null)
+    .select('id')
+  if (error || !updated?.length) return { error: 'Could not save your edit. Please try again.' }
+
+  if (screen.matches.length > 0) {
+    void recordContentFlag({ userId: profile.id, postId, outcome: 'published', matches: screen.matches, text: body })
+  }
+
+  // Keep hashtags (Explore, search, interest feeds) in step with the new text.
+  const tagsOf = (text: string) => [...new Set([...text.matchAll(/#([A-Za-z0-9_]+)/g)].map(m => m[1].toLowerCase()))].sort().join(',')
+  if (tagsOf(body) !== tagsOf(oldBody)) {
+    void admin.rpc('process_post_hashtags', { p_post_id: postId, p_body: body })
+      .then(({ error: tagError }) => { if (tagError) console.error('process_post_hashtags failed:', tagError.message) })
+  }
+
+  // Warm the preview card if the edit added or changed the first link.
+  const firstUrl = extractFirstUrl(body)
+  if (firstUrl && firstUrl !== extractFirstUrl(oldBody)) {
+    after(async () => { try { await getLinkPreview(firstUrl) } catch { /* fetched on first view instead */ } })
+  }
+
+  // No revalidatePath('/feed'): the feed keeps its posts in client state and the card
+  // updates itself from this result. Only the post's own page needs refreshing.
+  revalidatePath(`/post/${postId}`)
+  return { success: true as const, body, edited_at: editedAt as string | null }
 }
 
 // `desired` is the state the person is asking for (true = liked). When it is

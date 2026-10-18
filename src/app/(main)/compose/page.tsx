@@ -15,19 +15,20 @@ import { redirect } from 'next/navigation'
 import { createClient, getAuthUser } from '@/lib/supabase/server'
 import { getPostById, getReplyAncestors } from '@/lib/queries/posts'
 import ComposeClient from './compose-client'
-import type { ReplyToContext } from '@/app/(main)/feed/post-composer'
+import type { ReplyToContext, EditPostContext } from '@/app/(main)/feed/post-composer'
+import { isWithinEditWindow } from '@/lib/post-edit'
 
 export const metadata = { title: 'New post' }
 
 export default async function ComposePage({
   searchParams,
 }: {
-  searchParams: Promise<{ replyTo?: string; returnTo?: string }>
+  searchParams: Promise<{ replyTo?: string; returnTo?: string; edit?: string }>
 }) {
   const user = await getAuthUser()
   if (!user) redirect('/login')
 
-  const { replyTo: replyToId, returnTo } = await searchParams
+  const { replyTo: replyToId, returnTo, edit: editId } = await searchParams
 
   const supabase = await createClient()
   const { data: viewer } = await supabase
@@ -62,6 +63,27 @@ export default async function ComposePage({
     }
   }
 
+  // ?edit=<postId>: the same screen, opened on one of your own posts. Anything that
+  // could not be saved anyway (not yours, a repost, the 15 minutes are up) goes back
+  // to the post instead of opening an editor that would only fail.
+  let editPost: EditPostContext | null = null
+  if (editId) {
+    const target = await getPostById(editId)
+    if (!target || !viewer || target.author.id !== viewer.id || target.post_type === 'repost' || !isWithinEditWindow(target.created_at)) {
+      redirect(target ? `/post/${editId}` : '/feed')
+    }
+    editPost = {
+      id: target.id,
+      body: target.body ?? '',
+      createdAt: target.created_at,
+      isReply: target.post_type === 'reply',
+      isSelling: !!target.is_selling,
+      media: [...(target.media ?? [])]
+        .sort((a, b) => a.position - b.position)
+        .map(m => ({ url: m.url, media_type: m.media_type as 'image' | 'video', thumbnail_url: m.thumbnail_url })),
+    }
+  }
+
   return (
     <ComposeClient
       userId={viewer?.id ?? undefined}
@@ -70,6 +92,7 @@ export default async function ComposePage({
       replyTo={replyTo}
       replyChain={replyChain}
       returnTo={returnTo}
+      editPost={editPost}
     />
   )
 }

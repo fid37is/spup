@@ -7,6 +7,7 @@ import { X, Clock, FileText, Trash2, Loader2, ImageIcon } from 'lucide-react'
 import { getScheduledPostsAction, cancelScheduledPostAction } from '@/lib/actions'
 import { loadDrafts, deleteDraft, type LocalDraft } from '@/lib/local-drafts'
 import { formatScheduled } from './schedule-picker'
+import { discardUploadsAction } from '@/lib/actions/uploads'
 import { useToast } from '@/components/layout/toast'
 
 interface ScheduledPost {
@@ -43,6 +44,11 @@ export default function DraftsPanel({ userId, onClose, onEditDraft }: DraftsPane
   }, [userId])
 
   function handleDeleteDraft(id: string) {
+    // A discarded draft's photos and videos are never going to be posted - remove them too.
+    const draft = drafts.find(d => d.id === id)
+    if (draft?.media.length) {
+      void discardUploadsAction(draft.media.map(m => ({ url: m.url, thumbnail_url: m.thumbnail_url })))
+    }
     deleteDraft(userId, id)
     setDrafts(prev => prev.filter(d => d.id !== id))
   }
@@ -139,7 +145,7 @@ export default function DraftsPanel({ userId, onClose, onEditDraft }: DraftsPane
                     onClick={() => onEditDraft(draft)}
                     style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }}
                   >
-                    <RowPreview body={draft.body} mediaCount={draft.media.length} />
+                    <RowPreview body={draft.body} mediaCount={draft.media.length + (draft.heldMedia?.length ?? 0)} />
                   </button>
                   <button
                     onClick={() => handleDeleteDraft(draft.id)}
