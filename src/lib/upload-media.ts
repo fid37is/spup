@@ -3,10 +3,12 @@
  * connections (this app's userbase is mostly on Nigerian mobile networks, where a
  * multi-minute upload dropping partway through is the normal case, not an edge case).
  *
- * The file goes to our own /api/upload/bunny route, which checks it and stores it in
- * bunny.net storage (the browser cannot talk to Bunny directly: that needs the zone
- * password). It is sent as the raw request body so progress is real, and a dropped
- * connection is retried automatically.
+ * The browser asks /api/upload/sign for a signed address and sends the file straight to the
+ * Bunny Edge Script (edge/upload-edge-script.js), which checks it and writes it to bunny.net
+ * storage - so a video never passes through Vercel, whose 4.5MB request limit would block it.
+ * Where direct uploads are not set up it falls back to /api/upload/bunny (through the server).
+ * The file is sent as the raw request body so progress is real, and a dropped connection is
+ * retried automatically.
  *
  * What Cloudinary used to do on its side is done here instead:
  *   - the video's size and length are read in the browser (and videos over 3 minutes
@@ -169,6 +171,94 @@ function xhrUploadOnce(
   })
 }
 
+/** Photo size, read in the browser (direct uploads skip the server, which used to read it). */
+function readImageSize(file: File): Promise<{ width: number; height: number } | null> {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img.naturalWidth && img.naturalHeight ? { width: img.naturalWidth, height: img.naturalHeight } : null) }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
+    img.src = url
+  })
+}
+
+/** Sends `body` to `url` with PUT, with real progress. Used for the direct-to-Bunny upload. */
+function xhrPutOnce(
+  url: string,
+  body: Blob,
+  mime: string,
+  onProgress: ((pct: number) => void) | null,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    xhr.setRequestHeader('Content-Type', mime)
+    xhr.timeout = timeoutMs
+    if (onProgress) {
+      xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)) }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve()
+      let message = ''
+      try { message = JSON.parse(xhr.responseText)?.error || '' } catch { /* not JSON */ }
+      // 5xx from the edge is worth another try; anything else is a refusal that will repeat.
+      reject(new Error(xhr.status >= 500 ? 'NETWORK' : (message || `Upload failed (${xhr.status})`)))
+    }
+    xhr.onerror = () => reject(new Error('NETWORK'))
+    xhr.ontimeout = () => reject(new Error('NETWORK'))
+    xhr.onabort = () => reject(new UploadCancelledError('Upload cancelled'))
+    if (signal) {
+      if (signal.aborted) { xhr.abort(); return }
+      signal.addEventListener('abort', () => xhr.abort())
+    }
+    xhr.send(body)
+  })
+}
+
+/**
+ * Sends one file to storage and returns its record.
+ *  1. Asks /api/upload/sign for a signed address (direct upload, no size limit from Vercel).
+ *  2. Sends the file straight there. The file never passes through the Spup server.
+ * If direct uploads are not set up (sign answers direct:false), or this is an avatar/banner,
+ * it uses the old route through the server (`fallbackEndpoint`) exactly as before.
+ */
+async function sendFile(
+  kind: UploadKind | 'poster',
+  body: Blob,
+  mime: string,
+  hints: { w?: number | null; h?: number | null; d?: number | null },
+  fallbackEndpoint: string,
+  onProgress: ((pct: number) => void) | null,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<{ media: Record<string, unknown> }> {
+  if (kind === 'image' || kind === 'video' || kind === 'poster') {
+    let sign: { direct?: boolean; uploadUrl?: string; media?: Record<string, unknown>; error?: string } | null = null
+    try {
+      const res = await fetch('/api/upload/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, mime, size: body.size, w: hints.w ?? undefined, h: hints.h ?? undefined, d: hints.d ?? undefined }),
+        signal,
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || `Upload failed (${res.status})`)
+      sign = data
+    } catch (err) {
+      if (signal?.aborted) throw new UploadCancelledError('Upload cancelled')
+      // fetch() itself failing is a dropped connection (retryable); a refusal carries its own message.
+      throw err instanceof TypeError ? new Error('NETWORK') : err
+    }
+    if (sign?.direct && sign.uploadUrl && sign.media) {
+      await xhrPutOnce(sign.uploadUrl, body, mime, onProgress, timeoutMs, signal)
+      return { media: sign.media }
+    }
+  }
+  return xhrUploadOnce(fallbackEndpoint, body, mime, onProgress, timeoutMs, signal)
+}
+
 /**
  * Uploads a file with real progress and automatic retry. Retries only network-level
  * failures/timeouts (a fast, flaky, or momentarily-dropped connection) - never a
@@ -199,20 +289,24 @@ export async function uploadMedia(
     if (Number.isFinite(video.duration)) query.set('d', String(Math.round(video.duration)))
   }
   const endpoint = `/api/upload/bunny?${query.toString()}`
+  const imageSize = kind === 'image' ? await readImageSize(file) : null
+  const hints = video
+    ? { w: video.width, h: video.height, d: Number.isFinite(video.duration) ? Math.round(video.duration) : null }
+    : { w: imageSize?.width ?? null, h: imageSize?.height ?? null }
 
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (signal?.aborted) throw new UploadCancelledError('Upload cancelled')
     try {
       if (attempt > 0) onProgress?.(0)
-      const { media } = await xhrUploadOnce(endpoint, file, file.type, pct => onProgress?.(pct), timeoutMs, signal)
+      const { media } = await sendFile(kind, file, file.type, hints, endpoint, pct => onProgress?.(pct), timeoutMs, signal)
 
       // The poster is a small extra file. If it fails the post still goes ahead: the
       // player just shows the video's own first frame.
       let thumbnail: string | null = null
       if (isVideo && video?.poster) {
         try {
-          const poster = await xhrUploadOnce('/api/upload/bunny?kind=poster', video.poster, 'image/jpeg', null, IMAGE_TIMEOUT_MS, signal)
+          const poster = await sendFile('poster', video.poster, 'image/jpeg', {}, '/api/upload/bunny?kind=poster', null, IMAGE_TIMEOUT_MS, signal)
           thumbnail = (poster.media.url as string) ?? null
         } catch (err) {
           if (err instanceof UploadCancelledError) throw err
