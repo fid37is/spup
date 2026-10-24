@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.net.Uri;
 import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -17,12 +18,16 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Locale;
+
+import androidx.core.content.FileProvider;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -234,6 +239,56 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
                 }
             });
             return true;
+        }
+
+        /**
+         * Opens Android's share sheet with a PICTURE attached (the share card drawn by
+         * src/lib/share-card/draw.ts) and a caption that carries the link. The WebView can't hand
+         * a file to another app by itself, so the picture is written to the app's cache folder and
+         * shared through the FileProvider already declared in the manifest (file_paths.xml exposes
+         * the cache folder). Returns false when it can't - the web app then shares the link only.
+         */
+        @JavascriptInterface
+        public boolean shareImage(final String base64Png, final String text, final String title) {
+            if (base64Png == null || base64Png.isEmpty() || base64Png.length() > 14000000) return false;
+            try {
+                byte[] bytes = Base64.decode(base64Png, Base64.DEFAULT);
+                File dir = new File(getCacheDir(), "share");
+                if (!dir.exists() && !dir.mkdirs()) return false;
+                // Tidy up cards from earlier shares (the receiving app has long since copied them).
+                File[] old = dir.listFiles();
+                if (old != null) {
+                    long cutoff = System.currentTimeMillis() - 3600000L;
+                    for (File f : old) if (f.lastModified() < cutoff) f.delete();
+                }
+                File file = new File(dir, "spup-card-" + System.currentTimeMillis() + ".png");
+                FileOutputStream out = new FileOutputStream(file);
+                try { out.write(bytes); } finally { out.close(); }
+
+                final Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", file);
+                final String heading = (title == null || title.isEmpty()) ? "Spup" : title;
+                final String caption = (text == null) ? "" : text;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            Intent send = new Intent(Intent.ACTION_SEND);
+                            send.setType("image/png");
+                            send.putExtra(Intent.EXTRA_STREAM, uri);
+                            send.putExtra(Intent.EXTRA_TEXT, caption);
+                            send.putExtra(Intent.EXTRA_SUBJECT, heading);
+                            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            startActivity(Intent.createChooser(send, heading));
+                        } catch (Exception e) {
+                            Log.w("SpupShare", "Could not open the share sheet", e);
+                        }
+                    }
+                });
+                return true;
+            } catch (Exception e) {
+                Log.w("SpupShare", "Could not prepare the share card", e);
+                return false;
+            }
         }
 
         /**

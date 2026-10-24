@@ -22,6 +22,8 @@ import { cloudinaryImage, fallbackToOriginal, videoPoster } from '@/lib/utils/cl
 import { GatedMedia } from '@/components/media/media-gate'
 import { ProgressiveImage } from '@/components/media/progressive-image'
 import { linkifyPostText, closeCutBold } from '@/components/shared/linkify'
+import { copyText } from '@/lib/share-link'
+import { shareCard } from '@/lib/share-card/share'
 import LinkPreviewCard from '@/components/feed/link-preview-card'
 import ConfirmModal from '@/components/ui/confirm-modal'
 import PostModal from '@/components/feed/post-modal'
@@ -827,20 +829,43 @@ export default function PostCard({
   function handleCopyLink(e: React.MouseEvent) {
     e.stopPropagation()
     setShowMenu(false)
-    const url = `${window.location.origin}/post/${post.id}`
-    navigator.clipboard.writeText(url)
-      .then(() => success(t('post.link_copied')))
-      .catch(() => toastError(t('post.link_copy_failed')))
+    // /p/<id> is the public page: it opens for anyone, and it is the one whose link preview is
+    // the share card (author + avatar + post) - see app/(public)/p/[id]/opengraph-image.tsx.
+    copyText(`${window.location.origin}/p/${post.id}`)
+      .then(ok => (ok ? success(t('post.link_copied')) : toastError(t('post.link_copy_failed'))))
   }
 
   async function handleShare(e: React.MouseEvent) {
     e.stopPropagation()
     setShowMenu(false)
-    const url = `${window.location.origin}/post/${post.id}`
+    // Goes out as a CARD - the author's avatar and name, the post, the Spup mark - with the public
+    // link (/p/<id>) as the caption, so tapping the link opens the post on Spup. See
+    // lib/share-card. If the card can't be drawn or attached, the link is shared on its own.
+    const name = post.author?.display_name || 'Spup'
+    const photo = post.media?.find(m => m.media_type === 'image') ?? post.media?.[0]
     try {
-      if (navigator.share) await navigator.share({ title: post.author?.display_name, text: shownBody || '', url })
-      else { await navigator.clipboard.writeText(url); success(t('post.link_copied_clipboard')) }
-    } catch { /* user dismissed share sheet */ }
+      const result = await shareCard(
+        {
+          kind: 'post',
+          displayName: name,
+          username: post.author?.username ?? '',
+          verificationTier: post.author?.verification_tier,
+          avatarUrl: post.author?.avatar_url,
+          body: shownBody ?? null,
+          createdAt: post.created_at,
+          photoUrl: photo ? (photo.media_type === 'video' ? photo.thumbnail_url ?? null : photo.url) : null,
+          mediaKind: !post.media?.length ? null : post.media.every(m => m.media_type === 'video') ? 'video' : 'photo',
+        },
+        {
+          url: `${window.location.origin}/p/${post.id}`,
+          title: t('post.share_title', { name }),
+          filename: `spup-post-${post.id}.png`,
+        },
+      )
+      if (result === 'copied') success(t('post.link_copied_clipboard'))
+    } catch {
+      toastError(t('post.link_copy_failed'))
+    }
   }
 
   function handleDelete(e: React.MouseEvent) {

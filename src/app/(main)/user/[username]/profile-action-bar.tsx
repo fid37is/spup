@@ -21,7 +21,8 @@ import ReportDialog from '@/components/feed/report-dialog'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { useIsPhone } from '@/hooks/use-is-phone'
 import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
-import { shareProfile, copyProfileLink } from '@/lib/share-profile'
+import { profileShareUrl, copyProfileLink } from '@/lib/share-profile'
+import { shareCard } from '@/lib/share-card/share'
 
 interface ProfileActionBarProps {
   targetUserId: string
@@ -33,6 +34,8 @@ interface ProfileActionBarProps {
   initialNotifsEnabled: boolean
   initialMuted: boolean
   initialBlocked: boolean
+  // What the share card shows (avatar, name, bio, followers).
+  card?: { displayName: string; avatarUrl: string | null; bio: string | null; followersCount: number | null; verificationTier: string | null }
   // Passed by ProfileHeader (via React.cloneElement) so the "···" more-options
   // button can be portaled onto the banner — next to the back button — instead
   // of sitting inline in the button row below the avatar. That's what frees up
@@ -46,6 +49,7 @@ export default function ProfileActionBar({
   initialFollowing, followsMe, isPrivate,
   chatAllowed, initialNotifsEnabled,
   initialMuted, initialBlocked,
+  card,
   moreSlotRef,
 }: ProfileActionBarProps) {
   const { t } = useTranslation()
@@ -137,12 +141,14 @@ export default function ProfileActionBar({
   async function handleShare() {
     setShowMenu(false)
     try {
-      const result = await shareProfile(
-        { username },
+      const name = card?.displayName || username
+      const result = await shareCard(
         {
-          title: t('profile.share_title', { username }),
-          text: t('profile.share_text_handle', { username }),
+          kind: 'profile', displayName: name, username,
+          avatarUrl: card?.avatarUrl, bio: card?.bio ?? null,
+          followers: card?.followersCount ?? null, verificationTier: card?.verificationTier,
         },
+        { url: profileShareUrl(username), title: t('profile.share_text', { name, username }), filename: `spup-${username}.png` },
       )
       if (result === 'copied') success(t('profile.link_copied'))
     } catch {

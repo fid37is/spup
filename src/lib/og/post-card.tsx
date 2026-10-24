@@ -9,7 +9,7 @@
 // variables, no grid, inline SVG for icons. Keep it that way. It imports nothing from Next so it
 // can also be rendered in a plain browser to preview it.
 
-import type { CSSProperties, ReactElement } from 'react'
+import type { ReactElement } from 'react'
 import { SPUP_LOGO_DATA_URI, SPUP_LOGO_SIZE } from './logo-data'
 
 export const CARD_SIZE = { width: 1200, height: 630 }
@@ -100,8 +100,6 @@ export function PostShareCard(d: ShareCardData): ReactElement {
   const initial = (d.displayName || d.username || '?').trim().charAt(0).toUpperCase()
   const tierFill = d.verificationTier ? TIER_FILL[d.verificationTier] : undefined
 
-  // satori understands lineClamp (ellipsis on the last line); a browser preview ignores it.
-  const lineClamp = { lineClamp: lines } as CSSProperties
 
   return (
     <div style={{ width: CARD_SIZE.width, height: CARD_SIZE.height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#EDEFF1', fontFamily: FONT }}>
@@ -149,7 +147,7 @@ export function PostShareCard(d: ShareCardData): ReactElement {
         {/* The post */}
         <div style={{ display: 'flex', flex: 1, alignItems: 'center', marginTop: 10, marginBottom: 6 }}>
           <div style={{ display: 'flex', flex: 1, height: Math.min(lines, used) * lineHeight, overflow: 'hidden', paddingRight: hasPhoto ? 36 : 0 }}>
-            <div style={{ display: 'block', width: '100%', fontSize, lineHeight: `${lineHeight}px`, color: INK, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflow: 'hidden', textOverflow: 'ellipsis', ...lineClamp }}>
+            <div style={{ display: 'block', width: '100%', fontSize, lineHeight: `${lineHeight}px`, color: INK, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {text}
             </div>
           </div>

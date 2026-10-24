@@ -8,11 +8,20 @@ import { useState } from 'react'
 import { Share2 } from 'lucide-react'
 import { useToast } from '@/components/layout/toast'
 import { useTranslation } from '@/lib/i18n/language-context'
-import { shareProfile } from '@/lib/share-profile'
+import { profileShareUrl } from '@/lib/share-profile'
+import { shareCard } from '@/lib/share-card/share'
 
 export default function ShareProfileButton({
-  username, displayName,
-}: { username: string; displayName: string }) {
+  username, displayName, avatarUrl, bio, followers, verificationTier,
+}: {
+  username: string
+  displayName: string
+  avatarUrl?: string | null
+  bio?: string | null
+  /** Already formatted, e.g. "12.8K". */
+  followers?: string | null
+  verificationTier?: string | null
+}) {
   const { t } = useTranslation()
   const { success, error: toastError } = useToast()
   const [busy, setBusy] = useState(false)
@@ -21,12 +30,11 @@ export default function ShareProfileButton({
     if (busy) return
     setBusy(true)
     try {
-      const result = await shareProfile(
-        { username, displayName },
-        {
-          title: t('profile.share_title', { username }),
-          text: t('profile.share_text', { name: displayName, username }),
-        },
+      // Goes out as a card (avatar, name, bio, follower count, the Spup mark) with the public
+      // profile link as the caption. See lib/share-card.
+      const result = await shareCard(
+        { kind: 'profile', displayName, username, avatarUrl, bio: bio ?? null, followers: followers ?? null, verificationTier },
+        { url: profileShareUrl(username), title: t('profile.share_text', { name: displayName, username }), filename: `spup-${username}.png` },
       )
       if (result === 'copied') success(t('profile.link_copied'))
     } catch {
