@@ -193,6 +193,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
       initialNotifsEnabled={initialNotifsEnabled}
       initialMuted={initialMuted}
       initialBlocked={initialBlocked}
+      card={{ displayName: profile.display_name, avatarUrl: profile.avatar_url ?? null, bio: profile.bio ?? null, followersCount: profile.followers_count ?? null, verificationTier: profile.verification_tier ?? null }}
     />
   ) : (
     <Link href="/login" style={{

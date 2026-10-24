@@ -286,7 +286,7 @@ export default function ProfileHeader({
               display: 'flex', gap: 8, alignItems: 'center',
               flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto',
             }}>
-              <ShareProfileButton username={profile.username} displayName={profile.display_name} />
+              <ShareProfileButton username={profile.username} displayName={profile.display_name} avatarUrl={profile.avatar_url} bio={profile.bio} followers={stats.followers} verificationTier={profile.verification_tier} />
               <Link href="/settings" aria-label={t('nav.settings')} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 38, height: 38, borderRadius: '50%',
