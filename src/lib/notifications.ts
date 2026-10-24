@@ -112,7 +112,7 @@ function buildPushPayload(
   type: NotificationType,
   actorName: string | null,   // the sender's display name (falls back to @username)
   entityId: string | undefined,
-  extras: { snippet?: string; avatarUrl?: string; actorUsername?: string } = {},
+  extras: { snippet?: string; avatarUrl?: string; actorUsername?: string; titleOverride?: string; bodyOverride?: string } = {},
 ): PushPayload {
   const copy: Record<NotificationType, PushCopy> = {
     new_follower: withActor('started following you'),
@@ -159,6 +159,11 @@ function buildPushPayload(
     else if (type === 'post_comment') body = `replied: ${extras.snippet}`
     else if (type === 'post_quote') body = `quoted your post: ${extras.snippet}`
   }
+
+  // A caller that knows exactly what the push should say (e.g. "your post was
+  // removed - <reason>") overrides the generic copy for the type.
+  if (extras.titleOverride) title = extras.titleOverride
+  if (extras.bodyOverride) body = extras.bodyOverride
 
   return {
     title,
@@ -260,6 +265,8 @@ export async function createNotification({
   metadata = {},
   dedupeUnread = false,
   inApp = true,
+  pushTitle,
+  pushBody,
 }: {
   recipientId: string
   actorId: string | null
@@ -280,6 +287,9 @@ export async function createNotification({
    * surfaced on the Messages icon instead.
    */
   inApp?: boolean
+  /** Replaces the generic push title / body for this type (e.g. a removal reason). */
+  pushTitle?: string
+  pushBody?: string
 }) {
   const admin = createAdminClient()
 
@@ -340,7 +350,9 @@ export async function createNotification({
   const snippet = await pushSnippet(admin, type, entityId, metadata)
   const pushJob = sendPushToUser(
     recipientId,
-    buildPushPayload(type, actorLabel, pushEntityId, { snippet, avatarUrl, actorUsername }),
+    buildPushPayload(type, actorLabel, pushEntityId, {
+      snippet, avatarUrl, actorUsername, titleOverride: pushTitle, bodyOverride: pushBody,
+    }),
   )
   // after() keeps the serverless worker alive until the push has actually
   // been sent. A bare un-awaited promise can be cancelled the moment the

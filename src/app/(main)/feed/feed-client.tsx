@@ -13,6 +13,7 @@ import { useNetworkStatus } from '@/lib/network-status'
 import { subscribeFeedEvents, takeJustPosted } from '@/lib/feed-local-events'
 import { useOfflinePostSync } from '@/hooks/use-offline-post-sync'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { useToast } from '@/components/layout/toast'
 import { SEEN_COOKIE, SEEN_MAX_AGE_S, addServed, serializeSeen, makeSeed, type FeedSession } from '@/lib/feed/seen'
 
 type Tab = 'for-you' | 'following' | 'mutuals' | 'selling'
@@ -135,6 +136,9 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
   const [hasMore, setHasMore]           = useState(initialPosts.length > 0 ? !!initialCursor : true)
   const [isPending, startTransition]    = useTransition()
   const [hasNew, setHasNew]             = useState(false)
+  // Bumped whenever the queue behind the pill changes, so the pill's count re-renders
+  // (the queue itself lives in refs).
+  const [, setPendingTick]             = useState(0)
   const [isFetchingNew, setIsFetchingNew] = useState(false)
   const [newAuthors, setNewAuthors]     = useState<NewAuthor[]>([])
   const seenAuthorsRef = useRef<Set<string>>(new Set())
@@ -162,6 +166,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
   tabRef.current = activeTab
 
   const { status: networkStatus, isOffline } = useNetworkStatus()
+  const { info: toastInfo } = useToast()
   const networkStatusRef = useRef(networkStatus)
   networkStatusRef.current = networkStatus
 
@@ -172,11 +177,20 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
   // Posts that arrived since the saved feed was left. They are NOT mixed into
   // what's on screen: ids wait behind the pill (the posts themselves are kept
   // so tapping it needs no second download) and the pill shows who posted.
-  function queueNewFromServer(list: FeedPost[]) {
+  // Raise the pill and refresh its count.
+  function raisePill() {
+    setHasNew(true)
+    setPendingTick(n => n + 1)
+  }
+
+  // `onScreen`: posts already shown (or already shown through the pill since the baseline was
+  // taken) - these must never come back as "new". Omitted on first mount, when the list on
+  // screen is still being restored.
+  function queueNewFromServer(list: FeedPost[], onScreen?: Set<string>) {
     const r = restoredRef.current
     if (!r) return
     const fresh = list
-      .filter(p => !p.is_promoted && !r.have.has(p.id) && p.created_at > r.baseline && p.author?.id !== currentUserId)
+      .filter(p => !p.is_promoted && !r.have.has(p.id) && !onScreen?.has(p.id) && p.created_at > r.baseline && p.author?.id !== currentUserId)
       .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0)) // oldest first
     if (!fresh.length) return
     const queue = pendingIdsRef.current
@@ -193,7 +207,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
       seenAuthorsRef.current.add(p.author.id)
     }
     setNewAuthors(authors)
-    setHasNew(true)
+    raisePill()
   }
 
   // Reopen the For You feed where the user stopped reading (see the
@@ -280,7 +294,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
       if (!at || Date.now() - at < RETURN_REFRESH_MS) return
       if (networkStatusRef.current !== 'online') return
       if (window.scrollY < 300) refreshFeedRef.current()
-      else { pendingOverflowRef.current = true; setHasNew(true) }
+      else { pendingOverflowRef.current = true; raisePill() }
     }
     const onVisibility = () => { if (document.visibilityState === 'hidden') markHidden(); else onBack() }
     const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) onBack() }
@@ -345,7 +359,11 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
   // does coming back after a long absence. The old list stays visible until the
   // new one arrives. For You is rebuilt from a new session, so it comes back as
   // a different set: what was already served sinks below what hasn't been.
-  function refreshFeed() {
+  //
+  // `manual` = the person asked for it (tapped the tab again). Offline that gets the neutral
+  // "you're offline" toast; the automatic refreshes (coming back to the app) stay silent.
+  function refreshFeed(manual = false) {
+    if (manual && networkStatusRef.current === 'offline') { toastInfo(t('offline.refresh_toast')); return }
     if (isPending || isFetchingNew || networkStatusRef.current !== 'online') return
     const tab = tabRef.current
     const session = tab === 'for-you' ? newSession() : sessionRef.current
@@ -372,11 +390,11 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
       } catch { /* keep what's on screen */ } finally { setIsRefreshing(false) }
     })
   }
-  const refreshFeedRef = useRef(refreshFeed)
-  refreshFeedRef.current = refreshFeed
+  const refreshFeedRef = useRef(() => refreshFeed())
+  refreshFeedRef.current = () => refreshFeed()
 
   function switchTab(tab: Tab) {
-    if (tab === activeTab) { refreshFeed(); return }
+    if (tab === activeTab) { refreshFeed(true); return }
     if (networkStatusRef.current === 'offline') return
     setActiveTab(tab)
     setPosts([])
@@ -561,7 +579,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
       if (queue.includes(id)) return
       if (queue.length >= MAX_PENDING_IDS) pendingOverflowRef.current = true
       else queue.push(id)
-      setHasNew(true)
+      raisePill()
       trackAuthor(authorId)
     }
 
@@ -619,7 +637,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
         if (postsRef.current.some(p => p.id === id) || pendingIdsRef.current.includes(id)) return
         if (pendingIdsRef.current.length >= MAX_PENDING_IDS) { pendingOverflowRef.current = true }
         else { pendingIdsRef.current.push(id); pendingPostsRef.current.set(id, e.post) }
-        setHasNew(true)
+        raisePill()
         return
       }
       const isMineOf = (p: FeedPost) =>
@@ -630,6 +648,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
       pendingIdsRef.current = pendingIdsRef.current.filter(id => !mine.has(id))
       mine.forEach(id => pendingPostsRef.current.delete(id))
       if (pendingIdsRef.current.length === 0 && !pendingOverflowRef.current) setHasNew(false)
+      else setPendingTick(n => n + 1)
       setPosts(prev => prev.filter(p => !mine.has(p.id)))
     })
   }, [currentUserId])
@@ -687,7 +706,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
       // Put them back (ahead of anything that arrived meanwhile) so the pill can retry
       pendingIdsRef.current = [...ids, ...pendingIdsRef.current].slice(0, MAX_PENDING_IDS)
       pendingOverflowRef.current = pendingOverflowRef.current || overflowed
-      setHasNew(true)
+      raisePill()
     } finally {
       setIsFetchingNew(false)
     }
@@ -695,6 +714,27 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
 
   const showNewPostsRef = useRef(showNewPosts)
   showNewPostsRef.current = showNewPosts
+
+  // The page was re-rendered on the server while this list stayed on screen (the app opened
+  // from its saved copy and the real page has now arrived, or the connection came back and
+  // OfflineSync refreshed). Anything newer than what's showing waits behind the pill; the
+  // list itself is never touched, so nothing moves under the reader.
+  const lastInitialRef = useRef(initialPosts)
+  useEffect(() => {
+    if (initialPosts === lastInitialRef.current) return
+    lastInitialRef.current = initialPosts
+    if (tabRef.current !== 'for-you' || postsRef.current.length === 0) return
+    const onScreen = new Set(postsRef.current.map(p => p.id))
+    if (!restoredRef.current) {
+      // Nothing was restored from the saved feed: what's on screen IS the baseline.
+      restoredRef.current = {
+        baseline: postsRef.current.reduce((m, p) => (!p.is_promoted && p.created_at > m ? p.created_at : m), ''),
+        have: onScreen,
+      }
+    }
+    queueNewFromServer(initialPosts, onScreen)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPosts])
 
   // After the pill's posts are committed to the page, make sure the person is
   // looking at the very top of them (before paint, so there is no visible jump).
@@ -785,6 +825,17 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
     }
   }, [currentUserId])
 
+
+  // "12 new posts" - or "40+ new posts" once more arrived than are tracked. When the number
+  // isn't known (we only know there is more), fall back to the plain wording.
+  const waiting = pendingIdsRef.current.length
+  const pillLabel = waiting > 0
+    ? t('feed.new_posts_count', {
+        count: pendingOverflowRef.current ? `${waiting}+` : waiting,
+        plural: waiting === 1 && !pendingOverflowRef.current ? '' : 's',
+      })
+    : pendingOverflowRef.current ? t('notif.new_posts') : t('feed.new_posts_posted')
+
   return (
     <div>
       <div ref={feedTopRef} />
@@ -826,7 +877,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
         </div>
       )}
 
-      {/* New posts pill */}
+      {/* New posts pill: who posted + how many are waiting */}
       {hasNew && (
         // Fixed to the very top of the screen like a toast (same centring as
         // layout/toast.tsx), floating over the header - takes no space in the
@@ -865,7 +916,7 @@ export default function FeedClient({ initialPosts, initialCursor, initialSession
                 ))}
               </span>
             )}
-            {t('feed.new_posts_posted')}
+            {pillLabel}
           </button>
           </div>
         </div>

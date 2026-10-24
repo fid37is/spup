@@ -10,6 +10,8 @@ import { fetchAllRows, maskEmail } from '@/lib/admin/export'
 import { buildUserDataExport } from '@/lib/admin/user-data-export'
 import { invalidateContentRulesCache } from '@/lib/content-rules'
 import { suspendedMessage } from '@/lib/suspension'
+import { createNotification } from '@/lib/notifications'
+import { REMOVAL_REASON_MIN, REMOVAL_REASON_MAX } from '@/lib/admin/removal-reasons'
 
 // ─── Guard: caller must be admin or moderator ─────────────────────────────────
 
@@ -96,9 +98,29 @@ export async function adminUpdateUserAction({ userId, action }: { userId: string
 
 // ─── Post moderation ──────────────────────────────────────────────────────────
 
+// `reason` is shown to the post's author (in-app notification + push) - see
+// lib/admin/removal-reasons.ts for the length limits and the one-tap presets.
 export async function adminDeletePostAction(postId: string, reason: string) {
   const { error, admin, profile } = await requireAdmin()
   if (error || !admin || !profile) return { error: error || 'Forbidden' }
+
+  const cleanReason = (reason ?? '').replace(/\s+/g, ' ').trim()
+  if (cleanReason.length < REMOVAL_REASON_MIN) {
+    return { error: 'Add a reason so the author knows why their post was removed.' }
+  }
+  if (cleanReason.length > REMOVAL_REASON_MAX) {
+    return { error: `Keep the reason under ${REMOVAL_REASON_MAX} characters.` }
+  }
+
+  // Read the post BEFORE removing it: we need its author, and a short excerpt so the
+  // notification says which post it was (the post itself is no longer viewable).
+  const { data: post } = await admin
+    .from('posts')
+    .select('user_id, body, deleted_at')
+    .eq('id', postId)
+    .maybeSingle()
+  if (!post) return { error: 'Post not found.' }
+  if (post.deleted_at) return { error: 'This post has already been removed.' }
 
   const { error: deleteError } = await admin
     .from('posts')
@@ -110,17 +132,24 @@ export async function adminDeletePostAction(postId: string, reason: string) {
     return { error: `Delete failed: ${deleteError.message}` }
   }
 
-  // Notify author
-  const { data: post } = await admin.from('posts').select('user_id').eq('id', postId).single()
-  if (post) {
-    await admin.from('notifications').insert({
-      recipient_id: post.user_id,
-      type: 'system',
-      metadata: { message: `A post was removed: ${reason}` },
-    })
-  }
+  // Tell the author what was removed and why.
+  const bodyText = String(post.body ?? '').replace(/\s+/g, ' ').trim()
+  const excerpt = bodyText.length > 80 ? `${bodyText.slice(0, 79).trimEnd()}…` : bodyText
+  const message = excerpt
+    ? `Your post "${excerpt}" was removed. Reason: ${cleanReason}`
+    : `Your post was removed. Reason: ${cleanReason}`
 
-  await auditLog(profile.id, 'delete_post', 'post', postId, { reason })
+  await createNotification({
+    recipientId: post.user_id,
+    actorId: null,
+    type: 'system',
+    entityType: 'post',          // no entity_id: the post is gone, so the row opens nothing
+    metadata: { message, kind: 'post_removed', reason: cleanReason, excerpt },
+    pushTitle: 'Your post was removed',
+    pushBody: cleanReason,
+  })
+
+  await auditLog(profile.id, 'delete_post', 'post', postId, { reason: cleanReason })
   revalidatePath('/posts')
   return { success: true }
 }

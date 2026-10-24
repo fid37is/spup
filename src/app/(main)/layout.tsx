@@ -104,7 +104,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
     <LanguageProvider initialLocale={locale} initialMessages={initialMessages}>
       <PushNotificationsProvider userId={profile.id} />
       <ChatCacheGuard userId={profile.id} />
-      <OfflineSync />
+      <OfflineSync userId={profile.id} />
       <ActivityBeacon />
       <AutoplayPrefSync value={profile.autoplay_preference} />
       <EngagementSyncProvider />

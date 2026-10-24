@@ -2,11 +2,16 @@
 
 // src/components/layout/offline-sync.tsx
 //
-// Companion to public/sw-offline.js. With no connection the app shows the last copy
+// Companion to public/sw.js. With no connection the app shows the last copy
 // of each page it saved. This makes sure that copy never lingers once the internet is
 // back: the moment the device is online again (or the app returns to the foreground
 // while online) the page on screen is re-fetched from the server - network-first in
 // the service worker - so what you see is current, not stale.
+//
+// It also keeps the service worker informed (see lib/offline-cache.ts):
+//   - who is signed in, so pages saved for a different account are never shown, and
+//   - which app files this page already loaded, so the app starts offline from the 2nd visit
+//     on rather than the 3rd.
 //
 // It only refreshes when there is a reason to think the screen is a saved copy:
 //   - the app was opened with no connection, or the connection dropped while open
@@ -15,11 +20,32 @@
 
 import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { rememberSignedInUser, saveLoadedStaticFiles, onSavedFeedUpdated } from '@/lib/offline-cache'
 
-export default function OfflineSync() {
+export default function OfflineSync({ userId }: { userId: string }) {
   const router = useRouter()
   const maybeStale = useRef(false)
   const busy = useRef(false)
+
+  // Who the saved pages belong to.
+  useEffect(() => { rememberSignedInUser(userId) }, [userId])
+
+  // Opened on /feed from the saved copy? Once the real page has arrived, re-render so the feed
+  // can put whatever is newer behind its pill (it never swaps the list under the reader).
+  useEffect(() => {
+    if (window.location.pathname !== '/feed') return
+    onSavedFeedUpdated(() => router.refresh())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Save the app files this page loaded before the service worker was in charge of it.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const run = () => { timer = setTimeout(saveLoadedStaticFiles, 1500) }
+    if (document.readyState === 'complete') run()
+    else window.addEventListener('load', run, { once: true })
+    return () => { if (timer) clearTimeout(timer); window.removeEventListener('load', run) }
+  }, [])
 
   useEffect(() => {
     if (!navigator.onLine) maybeStale.current = true

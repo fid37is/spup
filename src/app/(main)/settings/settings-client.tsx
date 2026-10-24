@@ -8,6 +8,7 @@ import {
   X, Check, Eye, EyeOff, Loader, Moon, Sun, Monitor, Play, User, Phone, Sparkles, Volume2,
 } from 'lucide-react'
 import { signOutAction, saveInterestsAction } from '@/lib/actions'
+import { clearOfflineCaches } from '@/lib/offline-cache'
 import { updateProfileAction, deleteAccountAction, changePasswordAction, changeUsernameAction } from '@/lib/actions/profiles'
 import { useTheme } from '@/components/layout/theme-provider'
 import { BottomDrawer, DrawerBody } from '@/components/ui/bottom-drawer'
@@ -340,6 +341,7 @@ export default function SettingsClient({ profile, interests: initialInterests, p
 
     const r = await deleteAccountAction()
     if (r.error) { showFlash(r.error, false); setDeleting(false); return }
+    clearOfflineCaches()   // the deleted account's saved pages must not stay on this device
     window.location.replace('/')
   }
 

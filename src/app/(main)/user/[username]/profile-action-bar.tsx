@@ -21,6 +21,7 @@ import ReportDialog from '@/components/feed/report-dialog'
 import { useTranslation } from '@/lib/i18n/language-context'
 import { useIsPhone } from '@/hooks/use-is-phone'
 import { BottomDrawer, DrawerGroup, DrawerItem } from '@/components/ui/bottom-drawer'
+import { shareProfile, copyProfileLink } from '@/lib/share-profile'
 
 interface ProfileActionBarProps {
   targetUserId: string
@@ -123,20 +124,29 @@ export default function ProfileActionBar({
     })
   }
 
-  function handleCopyLink() {
+  async function handleCopyLink() {
     setShowMenu(false)
-    navigator.clipboard.writeText(`${window.location.origin}/user/${username}`)
-    success(t('profile.link_copied'))
+    try {
+      await copyProfileLink(username)
+      success(t('profile.link_copied'))
+    } catch {
+      toastError(t('profile.share_failed'))
+    }
   }
 
   async function handleShare() {
     setShowMenu(false)
-    const url = `${window.location.origin}/user/${username}`
-    if (navigator.share) {
-      await navigator.share({ title: t('profile.share_title', { username }), url })
-    } else {
-      navigator.clipboard.writeText(url)
-      success(t('profile.link_copied'))
+    try {
+      const result = await shareProfile(
+        { username },
+        {
+          title: t('profile.share_title', { username }),
+          text: t('profile.share_text_handle', { username }),
+        },
+      )
+      if (result === 'copied') success(t('profile.link_copied'))
+    } catch {
+      toastError(t('profile.share_failed'))
     }
   }
 
