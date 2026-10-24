@@ -348,7 +348,10 @@ export async function signOutAction() {
 
   await supabase.auth.signOut()
   revalidatePath('/', 'layout')
-  redirect('/login')
+  // signed_out=1 is the signal the service worker (public/sw.js) waits for before it wipes the
+  // pages it saved on this device. Any other trip to /login (expired session, slow server)
+  // leaves them alone so the app keeps working offline.
+  redirect('/login?signed_out=1')
 }
 
 // ── OAuth callback ────────────────────────────────────────────────────────────

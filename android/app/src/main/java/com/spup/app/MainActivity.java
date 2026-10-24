@@ -207,6 +207,36 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         }
 
         /**
+         * Opens Android's share sheet (WhatsApp, Instagram, SMS, ...) with a title, a line of
+         * text and a link. The WebView has no Web Share API, so this is how "Share profile"
+         * reaches other apps (src/lib/share-profile.ts). Only spup.live links can be shared
+         * through it. Returns false when the link isn't ours or the sheet can't be opened -
+         * the web app then copies the link instead.
+         */
+        @JavascriptInterface
+        public boolean share(final String title, final String text, final String url) {
+            final String link = isSiteUrl(url) ? url : null;
+            if (link == null) return false;
+            final String heading = (title == null || title.isEmpty()) ? "Spup" : title;
+            final String body = (text == null || text.isEmpty()) ? link : text + "\n" + link;
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Intent send = new Intent(Intent.ACTION_SEND);
+                        send.setType("text/plain");
+                        send.putExtra(Intent.EXTRA_SUBJECT, heading);
+                        send.putExtra(Intent.EXTRA_TEXT, body);
+                        startActivity(Intent.createChooser(send, heading));
+                    } catch (Exception e) {
+                        Log.w("SpupShare", "Could not open the share sheet", e);
+                    }
+                }
+            });
+            return true;
+        }
+
+        /**
          * Saves a photo or video into the phone's gallery (Pictures/Spup or Movies/Spup)
          * without leaving the app. Used by the "Save image / Save video" option in the
          * media viewers (src/lib/save-media.ts).
@@ -321,6 +351,19 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
                 getBridge().getWebView().evaluateJavascript(js, null);
             } catch (Exception ignored) { }
         });
+    }
+
+    // True only for an https link on spup.live (or a subdomain).
+    private boolean isSiteUrl(String url) {
+        if (url == null) return false;
+        try {
+            Uri u = Uri.parse(url);
+            String host = u.getHost();
+            return "https".equals(u.getScheme()) && host != null
+                    && (host.equals("spup.live") || host.endsWith(".spup.live"));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     // Only ever hand spup.live URLs on to the offline page; anything else -> home.

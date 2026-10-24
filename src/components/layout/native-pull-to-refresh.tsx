@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { useToast } from '@/components/layout/toast'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 /**
  * Pull-down-to-refresh for the Android/iOS app.
@@ -46,6 +48,11 @@ function startsInsideScrolledArea(el: Element | null) {
 export default function NativePullToRefresh() {
   const barRef = useRef<HTMLDivElement>(null)
   const spinRef = useRef<HTMLDivElement>(null)
+  // Read from inside the touch handlers below, which are attached once.
+  const { info } = useToast()
+  const { t } = useTranslation()
+  const offlineNoticeRef = useRef(() => {})
+  offlineNoticeRef.current = () => info(t('offline.refresh_toast'))
 
   useEffect(() => {
     const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
@@ -117,10 +124,12 @@ export default function NativePullToRefresh() {
       if (pull >= THRESHOLD) {
         // Offline: there is nothing to refresh from. Reloading would only reopen the
         // saved copy of this page (and lose the scroll position), and the app must never
-        // swap a page you can read for an offline screen - so just snap back. The page
-        // refreshes itself when the connection returns (see OfflineSync).
+        // swap a page you can read for an offline screen - so snap back and say so with
+        // the usual neutral toast. The page refreshes itself when the connection returns
+        // (see OfflineSync).
         if (navigator.onLine === false) {
           render(0, true)
+          offlineNoticeRef.current()
           return
         }
         refreshing = true

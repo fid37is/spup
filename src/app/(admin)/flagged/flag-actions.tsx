@@ -8,6 +8,7 @@ import { CheckCircle, XCircle } from 'lucide-react'
 import {
   adminResolveFlagAction, adminDeletePostAction, adminUpdateUserAction, adminWarnUserAction,
 } from '@/lib/actions/admin'
+import RemovalReasonField, { isRemovalReasonValid } from '@/components/admin/removal-reason-field'
 
 interface FlagActionsProps {
   flagId: string
@@ -19,6 +20,9 @@ interface FlagActionsProps {
 export default function FlagActions({ flagId, postId, userId }: FlagActionsProps) {
   const [expanded, setExpanded] = useState(false)
   const [notes, setNotes] = useState('')
+  // "Remove post" asks for a reason first - the author is sent exactly this text.
+  const [removing, setRemoving] = useState(false)
+  const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
@@ -64,13 +68,35 @@ export default function FlagActions({ flagId, postId, userId }: FlagActionsProps
     <div className="min-w-[220px] rounded-[10px] border border-border bg-[color:var(--color-surface-2)] p-3.5">
       <p className="mb-2.5 text-xs font-semibold text-secondary">CHOOSE ACTION</p>
 
+      {removing && postId && (
+        <div className="mb-3 rounded-lg border border-error/25 bg-error/[0.06] p-2.5">
+          <RemovalReasonField value={reason} onChange={setReason} disabled={isPending} />
+          <div className="mt-2 flex gap-1.5">
+            <button
+              onClick={() => resolve('action_taken', () => adminDeletePostAction(postId, reason))}
+              disabled={isPending || !isRemovalReasonValid(reason)}
+              className="flex-1 rounded-lg bg-error px-3 py-2 font-display text-xs font-bold text-white disabled:opacity-50"
+            >
+              {isPending ? '…' : 'Remove, notify & resolve'}
+            </button>
+            <button
+              onClick={() => { setRemoving(false); setReason(''); setError(null) }}
+              disabled={isPending}
+              className="rounded-lg border border-border px-3 py-2 text-xs text-secondary"
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mb-3 flex flex-col gap-1.5">
-        {postId && (
+        {postId && !removing && (
           <ActionButton
             label="Remove post + resolve"
             color="#E53935"
             disabled={isPending}
-            onClick={() => resolve('action_taken', () => adminDeletePostAction(postId, 'Removed for breaking the content rules'))}
+            onClick={() => setRemoving(true)}
           />
         )}
         <ActionButton
@@ -97,7 +123,7 @@ export default function FlagActions({ flagId, postId, userId }: FlagActionsProps
 
       {error && <p className="mb-2 text-[11px] text-error">{error}</p>}
 
-      <button onClick={() => { setExpanded(false); setError(null) }} className="w-full text-center text-xs text-faint">
+      <button onClick={() => { setExpanded(false); setRemoving(false); setReason(''); setError(null) }} className="w-full text-center text-xs text-faint">
         Cancel
       </button>
     </div>

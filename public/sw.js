@@ -136,50 +136,126 @@ self.addEventListener('sync', (event) => {
 //
 //   - App code (/_next/static) and images are kept on the device, so the app shell
 //     starts with no connection.
-//   - Every signed-in page you open (full load or in-app tap) is saved. Offline, the
-//     saved copy opens instead of an error: the app loads and every page you already
-//     visited is there. Only brand-new fetches fail.
+//   - Every page you open - a full load OR an in-app tap, on ANY route, not just a fixed
+//     list - is saved. Offline, the saved copy opens instead of an error. Only brand-new
+//     pages (never opened on this device) fail.
 //   - ONLINE ALWAYS WINS: pages are network-first. The saved copy is used only when the
 //     request fails, or when the network hasn't answered in NETWORK_TIMEOUT ms.
-//   - Signed out is detected here (any visit to /login, /signup ...): saved pages are
-//     wiped, so the next person on the device never sees the previous account's pages.
+//   - A tap inside the app is saved as an "RSC payload" (what Next fetches for a soft
+//     navigation). That cannot be opened by a reload / cold start, so the first time a page
+//     is reached that way the worker ALSO quietly saves its full HTML in the background
+//     (see warmPage) - then the page opens offline however you get to it.
+//   - Only a REAL answer is ever saved. A redirect (e.g. the server bouncing to /login because
+//     Supabase was briefly unreachable) or a non-page response is never stored under the
+//     page's address, so a bad moment online cannot poison the saved copy.
+//   - Saved pages are wiped only when the person signs out (/login?signed_out=1) or a
+//     DIFFERENT account signs in on this device (the page tells us who is signed in via
+//     'spup:user'). Merely landing on /login - an expired session, a slow server - no longer
+//     throws away everything that was saved.
 //   - Photos and avatars from our CDNs (Bunny / Cloudinary / Supabase storage) are kept too,
 //     so a visited page does not come back with blank pictures. They are fetched with CORS
 //     so the saved copy is a real response with its real size (an opaque one is counted as
 //     ~7 MB by the browser's quota). A host that sends no CORS headers is detected and
 //     simply left to the browser's HTTP cache. Videos are never kept.
 
-const SW_V = 'v1'
+const SW_V = 'v2'
 const PAGES  = 'spup-pages-' + SW_V   // HTML documents
 const RSC    = 'spup-rsc-' + SW_V     // in-app navigation payloads
 const STATIC = 'spup-static-' + SW_V  // /_next/static (hashed, immutable)
 const IMAGES = 'spup-img-' + SW_V     // same-origin images / icons
 const MEDIA  = 'spup-media-' + SW_V   // post photos, avatars, thumbnails from our CDNs
-const OWN = [PAGES, RSC, STATIC, IMAGES, MEDIA]
+const META   = 'spup-meta-' + SW_V    // who the saved pages belong to
+const OWN = [PAGES, RSC, STATIC, IMAGES, MEDIA, META]
 
 const NETWORK_TIMEOUT = 6000          // slower than this AND a saved copy exists -> show the saved copy
-const MAX_PAGES = 60
-const MAX_RSC = 120
+const MAX_PAGES = 120
+const MAX_RSC = 200
 const MAX_IMAGES = 150
 const MAX_MEDIA = 300                  // entries
 const MAX_MEDIA_BYTES = 1.5 * 1024 * 1024   // a single photo bigger than this is shown but not kept
 const MEDIA_REVALIDATE_MS = 24 * 60 * 60 * 1000
+const WARM_REFRESH_MS = 12 * 60 * 60 * 1000 // a background-saved page is re-saved at most this often
+const MAX_STATIC_WARM = 250
+// Opening the app on /feed shows the saved feed AT ONCE, then fetches the real page and tells the
+// page to raise the "N new posts" pill. Only for a quick return - this is the same 10 minutes as
+// SNAPSHOT_MAX_AGE_MS in feed-client.tsx, because anything older must start from a fresh feed
+// (people were being shown days-old posts first). Older than this, /feed loads normally.
+const INSTANT_FEED_MAX_AGE_MS = 10 * 60 * 1000
 
-const APP_PREFIXES = [
-  '/feed', '/explore', '/notifications', '/messages', '/post', '/user', '/profile',
-  '/connections', '/wallet', '/settings', '/premium', '/compose', '/analytics',
+// The admin site (admin.spup.live) is its own origin with its own copy of this worker; there
+// "/" is the dashboard and is worth keeping. On the main site "/" is the landing page for
+// signed-out visitors and a redirect to /feed for everyone else - never worth keeping.
+const IS_ADMIN_HOST = self.location.hostname.startsWith('admin.')
+
+// Everything that is NOT a page worth saving. (This used to be an allow-list of app
+// sections, which silently left out any page that wasn't on it.)
+const NEVER_CACHE_PREFIXES = [
+  '/api/', '/_next/', '/offline',
+  '/login', '/signup', '/forgot-password', '/reset-password', '/verify-otp', '/verify-email',
+  '/complete-profile', '/onboarding', '/banned', '/deletion-status', '/l/',
 ]
+const NEVER_CACHE_EXACT = ['/sw.js', '/manifest.json', '/robots.txt', '/sitemap.xml']
+// Chat threads have their own on-device cache (lib/chat-thread-cache) - don't also render
+// each one a second time just to keep its HTML.
+const NO_WARM_PREFIXES = ['/messages/']
 const AUTH_PATHS = ['/login', '/signup', '/forgot-password', '/reset-password', '/verify-otp', '/verify-email']
 
-const isAppPath = (p) => APP_PREFIXES.some((x) => p === x || p.startsWith(x + '/'))
-const isAuthPath = (p) => AUTH_PATHS.some((x) => p === x || p.startsWith(x + '/'))
+const matchesPrefix = (p, list) => list.some((x) => p === x || p.startsWith(x.endsWith('/') ? x : x + '/'))
+const isAuthPath = (p) => matchesPrefix(p, AUTH_PATHS)
+
+function isCacheablePage(p) {
+  if (p === '/') return IS_ADMIN_HOST
+  if (NEVER_CACHE_EXACT.includes(p)) return false
+  if (/\.[a-z0-9]{2,5}$/i.test(p)) return false          // a file, not a page
+  return !matchesPrefix(p, NEVER_CACHE_PREFIXES)
+}
 
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'spup:clear-caches') event.waitUntil(clearUserCaches())
+  const d = event.data
+  if (!d || typeof d !== 'object') return
+  if (d.type === 'spup:clear-caches') event.waitUntil(clearUserCaches())
+  else if (d.type === 'spup:user' && typeof d.userId === 'string') event.waitUntil(setCurrentUser(d.userId))
+  else if (d.type === 'spup:cache-urls' && Array.isArray(d.urls)) event.waitUntil(warmStatic(d.urls))
+  else if (d.type === 'spup:feed-check' && event.ports && event.ports[0]) {
+    // The feed page asks: "was I opened from the saved copy, and has the real page arrived?"
+    const port = event.ports[0]
+    event.waitUntil((feedRevalidation || Promise.resolve('none')).then((r) => port.postMessage(r)))
+  }
 })
 
 function clearUserCaches() {
-  return Promise.all([caches.delete(PAGES), caches.delete(RSC)])
+  return Promise.all([caches.delete(PAGES), caches.delete(RSC), caches.delete(META)])
+}
+
+// The page tells us who is signed in. If it is a different person from whoever the saved pages
+// were made for, those pages are not theirs: drop them before they can be shown.
+async function setCurrentUser(userId) {
+  const meta = await caches.open(META)
+  const prev = await meta.match('/__user')
+  const prevId = prev ? await prev.text() : null
+  if (prevId === userId) return
+  if (prevId) await Promise.all([caches.delete(PAGES), caches.delete(RSC)])
+  await (await caches.open(META)).put('/__user', new Response(userId))
+}
+
+// Page code / fonts / styles that were already loaded BEFORE this worker took control of the
+// page (the very first visit) never passed through it. The page lists them and we save them
+// now - normally straight from the browser's own HTTP cache, no extra download.
+async function warmStatic(urls) {
+  const c = await caches.open(STATIC)
+  let n = 0
+  for (const raw of urls) {
+    if (n >= MAX_STATIC_WARM) break
+    let u
+    try { u = new URL(raw, self.location.origin) } catch { continue }
+    if (u.origin !== self.location.origin || !u.pathname.startsWith('/_next/static/')) continue
+    n++
+    try {
+      if (await c.match(u.href)) continue
+      const res = await fetch(u.href)
+      if (res.ok && res.type === 'basic') await c.put(u.href, res)
+    } catch { /* offline right now - the next page load will try again */ }
+  }
 }
 
 async function trim(name, max) {
@@ -188,10 +264,25 @@ async function trim(name, max) {
   if (keys.length > max) await Promise.all(keys.slice(0, keys.length - max).map((k) => c.delete(k)))
 }
 
-async function store(name, key, res, max) {
+async function store(name, key, res, max, stamp) {
   const c = await caches.open(name)
+  if (stamp) {
+    // Remember WHEN this copy was saved, so a background refresh knows how old it is.
+    const h = new Headers(res.headers)
+    h.set('X-Spup-Cached-At', String(Date.now()))
+    res = new Response(await res.blob(), { status: res.status, statusText: res.statusText, headers: h })
+  }
   await c.put(key, res)
   await trim(name, max)
+}
+
+// Is this a genuine answer for this kind of request - worth keeping under the page's address?
+// A redirect is NOT: fetch() follows it silently, so a bounce to /login would otherwise be
+// saved as if it were the page itself.
+function isGenuine(res, kind) {
+  if (!res.ok || res.type !== 'basic' || res.redirected) return false
+  const ct = (res.headers.get('Content-Type') || '').toLowerCase()
+  return kind === 'rsc' ? ct.startsWith('text/x-component') : ct.startsWith('text/html')
 }
 
 function markStale(res) {
@@ -214,11 +305,11 @@ function rscKey(url) {
 //   { fresh }  the live response (also saved for next time)
 //   { stale }  the saved copy - because the request failed, or took longer than NETWORK_TIMEOUT
 //   { none }   request failed and nothing is saved
-function networkFirst(event, cacheName, key, max) {
+function networkFirst(event, cacheName, key, max, kind) {
   const req = event.request
   let saving = Promise.resolve()
   const net = fetch(req).then((res) => {
-    if (res.ok && res.type === 'basic') saving = store(cacheName, key, res.clone(), max).catch(() => {})
+    if (isGenuine(res, kind)) saving = store(cacheName, key, res.clone(), max, kind === 'html').catch(() => {})
     return res
   })
   // Registered now, while the event is still alive: when the saved copy wins the race the
@@ -328,6 +419,54 @@ async function staleWhileRevalidate(event, name, max) {
   try { return await fetch(event.request) } catch { return Response.error() }
 }
 
+// The latest /feed open: resolves to 'updated' once the real page has been fetched and saved
+// (the open page should then re-render so new posts can wait behind the pill), else 'none'.
+let feedRevalidation = null
+
+async function instantFeedCopy(url) {
+  const c = await caches.open(PAGES)
+  const hit = await c.match(url.origin + url.pathname, { ignoreVary: true })
+  if (!hit) return null
+  const at = Number(hit.headers.get('X-Spup-Cached-At') || 0)
+  return at && Date.now() - at < INSTANT_FEED_MAX_AGE_MS ? hit : null
+}
+
+function revalidateFeed(req) {
+  return fetch(req)
+    .then(async (res) => {
+      if (isGenuine(res, 'html')) { await store(PAGES, req.url, res.clone(), MAX_PAGES, true); return 'updated' }
+      // The server redirected (e.g. the session ended): let the page ask again and follow it.
+      if (res.type === 'opaqueredirect') return 'updated'
+      return 'none'
+    })
+    .catch(() => 'none')
+}
+
+// Save the full HTML of a page that was reached by an in-app tap, so it also opens after a
+// reload / cold start with no connection. Done once per page (and again at most every
+// WARM_REFRESH_MS) and skipped on Data Saver. This is one extra render of that page on the
+// server, which is the price of "every page you visited works offline".
+const warming = new Set()
+
+async function warmPage(url) {
+  if (matchesPrefix(url.pathname, NO_WARM_PREFIXES)) return
+  if (self.navigator && self.navigator.connection && self.navigator.connection.saveData) return
+  const key = url.origin + url.pathname + url.search
+  if (warming.has(key)) return
+  warming.add(key)
+  try {
+    const c = await caches.open(PAGES)
+    const hit = await c.match(key, { ignoreVary: true })
+    if (hit) {
+      const at = Number(hit.headers.get('X-Spup-Cached-At') || 0)
+      if (!at || Date.now() - at < WARM_REFRESH_MS) return
+    }
+    const res = await fetch(key, { credentials: 'same-origin', redirect: 'manual', headers: { Accept: 'text/html,application/xhtml+xml' } })
+    if (isGenuine(res, 'html')) await store(PAGES, key, res, MAX_PAGES, true)
+  } catch { /* offline or slow: it will be saved the next time */ }
+  finally { warming.delete(key) }
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
@@ -338,8 +477,9 @@ self.addEventListener('fetch', (event) => {
   }
   const path = url.pathname
 
-  // Signed out (or about to sign in): drop the previous account's saved pages.
-  if (isAuthPath(path) && (req.mode === 'navigate' || req.headers.get('RSC') === '1')) {
+  // Explicit sign-out (signOutAction sends people to /login?signed_out=1): the next person
+  // on this device must never see the previous account's pages.
+  if (isAuthPath(path) && url.searchParams.has('signed_out') && (req.mode === 'navigate' || req.headers.get('RSC') === '1')) {
     event.waitUntil(clearUserCaches())
     return
   }
@@ -354,11 +494,15 @@ self.addEventListener('fetch', (event) => {
   }
 
   // In-app navigation (tap a tab / link): Next fetches the page as an RSC payload.
-  if (req.headers.get('RSC') === '1' && isAppPath(path)) {
+  if (req.headers.get('RSC') === '1' && isCacheablePage(path)) {
     if (req.headers.has('Next-Router-Prefetch') || req.headers.has('Next-Router-Segment-Prefetch')) return
     event.respondWith((async () => {
-      const r = await networkFirst(event, RSC, rscKey(url), MAX_RSC)
-      if (r.fresh) return r.fresh
+      const r = await networkFirst(event, RSC, rscKey(url), MAX_RSC, 'rsc')
+      if (r.fresh) {
+        // Reached by a tap: make sure the full page is saved too (reload / cold start).
+        if (r.fresh.ok && !r.fresh.redirected) event.waitUntil(warmPage(url))
+        return r.fresh
+      }
       if (r.stale) { tellClientsStale(); return markStale(r.stale) }
       // Nothing saved: fail the fetch. Next then falls back to a normal page load,
       // which the navigation handler below answers from the saved HTML.
@@ -367,10 +511,32 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // The app's front door on the main site. Online it redirects signed-in people to /feed (or
+  // shows the landing page to everyone else); neither is worth saving. Offline, pageFallback
+  // sends the person to their saved /feed.
+  if (req.mode === 'navigate' && path === '/' && !IS_ADMIN_HOST) {
+    event.respondWith(fetch(req).catch(() => pageFallback(url)))
+    return
+  }
+
   // Full page load (cold start, reload, link from outside).
-  if (req.mode === 'navigate' && (isAppPath(path) || path === '/')) {
+  if (req.mode === 'navigate' && isCacheablePage(path)) {
+    const isFeedOpen = path === '/feed' && !url.search
+    // A reload means "give me the newest" - never answered from the saved copy.
+    const isReload = req.cache === 'reload' || req.cache === 'no-cache'
     event.respondWith((async () => {
-      const r = await networkFirst(event, PAGES, req.url, MAX_PAGES)
+      if (isFeedOpen) {
+        feedRevalidation = null
+        if (!isReload) {
+          const copy = await instantFeedCopy(url)
+          if (copy) {
+            feedRevalidation = revalidateFeed(req)
+            event.waitUntil(feedRevalidation)
+            return copy
+          }
+        }
+      }
+      const r = await networkFirst(event, PAGES, req.url, MAX_PAGES, 'html')
       if (r.fresh) return r.fresh
       if (r.stale) return markStale(r.stale)
       return pageFallback(url)

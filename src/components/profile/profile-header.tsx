@@ -11,6 +11,7 @@ import { updateAvatarAction, updateBannerAction } from '@/lib/actions/profiles'
 import CropModal from './crop-modal'
 import ProfileHeaderView from './profile-header-view'
 import ProfileHeaderEdit from './profile-header-edit'
+import ShareProfileButton from './share-profile-button'
 import VerifiedBadge from '@/components/ui/verified-badge'
 import { useTranslation } from '@/lib/i18n/language-context'
 
@@ -285,6 +286,7 @@ export default function ProfileHeader({
               display: 'flex', gap: 8, alignItems: 'center',
               flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto',
             }}>
+              <ShareProfileButton username={profile.username} displayName={profile.display_name} />
               <Link href="/settings" aria-label={t('nav.settings')} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 38, height: 38, borderRadius: '50%',
