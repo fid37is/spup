@@ -27,13 +27,18 @@ export default function MentionSuggestions({
         left: 0,
         right: 0,
         ...(placement === 'below' ? { top: '100%', marginTop: 6 } : { bottom: '100%', marginBottom: 6 }),
-        background: 'var(--color-surface-1)',
+        // Must be SOLID: the list opens over the post / thread text, and anything see-through lets
+        // that text show between the names. (This used to be var(--color-surface-1), which is not
+        // defined anywhere, so the browser dropped it and the list was transparent.)
+        background: 'var(--color-surface-raised)',
         border: '1px solid var(--color-border)',
         borderRadius: 12,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+        boxShadow: '0 -6px 28px rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.18)',
         maxHeight: 240,
         overflowY: 'auto',
-        zIndex: 50,
+        overscrollBehavior: 'contain',
+        isolation: 'isolate',
+        zIndex: 60,
       }}
     >
       {loading && results.length === 0 && (
@@ -54,7 +59,8 @@ export default function MentionSuggestions({
           style={{
             display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
             cursor: 'pointer',
-            background: i === activeIndex ? 'var(--color-surface-2)' : 'transparent',
+            // A tint over the solid list background, so the highlighted row reads in light and dark.
+            background: i === activeIndex ? 'var(--color-brand-muted)' : 'transparent',
           }}
         >
           <div style={{

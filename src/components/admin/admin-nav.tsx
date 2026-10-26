@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, FileText, Megaphone,
   Flag, ShieldAlert, LogOut, Activity, Radio,
-  Wallet, BadgeCheck, UserPlus, Menu, Ticket, X, Quote,BarChart2, Scale, Ban, AlertTriangle, BellRing,
+  Wallet, BadgeCheck, UserPlus, Menu, Ticket, X, Quote,BarChart2, Scale, Ban, AlertTriangle, BellRing, ToggleRight,
 } from 'lucide-react'
 import { signOutAction } from '@/lib/actions'
 import { cn } from '@/lib/utils'
@@ -63,6 +63,7 @@ const NAV_GROUPS = [
   {
     label: 'System',
     items: [
+      { href: '/features', icon: ToggleRight, label: 'Feature switches' },
       { href: '/activity', icon: Activity, label: 'Audit log' },
     ],
   },

@@ -1,10 +1,11 @@
 // src/app/(main)/analytics/page.tsx
 //
 // Detailed creator analytics - a Spup Premium feature ("Deep analytics" on the
-// landing page): performance over time (1 week to 1 year, line or bar), audience
+// landing page), open to everyone while the admin switch "Analytics free for everyone" is on
+// (admin -> Features): performance over time (1 week to 1 year, line or bar), audience
 // by age / state / active times, and what performs.
 //
-// Premium is checked on the server inside getAnalyticsBundle(); without it this
+// Access is checked on the server inside getAnalyticsBundle(); without it this
 // page renders the locked screen and none of the data is ever fetched.
 
 import Link from 'next/link'
@@ -32,7 +33,7 @@ export default async function AnalyticsPage() {
 
   // The creator's own time zone (set from their browser, see AnalyticsView); Nigeria time until then.
   const tz = pickTimeZone((await cookies()).get(TZ_COOKIE)?.value)
-  const bundle = await getAnalyticsBundle(profile.id, tz)   // null = no active Premium
+  const bundle = await getAnalyticsBundle(profile.id, tz)   // null = no access
 
   return (
     <div>

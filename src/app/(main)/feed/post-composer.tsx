@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useImperativeHandle, forwardRef, useEffect } from 'react'
+import { useState, useRef, useCallback, useImperativeHandle, forwardRef, useEffect, useLayoutEffect } from 'react'
 import { ImageIcon, X, Loader2, Globe, BarChart2, MapPin, Camera, Mic, Tag, ArrowUp } from 'lucide-react'
 import { usePosting } from '@/components/layout/posting-provider'
 import { useNetworkStatus } from '@/lib/network-status'
@@ -240,6 +240,34 @@ const PostComposer = forwardRef<PostComposerHandle, PostComposerProps>(function 
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [editCreatedAt])
+
+  // Show ALL of the text the box was opened with. The box above is sized only when the person
+  // types (handleTextChange), so a post opened for editing - or a restored draft - sat in a two-line
+  // box with the rest hidden behind a tiny scroll bar until the first keystroke made it jump to full
+  // size. This sizes it to its text straight away (before the first paint), and again whenever the
+  // text is set from somewhere other than typing. It only ever GROWS the box here; shrinking after
+  // deleting text stays in handleTextChange, which also keeps the scroll position.
+  useLayoutEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    if (ta.scrollHeight > ta.clientHeight + 1) ta.style.height = `${ta.scrollHeight}px`
+  }, [body])
+
+  // The first measurement can be a little short if the web font or the layout width settles after
+  // the first paint, so measure once more then.
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta || !ta.value) return
+    let cancelled = false
+    const fit = () => {
+      if (cancelled) return
+      ta.style.height = 'auto'
+      ta.style.height = `${ta.scrollHeight}px`
+    }
+    document.fonts?.ready.then(fit).catch(() => {})
+    const raf = requestAnimationFrame(fit)
+    return () => { cancelled = true; cancelAnimationFrame(raf) }
+  }, [])
 
   // The fullscreen screen (new post or reply, mobile) is a dedicated
   // destination you navigate to specifically to type - Threads opens the
