@@ -1,8 +1,8 @@
 'use server'
 
 // Server action behind the analytics page's range switcher: the audience
-// breakdown (states, ages, active times) for one range. Premium is checked
-// inside getAudience(), so calling this without Premium just returns null.
+// breakdown (states, ages, active times) for one range. Access (the free-for-all
+// switch, else Premium) is checked inside getAudience(), so calling this without it just returns null.
 
 import { cookies } from 'next/headers'
 import { getAuthUser } from '@/lib/supabase/server'

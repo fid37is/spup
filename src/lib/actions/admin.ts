@@ -11,6 +11,7 @@ import { buildUserDataExport } from '@/lib/admin/user-data-export'
 import { invalidateContentRulesCache } from '@/lib/content-rules'
 import { suspendedMessage } from '@/lib/suspension'
 import { createNotification } from '@/lib/notifications'
+import { isFeatureFlagKey } from '@/lib/feature-flags'
 import { REMOVAL_REASON_MIN, REMOVAL_REASON_MAX } from '@/lib/admin/removal-reasons'
 
 // ─── Guard: caller must be admin or moderator ─────────────────────────────────
@@ -528,6 +529,29 @@ export async function adminSetWaitlistOpenAction(open: boolean) {
   await auditLog(profile.id, open ? 'waitlist_reopen' : 'waitlist_close', 'platform_settings', 'waitlist_open')
   revalidatePath('/waitlist')
   revalidatePath('/')
+  return { success: true }
+}
+
+// ─── Feature switches (admin -> Features) ───────────────────────────────────
+// On/off flags for the whole platform, stored in platform_settings. Only keys listed in
+// FEATURE_FLAGS (lib/feature-flags.ts) can be changed here. Admins only (not moderators).
+
+export async function adminSetFeatureFlagAction(key: string, enabled: boolean) {
+  const { error, admin, profile } = await requireAdmin(false)
+  if (error || !admin || !profile) return { error: error || 'Forbidden' }
+  if (!isFeatureFlagKey(key)) return { error: 'Unknown switch' }
+
+  const { error: upsertError } = await admin.from('platform_settings').upsert({
+    key, value: !!enabled, updated_at: new Date().toISOString(),
+  })
+  if (upsertError) {
+    console.error('[adminSetFeatureFlagAction] upsert failed:', { key, error: upsertError })
+    return { error: 'Could not update the switch' }
+  }
+
+  await auditLog(profile.id, enabled ? 'feature_switch_on' : 'feature_switch_off', 'platform_settings', key)
+  revalidatePath('/features')
+  revalidatePath('/analytics')
   return { success: true }
 }
 

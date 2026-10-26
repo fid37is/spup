@@ -1,9 +1,10 @@
 // src/lib/analytics.ts
 //
-// Data for the Premium-only /analytics page. Server only.
+// Data for the /analytics page. Server only. Premium-only, unless an admin has switched on
+// "Analytics free for everyone" (lib/feature-flags.ts, admin -> Features).
 //
-// getAnalyticsBundle() and getAudience() check Spup Premium THEMSELVES and return
-// null when it isn't active, so there is no way to get this data by calling them
+// getAnalyticsBundle() and getAudience() check access THEMSELVES (hasAnalyticsAccess: the free-for-all
+// switch, else Spup Premium) and return null when there is none, so there is no way to get this data by calling them
 // from another page without Premium. Everything is the creator's own data and is
 // aggregated: the numbers are counts, never a list of who viewed or liked.
 //
@@ -14,7 +15,7 @@
 
 import 'server-only'
 import { createAdminClient } from '@/lib/supabase/server'
-import { isPremiumActive } from '@/lib/premium'
+import { hasAnalyticsAccess } from '@/lib/feature-flags'
 import {
   DEFAULT_RANGE, SERIES_DAYS,
   type Audience, type AnalyticsBundle, type AnalyticsRange, type DayRow, type PostStat,
@@ -34,7 +35,7 @@ type Admin = ReturnType<typeof createAdminClient>
 // big audience that is heavy, and people reopen this page often. So finished
 // results are kept for CACHE_SECONDS. Works on any host (it is just a table), and
 // if the table isn't there it quietly computes every time, as before.
-// Premium is always checked BEFORE this, on every request - the cache never
+// Access is always checked BEFORE this, on every request - the cache never
 // decides who may see the numbers, only how fast they arrive.
 async function cached<T>(admin: Admin, key: string, compute: () => Promise<T | null>): Promise<T | null> {
   let stale: T | null = null
@@ -103,9 +104,9 @@ async function queryAudience(admin: Admin, userId: string, days: number, tz: str
   }
 }
 
-/** Audience breakdown for one range. null = no Premium, or the query isn't available. */
+/** Audience breakdown for one range. null = no access, or the query isn't available. */
 export async function getAudience(userId: string, days: AnalyticsRange, tz: string = DEFAULT_TZ): Promise<Audience | null> {
-  if (!(await isPremiumActive(userId))) return null
+  if (!(await hasAnalyticsAccess(userId))) return null
   return fetchAudience(createAdminClient(), userId, days, tz)
 }
 
@@ -122,9 +123,9 @@ interface PostRow {
   profile_visits_count: number | null
 }
 
-/** Everything the analytics page needs on first load. null = no active Premium. */
+/** Everything the analytics page needs on first load. null = no access (not free for all, and no active Premium). */
 export async function getAnalyticsBundle(userId: string, tz: string = DEFAULT_TZ): Promise<AnalyticsBundle | null> {
-  if (!(await isPremiumActive(userId))) return null
+  if (!(await hasAnalyticsAccess(userId))) return null
 
   const admin = createAdminClient()
   const now = new Date()
